@@ -54,10 +54,10 @@ func (a *PGAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, now 
 	return out, nil
 }
 
-func (a *PGAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error {
+func (a *PGAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, httpStatus int, now time.Time) error {
 	if err := a.queries.MarkRecordingWebhookDeliveryDelivered(ctx, pggen.MarkRecordingWebhookDeliveryDeliveredParams{
 		ID:         id,
-		LastStatus: int32(status),
+		HttpStatus: int32(httpStatus),
 		Now:        now,
 	}); err != nil {
 		return fmt.Errorf("pg mark recording webhook delivery delivered: %w", err)
@@ -69,8 +69,8 @@ func (a *PGAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, id in
 	if err := a.queries.MarkRecordingWebhookDeliveryFinal(ctx, pggen.MarkRecordingWebhookDeliveryFinalParams{
 		ID:            id,
 		Status:        status,
-		LastStatus:    int32(httpStatus),
-		LastError:     errMsg,
+		HttpStatus:    int32(httpStatus),
+		ErrMsg:        errMsg,
 		NextAttemptAt: nextAttemptAt,
 		Now:           now,
 	}); err != nil {

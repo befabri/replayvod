@@ -16,14 +16,14 @@ func (a *PGAdapter) BeginMediaPublication(ctx context.Context, input repository.
 }
 
 func (a *PGAdapter) ListMediaPublications(ctx context.Context, after string, limit int) ([]repository.MediaPublication, error) {
-	rows, err := a.queries.ListMediaPublications(ctx, pggen.ListMediaPublicationsParams{Key: after, Limit: int32(limit)})
+	rows, err := a.queries.ListMediaPublications(ctx, pggen.ListMediaPublicationsParams{After: after, Limit: int32(limit)})
 	if err != nil {
 		return nil, err
 	}
 	return pgMediaPublicationsToDomain(rows), nil
 }
 func (a *PGAdapter) ListRecordingPublications(ctx context.Context, videoID int64, after string, limit int) ([]repository.MediaPublication, error) {
-	rows, err := a.queries.ListRecordingPublications(ctx, pggen.ListRecordingPublicationsParams{VideoID: videoID, Key: after, Limit: int32(limit)})
+	rows, err := a.queries.ListRecordingPublications(ctx, pggen.ListRecordingPublicationsParams{VideoID: videoID, After: after, Limit: int32(limit)})
 	if err != nil {
 		return nil, err
 	}

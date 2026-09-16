@@ -81,7 +81,7 @@ func (a *SQLiteAdapter) ApproveScheduleRequest(ctx context.Context, requestID in
 		if err != nil {
 			return fmt.Errorf("sqlite create schedule: %w", mapErr(err))
 		}
-		sched := sqliteScheduleToDomain(row)
+		sched := sqliteDownloadScheduleToDomain(row)
 		// Insert before reading so SQLite acquires its write lock
 		// before the duplicate check.
 		active, err := q.ListActiveSchedulesForBroadcaster(ctx, input.BroadcasterID)

@@ -6,13 +6,13 @@ WHERE name = ?1 AND execution_id <> ?2 AND is_available = 1 AND is_enabled = 1 A
   AND (next_run_at IS NULL OR next_run_at <= datetime('now'));
 
 -- name: SettleTask :execrows
-UPDATE tasks SET last_status = ?3, last_duration_ms = ?4, last_error = NULLIF(?5, ''),
+UPDATE tasks SET last_status = @status, last_duration_ms = @duration_ms, last_error = NULLIF(CAST(@message AS TEXT), ''),
     next_run_at = CASE
-      WHEN ?3 = 'interrupted' THEN ifnull(next_run_at, datetime('now'))
+      WHEN @status = 'interrupted' THEN ifnull(next_run_at, datetime('now'))
       WHEN interval_seconds > 0 THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
       ELSE next_run_at END,
     updated_at = datetime('now')
-WHERE name = ?1 AND execution_id = ?2 AND last_status = 'running';
+WHERE name = @name AND execution_id = @execution_id AND last_status = 'running';
 
 -- name: ResetTaskAvailability :exec
 UPDATE tasks SET is_available = 0;

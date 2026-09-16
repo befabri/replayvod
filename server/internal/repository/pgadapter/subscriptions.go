@@ -47,11 +47,9 @@ func (a *PGAdapter) UpsertSubscription(ctx context.Context, input *repository.Su
 }
 
 func (a *PGAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*repository.Subscription, error) {
-	// sqlc generates broadcaster_id as *string (nullable column); pass by pointer.
-	bid := broadcasterID
 	row, err := a.queries.GetActiveSubscriptionForBroadcasterType(ctx, pggen.GetActiveSubscriptionForBroadcasterTypeParams{
-		BroadcasterID: &bid,
-		Type:          subType,
+		BroadcasterID: &broadcasterID,
+		SubType:       subType,
 	})
 	if err != nil {
 		return nil, mapErr(err)
@@ -61,7 +59,7 @@ func (a *PGAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context,
 
 func (a *PGAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason string) error {
 	return a.queries.MarkSubscriptionRevoked(ctx, pggen.MarkSubscriptionRevokedParams{
-		ID:            id,
-		RevokedReason: &reason,
+		ID:     id,
+		Reason: &reason,
 	})
 }

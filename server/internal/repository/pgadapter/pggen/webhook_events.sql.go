@@ -155,15 +155,15 @@ LIMIT $2
 `
 
 type ListStuckWebhookEventsParams struct {
-	ReceivedAt time.Time `json:"received_at"`
-	Limit      int32     `json:"limit"`
+	Before time.Time `json:"before"`
+	Limit  int32     `json:"limit"`
 }
 
 // Dashboard "stuck" query: status='received' rows older than a threshold
 // indicate the handler crashed mid-processing. Partial index
 // idx_webhook_events_received_status keeps this fast.
 func (q *Queries) ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error) {
-	rows, err := q.db.Query(ctx, listStuckWebhookEvents, arg.ReceivedAt, arg.Limit)
+	rows, err := q.db.Query(ctx, listStuckWebhookEvents, arg.Before, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -333,17 +333,17 @@ func (q *Queries) ListWebhookEventsByType(ctx context.Context, arg ListWebhookEv
 
 const markWebhookEventFailed = `-- name: MarkWebhookEventFailed :exec
 UPDATE webhook_events
-SET status = 'failed', processed_at = NOW(), error = $2
-WHERE id = $1
+SET status = 'failed', processed_at = NOW(), error = $1
+WHERE id = $2
 `
 
 type MarkWebhookEventFailedParams struct {
-	ID    int64   `json:"id"`
-	Error *string `json:"error"`
+	ErrMsg *string `json:"err_msg"`
+	ID     int64   `json:"id"`
 }
 
 func (q *Queries) MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error {
-	_, err := q.db.Exec(ctx, markWebhookEventFailed, arg.ID, arg.Error)
+	_, err := q.db.Exec(ctx, markWebhookEventFailed, arg.ErrMsg, arg.ID)
 	return err
 }
 

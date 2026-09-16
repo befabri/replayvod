@@ -145,24 +145,24 @@ func (q *Queries) ScheduleTaskIfEnabled(ctx context.Context, name string) (Task,
 
 const setTaskEnabled = `-- name: SetTaskEnabled :one
 UPDATE tasks
-SET is_enabled  = $2,
+SET is_enabled  = $1,
     next_run_at = CASE
-        WHEN $2 = TRUE AND is_available = TRUE AND interval_seconds > 0 AND next_run_at IS NULL
+        WHEN $1 = TRUE AND is_available = TRUE AND interval_seconds > 0 AND next_run_at IS NULL
         THEN NOW()
         ELSE next_run_at
     END,
     updated_at  = NOW()
-WHERE name = $1
+WHERE name = $2
 RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id, is_available
 `
 
 type SetTaskEnabledParams struct {
-	Name      string `json:"name"`
-	IsEnabled bool   `json:"is_enabled"`
+	Enabled bool   `json:"enabled"`
+	Name    string `json:"name"`
 }
 
 func (q *Queries) SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error) {
-	row := q.db.QueryRow(ctx, setTaskEnabled, arg.Name, arg.IsEnabled)
+	row := q.db.QueryRow(ctx, setTaskEnabled, arg.Enabled, arg.Name)
 	var i Task
 	err := row.Scan(
 		&i.Name,

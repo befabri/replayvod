@@ -13,7 +13,7 @@ func (a *PGAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, 
 	if err := a.queries.UpsertVideoCategorySpan(ctx, pggen.UpsertVideoCategorySpanParams{
 		VideoID:    videoID,
 		CategoryID: categoryID,
-		AtTime:     at.UTC(),
+		At:         at.UTC(),
 	}); err != nil {
 		return fmt.Errorf("pg upsert video category span: %w", err)
 	}

@@ -21,8 +21,8 @@ WHERE id = ?;
 
 -- name: MarkWebhookEventFailed :exec
 UPDATE webhook_events
-SET status = 'failed', processed_at = datetime('now'), error = ?
-WHERE id = ?;
+SET status = 'failed', processed_at = datetime('now'), error = @err_msg
+WHERE id = @id;
 
 -- name: ListWebhookEvents :many
 SELECT * FROM webhook_events
@@ -43,9 +43,9 @@ LIMIT ? OFFSET ?;
 
 -- name: ListStuckWebhookEvents :many
 SELECT * FROM webhook_events
-WHERE status = 'received' AND received_at < ?
+WHERE status = 'received' AND received_at < @before
 ORDER BY received_at DESC
-LIMIT ?;
+LIMIT @limit;
 
 -- name: ClearWebhookEventPayload :exec
 UPDATE webhook_events

@@ -198,8 +198,8 @@ func (a *PGAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) ([]re
 
 func (a *PGAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
 	rows, err := a.queries.SearchCategories(ctx, pggen.SearchCategoriesParams{
-		Query:    query,
-		RowLimit: int32(limit),
+		Query: query,
+		Limit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg search categories: %w", err)
@@ -213,8 +213,8 @@ func (a *PGAdapter) SearchCategories(ctx context.Context, query string, limit in
 
 func (a *PGAdapter) SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]repository.Category, error) {
 	rows, err := a.queries.SearchCategoriesWithVideos(ctx, pggen.SearchCategoriesWithVideosParams{
-		Query:    query,
-		RowLimit: int32(limit),
+		Query: query,
+		Limit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg search categories with videos: %w", err)
@@ -228,9 +228,9 @@ func (a *PGAdapter) SearchCategoriesWithVideos(ctx context.Context, query string
 
 func (a *PGAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
 	if err := a.queries.UpdateCategoryGameMetadata(ctx, pggen.UpdateCategoryGameMetadataParams{
-		ID:      id,
-		Column2: boxArtURL,
-		Column3: igdbID,
+		ID:        id,
+		BoxArtUrl: boxArtURL,
+		IgdbID:    igdbID,
 	}); err != nil {
 		return fmt.Errorf("pg update category game metadata %s: %w", id, err)
 	}
@@ -265,7 +265,7 @@ func (a *PGAdapter) UpsertCategorySearchCache(ctx context.Context, input reposit
 func (a *PGAdapter) TouchCategorySearchCache(ctx context.Context, normalizedQuery string, at time.Time) error {
 	if err := a.queries.TouchCategorySearchCache(ctx, pggen.TouchCategorySearchCacheParams{
 		NormalizedQuery: normalizedQuery,
-		LastAccessedAt:  at,
+		At:              at,
 	}); err != nil {
 		return fmt.Errorf("pg touch category search cache %q: %w", normalizedQuery, err)
 	}

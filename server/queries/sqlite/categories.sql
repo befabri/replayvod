@@ -180,7 +180,7 @@ SELECT * FROM categories WHERE id IN (sqlc.slice('ids'));
 -- stays typed through the repeated CASE/LIKE expressions.
 WITH params AS (
     SELECT CAST(@query AS text) AS search_query,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT c.* FROM categories c
 CROSS JOIN params
@@ -204,7 +204,7 @@ LIMIT (SELECT row_limit FROM params);
 -- typed while avoiding missed @param rewrites in repeated CASE/LIKE expressions.
 WITH params AS (
     SELECT CAST(@query AS text) AS search_query,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT c.* FROM categories c
 CROSS JOIN params
@@ -248,21 +248,21 @@ WHERE id = ?;
 -- Empty inputs preserve the existing value so callers can safely write
 -- whichever subset Twitch returned.
 UPDATE categories
-SET box_art_url = ifnull(nullif(?2, ''), box_art_url),
-    igdb_id = ifnull(nullif(?3, ''), igdb_id),
+SET box_art_url = ifnull(nullif(CAST(@box_art_url AS TEXT), ''), box_art_url),
+    igdb_id = ifnull(nullif(CAST(@igdb_id AS TEXT), ''), igdb_id),
     description = CASE
-        WHEN nullif(?3, '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(?3, '')
+        WHEN nullif(CAST(@igdb_id AS TEXT), '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(CAST(@igdb_id AS TEXT), '')
         THEN NULL
         ELSE description
     END,
     description_checked_at = CASE
-        WHEN nullif(?3, '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(?3, '')
+        WHEN nullif(CAST(@igdb_id AS TEXT), '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(CAST(@igdb_id AS TEXT), '')
         THEN NULL
         ELSE description_checked_at
     END,
     game_metadata_checked_at = datetime('now'),
     updated_at = datetime('now')
-WHERE id = ?1;
+WHERE id = @id;
 
 -- name: ListCategoriesMissingDescription :many
 -- IGDB descriptions need a numeric igdb_id. Rows without one are left to the
@@ -301,9 +301,9 @@ RETURNING *;
 
 -- name: TouchCategorySearchCache :exec
 UPDATE category_search_cache
-SET last_accessed_at = ?,
+SET last_accessed_at = @at,
     updated_at = datetime('now')
-WHERE normalized_query = ?;
+WHERE normalized_query = @normalized_query;
 
 -- name: DeleteExpiredCategorySearchCache :exec
 DELETE FROM category_search_cache WHERE expires_at < ?;

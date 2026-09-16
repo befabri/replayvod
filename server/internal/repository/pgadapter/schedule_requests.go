@@ -73,7 +73,7 @@ func (a *PGAdapter) ApproveScheduleRequest(ctx context.Context, requestID int64,
 		if err != nil {
 			return fmt.Errorf("pg create schedule: %w", mapErr(err))
 		}
-		sched := pgScheduleToDomain(row)
+		sched := pgDownloadScheduleToDomain(row)
 		if err := replacePGScheduleFilters(ctx, q, sched.ID, filters); err != nil {
 			return err
 		}

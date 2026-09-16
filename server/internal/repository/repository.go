@@ -54,13 +54,13 @@ type Repository interface {
 	// ErrNoTransaction when called outside one.
 	LockRecordingIntent(ctx context.Context, id string) (*RecordingIntent, error)
 	GetRecordingIntentByJob(ctx context.Context, jobID string) (*RecordingIntent, error)
-	ListRecoverableRecordingIntents(ctx context.Context, after string, limit int) ([]RecordingIntent, error)
+	ListRecoverableRecordingIntents(ctx context.Context, afterID string, limit int) ([]RecordingIntent, error)
 	SetRecordingIntentWaiting(ctx context.Context, id, jobID string, until time.Time) error
 	ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error
 	CloseRecordingIntent(ctx context.Context, id, status string) error
 	RequestRecordingIntentStop(ctx context.Context, id string) error
 	LinkRecordingIntentVideo(ctx context.Context, intentID string, videoID int64, streamID *string) error
-	ListRecordingIntentJobs(ctx context.Context, intentID, after string, limit int) ([]Job, error)
+	ListRecordingIntentJobs(ctx context.Context, intentID, afterID string, limit int) ([]Job, error)
 	ListRelatedRecordings(ctx context.Context, videoID int64) ([]RelatedRecording, error)
 	GetMediaPublication(ctx context.Context, key string) (*MediaPublication, error)
 	BeginMediaPublication(ctx context.Context, input MediaPublication) (*MediaPublication, error)
@@ -490,7 +490,7 @@ type Repository interface {
 	CreateRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
 	CreateClaimedRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
 	ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]RecordingWebhookDelivery, error)
-	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error
+	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, httpStatus int, now time.Time) error
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error
 	// SetRecordingWebhookDeliveryFrozenParts freezes the part metadata on the
 	// first delivery build so a retry rebuilds the real part list after retention

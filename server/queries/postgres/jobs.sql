@@ -34,9 +34,9 @@ WHERE id = $1;
 UPDATE jobs SET
     status = 'FAILED',
     finished_at = NOW(),
-    error = $2,
+    error = @err_msg,
     updated_at = NOW()
-WHERE id = $1;
+WHERE id = @id;
 
 -- name: ListRunningLiveBroadcasters :many
 SELECT DISTINCT jobs.broadcaster_id FROM jobs

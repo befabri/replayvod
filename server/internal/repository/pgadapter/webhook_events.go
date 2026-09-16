@@ -30,8 +30,8 @@ func (a *PGAdapter) CreateWebhookEvent(ctx context.Context, input *repository.We
 
 func (a *PGAdapter) MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error {
 	return a.queries.MarkWebhookEventFailed(ctx, pggen.MarkWebhookEventFailedParams{
-		ID:    id,
-		Error: &errMsg,
+		ID:     id,
+		ErrMsg: &errMsg,
 	})
 }
 
@@ -50,8 +50,8 @@ func (a *PGAdapter) ListWebhookEventsByType(ctx context.Context, eventType strin
 
 func (a *PGAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
 	rows, err := a.queries.ListStuckWebhookEvents(ctx, pggen.ListStuckWebhookEventsParams{
-		ReceivedAt: before,
-		Limit:      int32(limit),
+		Before: before,
+		Limit:  int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list stuck webhook events: %w", err)

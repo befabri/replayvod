@@ -422,7 +422,7 @@ type Querier interface {
 	// Mirrors queries/postgres/channels.sql SearchChannels so both
 	// combobox-backed dropdowns (schedule form channel picker + category
 	// picker) share a ranking contract. Empty query returns everything
-	// up to row_limit, so the same endpoint backs the "show all" state.
+	// up to limit, so the same endpoint backs the "show all" state.
 	SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error)
 	// Same ranking contract as SearchCategories, restricted to categories linked to
 	// at least one visible recording.
@@ -430,7 +430,7 @@ type Querier interface {
 	// Case-insensitive substring match on login + display name. Ranks exact
 	// login match first, then prefix match, then substring match, then
 	// alphabetical — so typing "sho" surfaces "shroud" before "ashotoftoast".
-	// Empty query returns everything (up to row_limit), so the same endpoint
+	// Empty query returns everything (up to limit), so the same endpoint
 	// backs the "show all" state of a combobox without a second query.
 	SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error)
 	SearchEventLogs(ctx context.Context, arg SearchEventLogsParams) ([]SearchEventLogsRow, error)

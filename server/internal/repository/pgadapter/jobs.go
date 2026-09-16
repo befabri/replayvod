@@ -30,7 +30,7 @@ func (a *PGAdapter) CreateJob(ctx context.Context, input *repository.JobInput) (
 
 func (a *PGAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string) error {
 	return a.queries.MarkJobFailed(ctx, pggen.MarkJobFailedParams{
-		ID:    id,
-		Error: &errMsg,
+		ID:     id,
+		ErrMsg: &errMsg,
 	})
 }

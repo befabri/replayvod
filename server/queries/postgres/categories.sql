@@ -59,21 +59,21 @@ RETURNING *;
 -- Empty inputs preserve the existing value so callers can safely write
 -- whichever subset Twitch returned.
 UPDATE categories
-SET box_art_url = COALESCE(NULLIF($2, ''), box_art_url),
-    igdb_id = COALESCE(NULLIF($3, ''), igdb_id),
+SET box_art_url = COALESCE(NULLIF(@box_art_url::text, ''), box_art_url),
+    igdb_id = COALESCE(NULLIF(@igdb_id::text, ''), igdb_id),
     description = CASE
-        WHEN NULLIF($3, '') IS NOT NULL AND NULLIF($3, '') IS DISTINCT FROM igdb_id
+        WHEN NULLIF(@igdb_id::text, '') IS NOT NULL AND NULLIF(@igdb_id::text, '') IS DISTINCT FROM igdb_id
         THEN NULL
         ELSE description
     END,
     description_checked_at = CASE
-        WHEN NULLIF($3, '') IS NOT NULL AND NULLIF($3, '') IS DISTINCT FROM igdb_id
+        WHEN NULLIF(@igdb_id::text, '') IS NOT NULL AND NULLIF(@igdb_id::text, '') IS DISTINCT FROM igdb_id
         THEN NULL
         ELSE description_checked_at
     END,
     game_metadata_checked_at = NOW(),
     updated_at = NOW()
-WHERE id = $1;
+WHERE id = @id;
 
 -- name: ListCategories :many
 SELECT * FROM categories ORDER BY name;
@@ -181,7 +181,7 @@ SELECT * FROM categories WHERE id = ANY(@ids::text[]);
 -- Mirrors queries/postgres/channels.sql SearchChannels so both
 -- combobox-backed dropdowns (schedule form channel picker + category
 -- picker) share a ranking contract. Empty query returns everything
--- up to row_limit, so the same endpoint backs the "show all" state.
+-- up to limit, so the same endpoint backs the "show all" state.
 SELECT * FROM categories
 WHERE @query::text = ''
    OR lower(name) LIKE '%' || lower(@query::text) || '%'
@@ -193,7 +193,7 @@ ORDER BY
         ELSE 2
     END,
     name
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: SearchCategoriesWithVideos :many
 -- Same ranking contract as SearchCategories, restricted to categories linked to
@@ -216,7 +216,7 @@ ORDER BY
         ELSE 2
     END,
     c.name
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: ListCategoriesMissingGameMetadata :many
 -- Helix /games is the source for both box_art_url and igdb_id. Keep this
@@ -271,9 +271,9 @@ RETURNING *;
 
 -- name: TouchCategorySearchCache :exec
 UPDATE category_search_cache
-SET last_accessed_at = $2,
+SET last_accessed_at = @at,
     updated_at = NOW()
-WHERE normalized_query = $1;
+WHERE normalized_query = @normalized_query;
 
 -- name: DeleteExpiredCategorySearchCache :exec
 DELETE FROM category_search_cache WHERE expires_at < $1;

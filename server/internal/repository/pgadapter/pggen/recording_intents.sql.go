@@ -17,7 +17,7 @@ UPDATE recording_intents SET status='active',current_job_id=$1,last_stream_id=$2
 
 type ActivateRecordingIntentParams struct {
 	NextJobID     string     `json:"next_job_id"`
-	LastStreamID  string     `json:"last_stream_id"`
+	StreamID      string     `json:"stream_id"`
 	ID            string     `json:"id"`
 	PreviousJobID string     `json:"previous_job_id"`
 	ObservedAt    *time.Time `json:"observed_at"`
@@ -26,7 +26,7 @@ type ActivateRecordingIntentParams struct {
 func (q *Queries) ActivateRecordingIntent(ctx context.Context, arg ActivateRecordingIntentParams) (int64, error) {
 	result, err := q.db.Exec(ctx, activateRecordingIntent,
 		arg.NextJobID,
-		arg.LastStreamID,
+		arg.StreamID,
 		arg.ID,
 		arg.PreviousJobID,
 		arg.ObservedAt,
@@ -143,13 +143,13 @@ WHERE r.intent_id=$1 AND jobs.id>$2 AND jobs.status IN ('RUNNING','PENDING') AND
 `
 
 type ListRecordingIntentJobsParams struct {
-	IntentID   string `json:"intent_id"`
-	AfterID    string `json:"after_id"`
-	BatchLimit int32  `json:"batch_limit"`
+	IntentID string `json:"intent_id"`
+	AfterID  string `json:"after_id"`
+	Limit    int32  `json:"limit"`
 }
 
 func (q *Queries) ListRecordingIntentJobs(ctx context.Context, arg ListRecordingIntentJobsParams) ([]Job, error) {
-	rows, err := q.db.Query(ctx, listRecordingIntentJobs, arg.IntentID, arg.AfterID, arg.BatchLimit)
+	rows, err := q.db.Query(ctx, listRecordingIntentJobs, arg.IntentID, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +188,12 @@ SELECT recording_intents.id, recording_intents.broadcaster_id, recording_intents
 `
 
 type ListRecoverableRecordingIntentsParams struct {
-	AfterID    string `json:"after_id"`
-	BatchLimit int32  `json:"batch_limit"`
+	AfterID string `json:"after_id"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListRecoverableRecordingIntents(ctx context.Context, arg ListRecoverableRecordingIntentsParams) ([]RecordingIntent, error) {
-	rows, err := q.db.Query(ctx, listRecoverableRecordingIntents, arg.AfterID, arg.BatchLimit)
+	rows, err := q.db.Query(ctx, listRecoverableRecordingIntents, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -305,13 +305,13 @@ UPDATE recording_intents SET status='waiting',wait_until=$1 WHERE id=$2 AND curr
 `
 
 type SetRecordingIntentWaitingParams struct {
-	WaitUntil    *time.Time `json:"wait_until"`
-	ID           string     `json:"id"`
-	CurrentJobID string     `json:"current_job_id"`
+	Until *time.Time `json:"until"`
+	ID    string     `json:"id"`
+	JobID string     `json:"job_id"`
 }
 
 func (q *Queries) SetRecordingIntentWaiting(ctx context.Context, arg SetRecordingIntentWaitingParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setRecordingIntentWaiting, arg.WaitUntil, arg.ID, arg.CurrentJobID)
+	result, err := q.db.Exec(ctx, setRecordingIntentWaiting, arg.Until, arg.ID, arg.JobID)
 	if err != nil {
 		return 0, err
 	}

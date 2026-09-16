@@ -70,8 +70,8 @@ func (a *PGAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repo
 
 func (a *PGAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
 	rows, err := a.queries.SearchChannels(ctx, pggen.SearchChannelsParams{
-		Query:    query,
-		RowLimit: int32(limit),
+		Query: query,
+		Limit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg search channels: %w", err)

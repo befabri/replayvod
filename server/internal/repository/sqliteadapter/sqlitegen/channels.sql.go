@@ -419,8 +419,8 @@ LIMIT (SELECT row_limit FROM params)
 `
 
 type SearchChannelsParams struct {
-	Query    string `json:"query"`
-	RowLimit int64  `json:"row_limit"`
+	Query string `json:"query"`
+	Limit int64  `json:"limit"`
 }
 
 // Case-insensitive substring match on login + display name. Ranks exact
@@ -428,7 +428,7 @@ type SearchChannelsParams struct {
 // alphabetical. Bind params once in a CTE with explicit casts so sqlc's
 // SQLite output stays typed through the repeated CASE/LIKE expressions.
 func (q *Queries) SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error) {
-	rows, err := q.db.QueryContext(ctx, searchChannels, arg.Query, arg.RowLimit)
+	rows, err := q.db.QueryContext(ctx, searchChannels, arg.Query, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

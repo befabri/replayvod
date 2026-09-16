@@ -12,15 +12,15 @@ func (a *PGAdapter) CreateRecordingIntent(ctx context.Context, input repository.
 	return mapErr(a.queries.CreateRecordingIntent(ctx, pggen.CreateRecordingIntentParams{ID: input.ID, BroadcasterID: input.BroadcasterID, Params: input.Params, WaitSeconds: input.WaitSeconds, CurrentJobID: input.CurrentJobID, LastStreamID: input.LastStreamID}))
 }
 
-func (a *PGAdapter) ListRecoverableRecordingIntents(ctx context.Context, after string, limit int) ([]repository.RecordingIntent, error) {
-	rows, err := a.queries.ListRecoverableRecordingIntents(ctx, pggen.ListRecoverableRecordingIntentsParams{AfterID: after, BatchLimit: int32(limit)})
+func (a *PGAdapter) ListRecoverableRecordingIntents(ctx context.Context, afterID string, limit int) ([]repository.RecordingIntent, error) {
+	rows, err := a.queries.ListRecoverableRecordingIntents(ctx, pggen.ListRecoverableRecordingIntentsParams{AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, err
 	}
 	return pgRecordingIntentsToDomain(rows), nil
 }
 func (a *PGAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID string, until time.Time) error {
-	n, err := a.queries.SetRecordingIntentWaiting(ctx, pggen.SetRecordingIntentWaitingParams{ID: id, CurrentJobID: jobID, WaitUntil: &until})
+	n, err := a.queries.SetRecordingIntentWaiting(ctx, pggen.SetRecordingIntentWaitingParams{ID: id, JobID: jobID, Until: &until})
 	if err != nil {
 		return err
 	}
@@ -37,11 +37,11 @@ func (a *PGAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID str
 	return repository.ErrStaleExecution
 }
 func (a *PGAdapter) ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error {
-	return executionAffected(a.queries.ActivateRecordingIntent(ctx, pggen.ActivateRecordingIntentParams{ID: id, PreviousJobID: previousJobID, NextJobID: nextJobID, LastStreamID: streamID, ObservedAt: &observedAt}))
+	return executionAffected(a.queries.ActivateRecordingIntent(ctx, pggen.ActivateRecordingIntentParams{ID: id, PreviousJobID: previousJobID, NextJobID: nextJobID, StreamID: streamID, ObservedAt: &observedAt}))
 }
 
-func (a *PGAdapter) ListRecordingIntentJobs(ctx context.Context, intentID, after string, limit int) ([]repository.Job, error) {
-	rows, err := a.queries.ListRecordingIntentJobs(ctx, pggen.ListRecordingIntentJobsParams{IntentID: intentID, AfterID: after, BatchLimit: int32(limit)})
+func (a *PGAdapter) ListRecordingIntentJobs(ctx context.Context, intentID, afterID string, limit int) ([]repository.Job, error) {
+	rows, err := a.queries.ListRecordingIntentJobs(ctx, pggen.ListRecordingIntentJobsParams{IntentID: intentID, AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, err
 	}

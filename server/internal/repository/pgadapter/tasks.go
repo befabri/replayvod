@@ -9,8 +9,8 @@ import (
 
 func (a *PGAdapter) SetTaskEnabled(ctx context.Context, name string, enabled bool) (*repository.Task, error) {
 	row, err := a.queries.SetTaskEnabled(ctx, pggen.SetTaskEnabledParams{
-		Name:      name,
-		IsEnabled: enabled,
+		Name:    name,
+		Enabled: enabled,
 	})
 	if err != nil {
 		return nil, mapErr(err)

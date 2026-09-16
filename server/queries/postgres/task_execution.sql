@@ -6,13 +6,13 @@ WHERE name = $1 AND execution_id <> $2 AND is_available = TRUE AND is_enabled = 
   AND (next_run_at IS NULL OR next_run_at <= NOW());
 
 -- name: SettleTask :execrows
-UPDATE tasks SET last_status = $3, last_duration_ms = $4, last_error = NULLIF($5, ''),
+UPDATE tasks SET last_status = @status, last_duration_ms = @duration_ms, last_error = NULLIF(@message::text, ''),
     next_run_at = CASE
-      WHEN $3 = 'interrupted' THEN COALESCE(next_run_at, NOW())
+      WHEN @status = 'interrupted' THEN COALESCE(next_run_at, NOW())
       WHEN interval_seconds > 0 THEN COALESCE(next_run_at, NOW() + (interval_seconds * INTERVAL '1 second'))
       ELSE next_run_at END,
     updated_at = NOW()
-WHERE name = $1 AND execution_id = $2 AND last_status = 'running';
+WHERE name = @name AND execution_id = @execution_id AND last_status = 'running';
 
 -- name: ResetTaskAvailability :exec
 UPDATE tasks SET is_available = FALSE;

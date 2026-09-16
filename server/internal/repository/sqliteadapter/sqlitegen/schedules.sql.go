@@ -138,16 +138,16 @@ func (q *Queries) GetSchedule(ctx context.Context, id int64) (DownloadSchedule, 
 
 const getScheduleForUserChannel = `-- name: GetScheduleForUserChannel :one
 SELECT id, broadcaster_id, requested_by, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264, requested_from, quality FROM download_schedules
-WHERE broadcaster_id = ? AND requested_by = ?
+WHERE broadcaster_id = ?1 AND requested_by = ?2
 `
 
 type GetScheduleForUserChannelParams struct {
 	BroadcasterID string `json:"broadcaster_id"`
-	RequestedBy   string `json:"requested_by"`
+	UserID        string `json:"user_id"`
 }
 
 func (q *Queries) GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error) {
-	row := q.db.QueryRowContext(ctx, getScheduleForUserChannel, arg.BroadcasterID, arg.RequestedBy)
+	row := q.db.QueryRowContext(ctx, getScheduleForUserChannel, arg.BroadcasterID, arg.UserID)
 	var i DownloadSchedule
 	err := row.Scan(
 		&i.ID,
@@ -482,19 +482,19 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 
 const listSchedulesForUser = `-- name: ListSchedulesForUser :many
 SELECT id, broadcaster_id, requested_by, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264, requested_from, quality FROM download_schedules
-WHERE requested_by = ?
+WHERE requested_by = ?1
 ORDER BY created_at DESC
-LIMIT ? OFFSET ?
+LIMIT ?3 OFFSET ?2
 `
 
 type ListSchedulesForUserParams struct {
-	RequestedBy string `json:"requested_by"`
-	Limit       int64  `json:"limit"`
-	Offset      int64  `json:"offset"`
+	UserID string `json:"user_id"`
+	Offset int64  `json:"offset"`
+	Limit  int64  `json:"limit"`
 }
 
 func (q *Queries) ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedulesForUser, arg.RequestedBy, arg.Limit, arg.Offset)
+	rows, err := q.db.QueryContext(ctx, listSchedulesForUser, arg.UserID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

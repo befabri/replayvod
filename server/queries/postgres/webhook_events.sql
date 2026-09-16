@@ -24,8 +24,8 @@ WHERE id = $1;
 
 -- name: MarkWebhookEventFailed :exec
 UPDATE webhook_events
-SET status = 'failed', processed_at = NOW(), error = $2
-WHERE id = $1;
+SET status = 'failed', processed_at = NOW(), error = @err_msg
+WHERE id = @id;
 
 -- name: ListWebhookEvents :many
 SELECT * FROM webhook_events
@@ -49,9 +49,9 @@ LIMIT $2 OFFSET $3;
 -- indicate the handler crashed mid-processing. Partial index
 -- idx_webhook_events_received_status keeps this fast.
 SELECT * FROM webhook_events
-WHERE status = 'received' AND received_at < $1
+WHERE status = 'received' AND received_at < @before
 ORDER BY received_at DESC
-LIMIT $2;
+LIMIT sqlc.arg('limit');
 
 -- name: ClearWebhookEventPayload :exec
 -- Retention trim: scheduler task nulls the payload on rows older than

@@ -50,7 +50,7 @@ func (a *SQLiteAdapter) UpsertSubscription(ctx context.Context, input *repositor
 func (a *SQLiteAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*repository.Subscription, error) {
 	row, err := a.queries.GetActiveSubscriptionForBroadcasterType(ctx, sqlitegen.GetActiveSubscriptionForBroadcasterTypeParams{
 		BroadcasterID: sql.NullString{String: broadcasterID, Valid: true},
-		Type:          subType,
+		SubType:       subType,
 	})
 	if err != nil {
 		return nil, mapErr(err)
@@ -60,8 +60,8 @@ func (a *SQLiteAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Cont
 
 func (a *SQLiteAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason string) error {
 	return a.queries.MarkSubscriptionRevoked(ctx, sqlitegen.MarkSubscriptionRevokedParams{
-		ID:            id,
-		RevokedReason: sql.NullString{String: reason, Valid: true},
+		ID:     id,
+		Reason: sql.NullString{String: reason, Valid: true},
 	})
 }
 

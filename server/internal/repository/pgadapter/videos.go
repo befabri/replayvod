@@ -103,9 +103,9 @@ func (a *PGAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, qu
 		qualityPtr = &quality
 	}
 	return a.queries.UpdateVideoSelectedVariant(ctx, pggen.UpdateVideoSelectedVariantParams{
-		ID:              id,
-		SelectedQuality: qualityPtr,
-		SelectedFps:     fps,
+		ID:      id,
+		Quality: qualityPtr,
+		Fps:     fps,
 	})
 }
 
@@ -151,7 +151,7 @@ func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string
 		}
 		return q.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
 			ID:             id,
-			Error:          &errMsg,
+			ErrMsg:         &errMsg,
 			CompletionKind: completionKind,
 			Truncated:      truncated,
 		})
@@ -165,7 +165,7 @@ func (a *PGAdapter) MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Contex
 		}
 		if err := q.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
 			ID:             id,
-			Error:          &errMsg,
+			ErrMsg:         &errMsg,
 			CompletionKind: completionKind,
 			Truncated:      truncated,
 		}); err != nil {
@@ -206,8 +206,8 @@ func (a *PGAdapter) ListVideosPage(ctx context.Context, opts repository.ListVide
 
 func (a *PGAdapter) SearchVideos(ctx context.Context, query string, limit int) ([]repository.Video, error) {
 	rows, err := a.queries.SearchVideos(ctx, pggen.SearchVideosParams{
-		Query:    query,
-		RowLimit: int32(limit),
+		Query: query,
+		Limit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg search videos: %w", err)
@@ -247,7 +247,7 @@ func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID i
 	if limit <= 0 {
 		return []repository.Video{}, nil
 	}
-	rows, err := a.queries.ListVideosPendingManualDelete(ctx, pggen.ListVideosPendingManualDeleteParams{AfterID: afterID, RowLimit: int32(limit)})
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, pggen.ListVideosPendingManualDeleteParams{AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos pending manual delete: %w", err)
 	}
@@ -255,11 +255,11 @@ func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID i
 }
 
 func (a *PGAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind string) error {
-	return a.queries.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: id, DeletionKind: &kind})
+	return a.queries.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: id, Kind: &kind})
 }
 
 func (a *PGAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
-	rows, err := a.queries.ListRetentionCandidates(ctx, pggen.ListRetentionCandidatesParams{Now: now, AfterID: afterID, BatchLimit: int32(limit)})
+	rows, err := a.queries.ListRetentionCandidates(ctx, pggen.ListRetentionCandidatesParams{Now: now, AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list finished videos for retention: %w", err)
 	}
@@ -277,7 +277,7 @@ func (a *PGAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, 
 
 func (a *PGAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
-		if err := q.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: videoID, DeletionKind: &kind}); err != nil {
+		if err := q.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: videoID, Kind: &kind}); err != nil {
 			return fmt.Errorf("pg tombstone video: %w", err)
 		}
 		if err := q.DeleteVideoParts(ctx, videoID); err != nil {
@@ -462,7 +462,7 @@ func (a *PGAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64,
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid storage scan page")
 	}
-	rows, err := a.queries.ListVideosForStorageScan(ctx, pggen.ListVideosForStorageScanParams{AfterID: afterID, PageSize: int32(limit)})
+	rows, err := a.queries.ListVideosForStorageScan(ctx, pggen.ListVideosForStorageScanParams{AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos for storage scan: %w", err)
 	}
@@ -525,7 +525,7 @@ func (a *PGAdapter) ListMissingTombstones(ctx context.Context, afterID int64, li
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid storage scan page")
 	}
-	rows, err := a.queries.ListMissingTombstones(ctx, pggen.ListMissingTombstonesParams{AfterID: afterID, PageSize: int32(limit)})
+	rows, err := a.queries.ListMissingTombstones(ctx, pggen.ListMissingTombstonesParams{AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list missing tombstones: %w", err)
 	}
@@ -577,7 +577,7 @@ func (a *PGAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []s
 }
 
 func (a *PGAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListRecentArchiveFailures(ctx, pggen.ListRecentArchiveFailuresParams{DownloadedAt: &since, Limit: int32(limit)})
+	rows, err := a.queries.ListRecentArchiveFailures(ctx, pggen.ListRecentArchiveFailuresParams{Since: &since, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list recent archive failures: %w", err)
 	}
@@ -585,7 +585,7 @@ func (a *PGAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Ti
 }
 
 func (a *PGAdapter) ListArchivesDueForRetry(ctx context.Context, now, after time.Time, afterID int64, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListArchivesDueForRetry(ctx, pggen.ListArchivesDueForRetryParams{Now: now, AfterTime: after, AfterID: afterID, BatchLimit: int32(limit)})
+	rows, err := a.queries.ListArchivesDueForRetry(ctx, pggen.ListArchivesDueForRetryParams{Now: now, After: after, AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list archives due for retry: %w", err)
 	}
@@ -595,7 +595,7 @@ func (a *PGAdapter) ListArchivesDueForRetry(ctx context.Context, now, after time
 func (a *PGAdapter) MarkArchiveFailedForRetry(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, nextRetryAt time.Time) error {
 	return a.queries.MarkArchiveFailedForRetry(ctx, pggen.MarkArchiveFailedForRetryParams{
 		ID:             id,
-		Error:          &errMsg,
+		ErrMsg:         &errMsg,
 		CompletionKind: completionKind,
 		Truncated:      truncated,
 		NextRetryAt:    &nextRetryAt,
@@ -606,7 +606,7 @@ func (a *PGAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Ti
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid poster page")
 	}
-	rows, err := a.queries.ListArchivesMissingPoster(ctx, pggen.ListArchivesMissingPosterParams{Since: since, AfterID: afterID, PageSize: int32(limit)})
+	rows, err := a.queries.ListArchivesMissingPoster(ctx, pggen.ListArchivesMissingPosterParams{Since: since, AfterID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list archives missing poster: %w", err)
 	}

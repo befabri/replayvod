@@ -52,30 +52,30 @@ func (q *Queries) ResetTaskAvailability(ctx context.Context) error {
 }
 
 const settleTask = `-- name: SettleTask :execrows
-UPDATE tasks SET last_status = ?3, last_duration_ms = ?4, last_error = NULLIF(?5, ''),
+UPDATE tasks SET last_status = ?1, last_duration_ms = ?2, last_error = NULLIF(CAST(?3 AS TEXT), ''),
     next_run_at = CASE
-      WHEN ?3 = 'interrupted' THEN ifnull(next_run_at, datetime('now'))
+      WHEN ?1 = 'interrupted' THEN ifnull(next_run_at, datetime('now'))
       WHEN interval_seconds > 0 THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
       ELSE next_run_at END,
     updated_at = datetime('now')
-WHERE name = ?1 AND execution_id = ?2 AND last_status = 'running'
+WHERE name = ?4 AND execution_id = ?5 AND last_status = 'running'
 `
 
 type SettleTaskParams struct {
-	Name           string      `json:"name"`
-	ExecutionID    string      `json:"execution_id"`
-	LastStatus     string      `json:"last_status"`
-	LastDurationMs int64       `json:"last_duration_ms"`
-	NULLIF         interface{} `json:"NULLIF"`
+	Status      string `json:"status"`
+	DurationMs  int64  `json:"duration_ms"`
+	Message     string `json:"message"`
+	Name        string `json:"name"`
+	ExecutionID string `json:"execution_id"`
 }
 
 func (q *Queries) SettleTask(ctx context.Context, arg SettleTaskParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, settleTask,
+		arg.Status,
+		arg.DurationMs,
+		arg.Message,
 		arg.Name,
 		arg.ExecutionID,
-		arg.LastStatus,
-		arg.LastDurationMs,
-		arg.NULLIF,
 	)
 	if err != nil {
 		return 0, err

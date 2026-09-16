@@ -16,14 +16,14 @@ func (a *SQLiteAdapter) BeginMediaPublication(ctx context.Context, input reposit
 }
 
 func (a *SQLiteAdapter) ListMediaPublications(ctx context.Context, after string, limit int) ([]repository.MediaPublication, error) {
-	rows, err := a.queries.ListMediaPublications(ctx, sqlitegen.ListMediaPublicationsParams{Key: after, Limit: int64(limit)})
+	rows, err := a.queries.ListMediaPublications(ctx, sqlitegen.ListMediaPublicationsParams{After: after, Limit: int64(limit)})
 	if err != nil {
 		return nil, err
 	}
 	return sqliteMediaPublicationsToDomain(rows), nil
 }
 func (a *SQLiteAdapter) ListRecordingPublications(ctx context.Context, videoID int64, after string, limit int) ([]repository.MediaPublication, error) {
-	rows, err := a.queries.ListRecordingPublications(ctx, sqlitegen.ListRecordingPublicationsParams{VideoID: videoID, Key: after, Limit: int64(limit)})
+	rows, err := a.queries.ListRecordingPublications(ctx, sqlitegen.ListRecordingPublicationsParams{VideoID: videoID, After: after, Limit: int64(limit)})
 	if err != nil {
 		return nil, err
 	}

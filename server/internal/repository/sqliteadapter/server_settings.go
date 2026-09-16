@@ -25,14 +25,10 @@ func (a *SQLiteAdapter) UpsertServerSettings(ctx context.Context, s *repository.
 }
 
 func (a *SQLiteAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*repository.ServerSettings, error) {
-	var enabledInt int64
-	if enabled {
-		enabledInt = 1
-	}
 	row, err := a.queries.UpsertRecordingWebhookConfig(ctx, sqlitegen.UpsertRecordingWebhookConfigParams{
-		RecordingWebhookEnabled: enabledInt,
-		RecordingWebhookUrl:     url,
-		RecordingWebhookEvents:  events,
+		Enabled: boolToInt64(enabled),
+		Url:     url,
+		Events:  events,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite upsert recording webhook config: %w", err)
@@ -41,17 +37,10 @@ func (a *SQLiteAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enable
 }
 
 func (a *SQLiteAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
-	var enabledInt, autoGenerateInt int64
-	if enabled {
-		enabledInt = 1
-	}
-	if autoGenerate {
-		autoGenerateInt = 1
-	}
 	row, err := a.queries.UpsertPlaybackCacheConfig(ctx, sqlitegen.UpsertPlaybackCacheConfigParams{
-		PlaybackCacheEnabled:      enabledInt,
-		PlaybackCacheMaxPercent:   int64(maxPercent),
-		PlaybackCacheAutoGenerate: autoGenerateInt,
+		Enabled:      boolToInt64(enabled),
+		MaxPercent:   int64(maxPercent),
+		AutoGenerate: boolToInt64(autoGenerate),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite upsert playback cache config: %w", err)

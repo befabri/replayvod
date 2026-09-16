@@ -15,7 +15,7 @@ func (a *PGAdapter) CreateSchedule(ctx context.Context, input *repository.Schedu
 	if err != nil {
 		return nil, fmt.Errorf("pg create schedule: %w", err)
 	}
-	return pgScheduleToDomain(row), nil
+	return pgDownloadScheduleToDomain(row), nil
 }
 
 func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
@@ -25,7 +25,7 @@ func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *reposi
 		if err != nil {
 			return fmt.Errorf("pg create schedule: %w", mapErr(err))
 		}
-		sched := pgScheduleToDomain(row)
+		sched := pgDownloadScheduleToDomain(row)
 		if err := replacePGScheduleFilters(ctx, q, sched.ID, filters); err != nil {
 			return err
 		}
@@ -43,18 +43,18 @@ func (a *PGAdapter) GetSchedule(ctx context.Context, id int64) (*repository.Down
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return pgScheduleToDomain(row), nil
+	return pgDownloadScheduleToDomain(row), nil
 }
 
 func (a *PGAdapter) GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*repository.DownloadSchedule, error) {
 	row, err := a.queries.GetScheduleForUserChannel(ctx, pggen.GetScheduleForUserChannelParams{
 		BroadcasterID: broadcasterID,
-		RequestedBy:   userID,
+		UserID:        userID,
 	})
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return pgScheduleToDomain(row), nil
+	return pgDownloadScheduleToDomain(row), nil
 }
 
 func (a *PGAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
@@ -62,7 +62,7 @@ func (a *PGAdapter) UpdateSchedule(ctx context.Context, id int64, input *reposit
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return pgScheduleToDomain(row), nil
+	return pgDownloadScheduleToDomain(row), nil
 }
 
 func (a *PGAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
@@ -72,7 +72,7 @@ func (a *PGAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, inp
 		if err != nil {
 			return fmt.Errorf("pg update schedule: %w", mapErr(err))
 		}
-		sched := pgScheduleToDomain(row)
+		sched := pgDownloadScheduleToDomain(row)
 		if err := replacePGScheduleFilters(ctx, q, sched.ID, filters); err != nil {
 			return err
 		}
@@ -90,7 +90,7 @@ func (a *PGAdapter) ToggleSchedule(ctx context.Context, id int64) (*repository.D
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return pgScheduleToDomain(row), nil
+	return pgDownloadScheduleToDomain(row), nil
 }
 
 func (a *PGAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]repository.DownloadSchedule, error) {
@@ -101,19 +101,19 @@ func (a *PGAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]rep
 	if err != nil {
 		return nil, fmt.Errorf("pg list schedules: %w", err)
 	}
-	return pgSchedulesToDomain(rows), nil
+	return pgDownloadSchedulesToDomain(rows), nil
 }
 
 func (a *PGAdapter) ListSchedulesForUser(ctx context.Context, userID string, limit, offset int) ([]repository.DownloadSchedule, error) {
 	rows, err := a.queries.ListSchedulesForUser(ctx, pggen.ListSchedulesForUserParams{
-		RequestedBy: userID,
-		Limit:       int32(limit),
-		Offset:      int32(offset),
+		UserID: userID,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list schedules for user: %w", err)
 	}
-	return pgSchedulesToDomain(rows), nil
+	return pgDownloadSchedulesToDomain(rows), nil
 }
 
 func (a *PGAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]repository.DownloadSchedule, error) {
@@ -121,7 +121,7 @@ func (a *PGAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broad
 	if err != nil {
 		return nil, fmt.Errorf("pg list active schedules for broadcaster: %w", err)
 	}
-	return pgSchedulesToDomain(rows), nil
+	return pgDownloadSchedulesToDomain(rows), nil
 }
 
 func pgCreateScheduleParams(input *repository.ScheduleInput) pggen.CreateScheduleParams {
@@ -188,7 +188,7 @@ func replacePGScheduleFilters(ctx context.Context, q *pggen.Queries, scheduleID 
 	return nil
 }
 
-func pgScheduleToDomain(s pggen.DownloadSchedule) *repository.DownloadSchedule {
+func pgDownloadScheduleToDomain(s pggen.DownloadSchedule) *repository.DownloadSchedule {
 	return &repository.DownloadSchedule{
 		ID:               s.ID,
 		BroadcasterID:    s.BroadcasterID,
@@ -211,10 +211,10 @@ func pgScheduleToDomain(s pggen.DownloadSchedule) *repository.DownloadSchedule {
 	}
 }
 
-func pgSchedulesToDomain(rows []pggen.DownloadSchedule) []repository.DownloadSchedule {
+func pgDownloadSchedulesToDomain(rows []pggen.DownloadSchedule) []repository.DownloadSchedule {
 	out := make([]repository.DownloadSchedule, len(rows))
 	for i, r := range rows {
-		out[i] = *pgScheduleToDomain(r)
+		out[i] = *pgDownloadScheduleToDomain(r)
 	}
 	return out
 }

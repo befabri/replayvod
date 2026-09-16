@@ -56,7 +56,7 @@ RETURNING *;
 -- name: MarkRecordingWebhookDeliveryDelivered :exec
 UPDATE recording_webhook_deliveries
 SET status = 'delivered',
-    last_status = @last_status,
+    last_status = @http_status,
     last_error = '',
     delivered_at = @now,
     updated_at = @now
@@ -65,8 +65,8 @@ WHERE id = @id;
 -- name: MarkRecordingWebhookDeliveryFinal :exec
 UPDATE recording_webhook_deliveries
 SET status = @status,
-    last_status = @last_status,
-    last_error = @last_error,
+    last_status = @http_status,
+    last_error = @err_msg,
     next_attempt_at = @next_attempt_at,
     updated_at = @now
 WHERE id = @id;

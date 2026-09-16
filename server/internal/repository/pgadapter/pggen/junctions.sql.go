@@ -292,12 +292,12 @@ ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING
 type UpsertVideoCategorySpanParams struct {
 	VideoID    int64     `json:"video_id"`
 	CategoryID string    `json:"category_id"`
-	AtTime     time.Time `json:"at_time"`
+	At         time.Time `json:"at"`
 }
 
 // Category analogue of UpsertVideoTitleSpan; see that comment for the
 // close-then-insert rationale.
 func (q *Queries) UpsertVideoCategorySpan(ctx context.Context, arg UpsertVideoCategorySpanParams) error {
-	_, err := q.db.Exec(ctx, upsertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.AtTime)
+	_, err := q.db.Exec(ctx, upsertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.At)
 	return err
 }

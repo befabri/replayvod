@@ -366,17 +366,17 @@ LIMIT $2
 `
 
 type SearchChannelsParams struct {
-	Query    string `json:"query"`
-	RowLimit int32  `json:"row_limit"`
+	Query string `json:"query"`
+	Limit int32  `json:"limit"`
 }
 
 // Case-insensitive substring match on login + display name. Ranks exact
 // login match first, then prefix match, then substring match, then
 // alphabetical — so typing "sho" surfaces "shroud" before "ashotoftoast".
-// Empty query returns everything (up to row_limit), so the same endpoint
+// Empty query returns everything (up to limit), so the same endpoint
 // backs the "show all" state of a combobox without a second query.
 func (q *Queries) SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error) {
-	rows, err := q.db.Query(ctx, searchChannels, arg.Query, arg.RowLimit)
+	rows, err := q.db.Query(ctx, searchChannels, arg.Query, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

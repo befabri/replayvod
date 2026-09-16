@@ -307,13 +307,13 @@ WHERE id = $3::bigint
 `
 
 type MarkRecordingWebhookDeliveryDeliveredParams struct {
-	LastStatus int32     `json:"last_status"`
+	HttpStatus int32     `json:"http_status"`
 	Now        time.Time `json:"now"`
 	ID         int64     `json:"id"`
 }
 
 func (q *Queries) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, arg MarkRecordingWebhookDeliveryDeliveredParams) error {
-	_, err := q.db.Exec(ctx, markRecordingWebhookDeliveryDelivered, arg.LastStatus, arg.Now, arg.ID)
+	_, err := q.db.Exec(ctx, markRecordingWebhookDeliveryDelivered, arg.HttpStatus, arg.Now, arg.ID)
 	return err
 }
 
@@ -329,8 +329,8 @@ WHERE id = $6::bigint
 
 type MarkRecordingWebhookDeliveryFinalParams struct {
 	Status        string    `json:"status"`
-	LastStatus    int32     `json:"last_status"`
-	LastError     string    `json:"last_error"`
+	HttpStatus    int32     `json:"http_status"`
+	ErrMsg        string    `json:"err_msg"`
 	NextAttemptAt time.Time `json:"next_attempt_at"`
 	Now           time.Time `json:"now"`
 	ID            int64     `json:"id"`
@@ -339,8 +339,8 @@ type MarkRecordingWebhookDeliveryFinalParams struct {
 func (q *Queries) MarkRecordingWebhookDeliveryFinal(ctx context.Context, arg MarkRecordingWebhookDeliveryFinalParams) error {
 	_, err := q.db.Exec(ctx, markRecordingWebhookDeliveryFinal,
 		arg.Status,
-		arg.LastStatus,
-		arg.LastError,
+		arg.HttpStatus,
+		arg.ErrMsg,
 		arg.NextAttemptAt,
 		arg.Now,
 		arg.ID,

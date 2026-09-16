@@ -21,14 +21,14 @@ ORDER BY t.name;
 -- close-then-insert rationale.
 WITH close_previous AS (
     UPDATE video_category_spans vcs
-       SET ended_at = sqlc.arg('at_time')::timestamptz,
-           duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at_time')::timestamptz - vcs.started_at))
+       SET ended_at = sqlc.arg('at')::timestamptz,
+           duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at')::timestamptz - vcs.started_at))
      WHERE vcs.video_id = sqlc.arg('video_id')
        AND vcs.ended_at IS NULL
        AND vcs.category_id <> sqlc.arg('category_id')
 )
 INSERT INTO video_category_spans (video_id, category_id, started_at)
-VALUES (sqlc.arg('video_id'), sqlc.arg('category_id'), sqlc.arg('at_time')::timestamptz)
+VALUES (sqlc.arg('video_id'), sqlc.arg('category_id'), sqlc.arg('at')::timestamptz)
 ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING;
 
 -- name: CloseOpenVideoCategorySpans :exec

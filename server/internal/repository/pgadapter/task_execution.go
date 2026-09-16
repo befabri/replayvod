@@ -32,7 +32,7 @@ func (a *PGAdapter) SettleTask(ctx context.Context, name, executionID, status st
 	if status != repository.TaskStatusSuccess && status != repository.TaskStatusFailed && status != repository.TaskStatusInterrupted {
 		return repository.ErrStaleExecution
 	}
-	n, err := a.queries.SettleTask(ctx, pggen.SettleTaskParams{Name: name, ExecutionID: executionID, LastStatus: status, LastDurationMs: int32(durationMs), Column5: message})
+	n, err := a.queries.SettleTask(ctx, pggen.SettleTaskParams{Name: name, ExecutionID: executionID, Status: status, DurationMs: int32(durationMs), Message: message})
 	if err != nil {
 		return err
 	}

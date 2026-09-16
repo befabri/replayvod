@@ -32,7 +32,7 @@ func (a *SQLiteAdapter) SettleTask(ctx context.Context, name, executionID, statu
 	if status != repository.TaskStatusSuccess && status != repository.TaskStatusFailed && status != repository.TaskStatusInterrupted {
 		return repository.ErrStaleExecution
 	}
-	n, err := a.queries.SettleTask(ctx, sqlitegen.SettleTaskParams{Name: name, ExecutionID: executionID, LastStatus: status, LastDurationMs: durationMs, NULLIF: message})
+	n, err := a.queries.SettleTask(ctx, sqlitegen.SettleTaskParams{Name: name, ExecutionID: executionID, Status: status, DurationMs: durationMs, Message: message})
 	if err != nil {
 		return err
 	}

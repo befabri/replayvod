@@ -205,7 +205,7 @@ ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING
 type UpsertVideoTitleSpanParams struct {
 	VideoID int64     `json:"video_id"`
 	TitleID int64     `json:"title_id"`
-	AtTime  time.Time `json:"at_time"`
+	At      time.Time `json:"at"`
 }
 
 // Close the currently-open span if its title differs from the new
@@ -218,6 +218,6 @@ type UpsertVideoTitleSpanParams struct {
 // EXTRACT(EPOCH FROM (@param - column)) expressions. The cast also
 // forces non-nullable Go types for the generated param struct.
 func (q *Queries) UpsertVideoTitleSpan(ctx context.Context, arg UpsertVideoTitleSpanParams) error {
-	_, err := q.db.Exec(ctx, upsertVideoTitleSpan, arg.VideoID, arg.TitleID, arg.AtTime)
+	_, err := q.db.Exec(ctx, upsertVideoTitleSpan, arg.VideoID, arg.TitleID, arg.At)
 	return err
 }

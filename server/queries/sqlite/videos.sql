@@ -22,9 +22,9 @@ UPDATE videos SET status = ? WHERE id = ?;
 
 -- name: UpdateVideoSelectedVariant :exec
 UPDATE videos SET
-    selected_quality = ?,
-    selected_fps = ?
-WHERE id = ?;
+    selected_quality = @quality,
+    selected_fps = @fps
+WHERE id = @id;
 
 -- name: MarkVideoDone :exec
 -- See postgres/videos.sql MarkVideoDone for the completion_kind /
@@ -47,10 +47,10 @@ WHERE id = ?;
 UPDATE videos SET
     status = 'FAILED',
     downloaded_at = datetime('now'),
-    error = ?,
-    completion_kind = ?,
-    truncated = ?
-WHERE id = ?;
+    error = @err_msg,
+    completion_kind = @completion_kind,
+    truncated = @truncated
+WHERE id = @id;
 
 -- name: SetVideoThumbnail :exec
 UPDATE videos SET thumbnail = ? WHERE id = ?;
@@ -129,7 +129,7 @@ WITH q AS (
         unicode_lower(CAST(@query AS text)) AS term,
         unicode_lower(CAST(@query AS text)) || '%' AS prefix,
         '%' || unicode_lower(CAST(@query AS text)) || '%' AS contains,
-        CAST(@row_limit AS integer) AS row_limit
+        CAST(@limit AS integer) AS row_limit
 ),
 title_matches AS (
     SELECT
@@ -221,11 +221,11 @@ UPDATE videos
 SET deleted_at = datetime('now'),
     deletion_kind = CASE
       WHEN delete_requested_at IS NOT NULL THEN 'manual'
-      ELSE ?2
+      ELSE @kind
     END,
     thumbnail = NULL,
     delete_requested_at = NULL
-WHERE id = ?1 AND (deleted_at IS NULL OR deletion_kind = 'missing');
+WHERE id = @id AND (deleted_at IS NULL OR deletion_kind = 'missing');
 
 -- name: ListRetentionCandidates :many
 -- Terminal, not-yet-tombstoned recordings whose creation-time retention policy
@@ -254,7 +254,7 @@ WHERE videos.id > sqlc.arg(after_id) AND deleted_at IS NULL
       AND rwd.test = 0
       AND rwd.status IN ('pending', 'delivering')
       AND rwd.frozen_parts = ''
-  ) ORDER BY videos.id LIMIT sqlc.arg(batch_limit);
+  ) ORDER BY videos.id LIMIT sqlc.arg(limit);
 
 -- name: ListVideosPendingManualDelete :many
 -- Operator-requested deletions that are safe for the background worker to
@@ -273,7 +273,7 @@ WHERE id > CAST(sqlc.arg(after_id) AS BIGINT) AND (deleted_at IS NULL OR deletio
       AND rwd.frozen_parts = ''
   )
 ORDER BY id ASC
-LIMIT @row_limit;
+LIMIT @limit;
 
 -- name: CountVideosByStatus :one
 SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
@@ -319,7 +319,7 @@ WHERE deleted_at IS NULL
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
   )
   AND videos.id > CAST(@after_id AS INTEGER)
-ORDER BY videos.id ASC LIMIT CAST(@page_size AS INTEGER);
+ORDER BY videos.id ASC LIMIT CAST(@limit AS INTEGER);
 
 -- name: ListVideosForStorageWitness :many
 -- Before initializing markerless storage, account for media even when a retry,
@@ -375,14 +375,14 @@ DELETE FROM videos WHERE id = ? AND source = 'vod' AND status = 'PENDING';
 
 -- name: ListRecentArchiveFailures :many
 SELECT * FROM videos
-WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED' AND downloaded_at >= ?
-ORDER BY downloaded_at DESC, id DESC LIMIT ?;
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED' AND downloaded_at >= @since
+ORDER BY downloaded_at DESC, id DESC LIMIT @limit;
 
 -- name: ListArchivesDueForRetry :many
 SELECT * FROM videos WHERE source='vod' AND deleted_at IS NULL AND status='FAILED'
  AND delete_requested_at IS NULL AND next_retry_at <= sqlc.arg(now)
- AND (next_retry_at,id) > (sqlc.arg(after_time),CAST(sqlc.arg(after_id) AS BIGINT))
-ORDER BY next_retry_at,id LIMIT sqlc.arg(batch_limit);
+ AND (next_retry_at,id) > (sqlc.arg(after),CAST(sqlc.arg(after_id) AS BIGINT))
+ORDER BY next_retry_at,id LIMIT sqlc.arg(limit);
 
 -- name: MarkArchiveFailedForRetry :exec
 -- A transient archive failure: the row fails like any other, and the retry
@@ -391,11 +391,11 @@ ORDER BY next_retry_at,id LIMIT sqlc.arg(batch_limit);
 UPDATE videos SET
     status = 'FAILED',
     downloaded_at = datetime('now'),
-    error = ?,
-    completion_kind = ?,
-    truncated = ?,
-    next_retry_at = ?
-WHERE id = ? AND source = 'vod';
+    error = @err_msg,
+    completion_kind = @completion_kind,
+    truncated = @truncated,
+    next_retry_at = @next_retry_at
+WHERE id = @id AND source = 'vod';
 
 -- name: RequeueArchiveVideo :execrows
 -- Puts a failed archive back in the queue under a fresh job. scheduled_only
@@ -427,7 +427,7 @@ WHERE source = 'vod' AND thumbnail IS NULL AND deleted_at IS NULL
   AND (status <> 'FAILED' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
   AND twitch_video_id IS NOT NULL AND start_download_at >= @since
   AND videos.id > CAST(@after_id AS INTEGER)
-ORDER BY id ASC LIMIT CAST(@page_size AS INTEGER);
+ORDER BY id ASC LIMIT CAST(@limit AS INTEGER);
 
 -- name: SetVideoThumbnailIfMissing :execrows
 -- A poster never replaces a frame the pipeline already produced, and a row
@@ -449,4 +449,4 @@ WHERE deleted_at IS NOT NULL
   AND deletion_kind = 'missing'
   AND delete_requested_at IS NULL
   AND videos.id > CAST(@after_id AS INTEGER)
-ORDER BY videos.id ASC LIMIT CAST(@page_size AS INTEGER);
+ORDER BY videos.id ASC LIMIT CAST(@limit AS INTEGER);

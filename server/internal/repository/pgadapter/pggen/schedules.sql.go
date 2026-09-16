@@ -141,11 +141,11 @@ WHERE broadcaster_id = $1 AND requested_by = $2
 
 type GetScheduleForUserChannelParams struct {
 	BroadcasterID string `json:"broadcaster_id"`
-	RequestedBy   string `json:"requested_by"`
+	UserID        string `json:"user_id"`
 }
 
 func (q *Queries) GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error) {
-	row := q.db.QueryRow(ctx, getScheduleForUserChannel, arg.BroadcasterID, arg.RequestedBy)
+	row := q.db.QueryRow(ctx, getScheduleForUserChannel, arg.BroadcasterID, arg.UserID)
 	var i DownloadSchedule
 	err := row.Scan(
 		&i.ID,
@@ -446,17 +446,17 @@ const listSchedulesForUser = `-- name: ListSchedulesForUser :many
 SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264, requested_from FROM download_schedules
 WHERE requested_by = $1
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $3 OFFSET $2
 `
 
 type ListSchedulesForUserParams struct {
-	RequestedBy string `json:"requested_by"`
-	Limit       int32  `json:"limit"`
-	Offset      int32  `json:"offset"`
+	UserID string `json:"user_id"`
+	Offset int32  `json:"offset"`
+	Limit  int32  `json:"limit"`
 }
 
 func (q *Queries) ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error) {
-	rows, err := q.db.Query(ctx, listSchedulesForUser, arg.RequestedBy, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listSchedulesForUser, arg.UserID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

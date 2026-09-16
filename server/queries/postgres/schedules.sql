@@ -14,7 +14,7 @@ SELECT * FROM download_schedules WHERE id = $1;
 
 -- name: GetScheduleForUserChannel :one
 SELECT * FROM download_schedules
-WHERE broadcaster_id = $1 AND requested_by = $2;
+WHERE broadcaster_id = @broadcaster_id AND requested_by = @user_id;
 
 -- name: UpdateSchedule :one
 UPDATE download_schedules SET
@@ -45,9 +45,9 @@ SELECT * FROM download_schedules ORDER BY created_at DESC LIMIT $1 OFFSET $2;
 
 -- name: ListSchedulesForUser :many
 SELECT * FROM download_schedules
-WHERE requested_by = $1
+WHERE requested_by = @user_id
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: ListActiveSchedulesForBroadcaster :many
 -- Match path: called on every stream.online event. Partial index

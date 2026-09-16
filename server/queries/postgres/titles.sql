@@ -27,14 +27,14 @@ ORDER BY t.id;
 -- forces non-nullable Go types for the generated param struct.
 WITH close_previous AS (
     UPDATE video_title_spans vts
-       SET ended_at = sqlc.arg('at_time')::timestamptz,
-           duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at_time')::timestamptz - vts.started_at))
+       SET ended_at = sqlc.arg('at')::timestamptz,
+           duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at')::timestamptz - vts.started_at))
      WHERE vts.video_id = sqlc.arg('video_id')
        AND vts.ended_at IS NULL
        AND vts.title_id <> sqlc.arg('title_id')
 )
 INSERT INTO video_title_spans (video_id, title_id, started_at)
-VALUES (sqlc.arg('video_id'), sqlc.arg('title_id'), sqlc.arg('at_time')::timestamptz)
+VALUES (sqlc.arg('video_id'), sqlc.arg('title_id'), sqlc.arg('at')::timestamptz)
 ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING;
 
 -- name: CloseOpenVideoTitleSpans :exec

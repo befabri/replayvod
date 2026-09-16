@@ -73,8 +73,8 @@ func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]
 
 func (a *SQLiteAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
 	rows, err := a.queries.SearchChannels(ctx, sqlitegen.SearchChannelsParams{
-		Query:    query,
-		RowLimit: int64(limit),
+		Query: query,
+		Limit: int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite search channels: %w", err)

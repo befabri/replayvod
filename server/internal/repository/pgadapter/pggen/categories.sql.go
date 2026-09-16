@@ -617,8 +617,8 @@ LIMIT $2
 `
 
 type SearchCategoriesParams struct {
-	Query    string `json:"query"`
-	RowLimit int32  `json:"row_limit"`
+	Query string `json:"query"`
+	Limit int32  `json:"limit"`
 }
 
 // Case-insensitive substring match on name. Ranks exact name match
@@ -626,9 +626,9 @@ type SearchCategoriesParams struct {
 // Mirrors queries/postgres/channels.sql SearchChannels so both
 // combobox-backed dropdowns (schedule form channel picker + category
 // picker) share a ranking contract. Empty query returns everything
-// up to row_limit, so the same endpoint backs the "show all" state.
+// up to limit, so the same endpoint backs the "show all" state.
 func (q *Queries) SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error) {
-	rows, err := q.db.Query(ctx, searchCategories, arg.Query, arg.RowLimit)
+	rows, err := q.db.Query(ctx, searchCategories, arg.Query, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -680,14 +680,14 @@ LIMIT $2
 `
 
 type SearchCategoriesWithVideosParams struct {
-	Query    string `json:"query"`
-	RowLimit int32  `json:"row_limit"`
+	Query string `json:"query"`
+	Limit int32  `json:"limit"`
 }
 
 // Same ranking contract as SearchCategories, restricted to categories linked to
 // at least one visible recording.
 func (q *Queries) SearchCategoriesWithVideos(ctx context.Context, arg SearchCategoriesWithVideosParams) ([]Category, error) {
-	rows, err := q.db.Query(ctx, searchCategoriesWithVideos, arg.Query, arg.RowLimit)
+	rows, err := q.db.Query(ctx, searchCategoriesWithVideos, arg.Query, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -718,18 +718,18 @@ func (q *Queries) SearchCategoriesWithVideos(ctx context.Context, arg SearchCate
 
 const touchCategorySearchCache = `-- name: TouchCategorySearchCache :exec
 UPDATE category_search_cache
-SET last_accessed_at = $2,
+SET last_accessed_at = $1,
     updated_at = NOW()
-WHERE normalized_query = $1
+WHERE normalized_query = $2
 `
 
 type TouchCategorySearchCacheParams struct {
+	At              time.Time `json:"at"`
 	NormalizedQuery string    `json:"normalized_query"`
-	LastAccessedAt  time.Time `json:"last_accessed_at"`
 }
 
 func (q *Queries) TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error {
-	_, err := q.db.Exec(ctx, touchCategorySearchCache, arg.NormalizedQuery, arg.LastAccessedAt)
+	_, err := q.db.Exec(ctx, touchCategorySearchCache, arg.At, arg.NormalizedQuery)
 	return err
 }
 
@@ -753,34 +753,34 @@ func (q *Queries) UpdateCategoryDescription(ctx context.Context, arg UpdateCateg
 
 const updateCategoryGameMetadata = `-- name: UpdateCategoryGameMetadata :exec
 UPDATE categories
-SET box_art_url = COALESCE(NULLIF($2, ''), box_art_url),
-    igdb_id = COALESCE(NULLIF($3, ''), igdb_id),
+SET box_art_url = COALESCE(NULLIF($1::text, ''), box_art_url),
+    igdb_id = COALESCE(NULLIF($2::text, ''), igdb_id),
     description = CASE
-        WHEN NULLIF($3, '') IS NOT NULL AND NULLIF($3, '') IS DISTINCT FROM igdb_id
+        WHEN NULLIF($2::text, '') IS NOT NULL AND NULLIF($2::text, '') IS DISTINCT FROM igdb_id
         THEN NULL
         ELSE description
     END,
     description_checked_at = CASE
-        WHEN NULLIF($3, '') IS NOT NULL AND NULLIF($3, '') IS DISTINCT FROM igdb_id
+        WHEN NULLIF($2::text, '') IS NOT NULL AND NULLIF($2::text, '') IS DISTINCT FROM igdb_id
         THEN NULL
         ELSE description_checked_at
     END,
     game_metadata_checked_at = NOW(),
     updated_at = NOW()
-WHERE id = $1
+WHERE id = $3
 `
 
 type UpdateCategoryGameMetadataParams struct {
-	ID      string      `json:"id"`
-	Column2 interface{} `json:"column_2"`
-	Column3 interface{} `json:"column_3"`
+	BoxArtUrl string `json:"box_art_url"`
+	IgdbID    string `json:"igdb_id"`
+	ID        string `json:"id"`
 }
 
 // Refresh the Twitch-side category metadata returned by Helix /games.
 // Empty inputs preserve the existing value so callers can safely write
 // whichever subset Twitch returned.
 func (q *Queries) UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error {
-	_, err := q.db.Exec(ctx, updateCategoryGameMetadata, arg.ID, arg.Column2, arg.Column3)
+	_, err := q.db.Exec(ctx, updateCategoryGameMetadata, arg.BoxArtUrl, arg.IgdbID, arg.ID)
 	return err
 }
 

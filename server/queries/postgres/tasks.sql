@@ -27,14 +27,14 @@ ORDER BY next_run_at NULLS FIRST;
 
 -- name: SetTaskEnabled :one
 UPDATE tasks
-SET is_enabled  = $2,
+SET is_enabled  = @enabled,
     next_run_at = CASE
-        WHEN $2 = TRUE AND is_available = TRUE AND interval_seconds > 0 AND next_run_at IS NULL
+        WHEN @enabled = TRUE AND is_available = TRUE AND interval_seconds > 0 AND next_run_at IS NULL
         THEN NOW()
         ELSE next_run_at
     END,
     updated_at  = NOW()
-WHERE name = $1
+WHERE name = @name
 RETURNING *;
 
 -- name: SetTaskNextRun :one

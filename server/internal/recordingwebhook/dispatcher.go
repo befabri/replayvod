@@ -44,7 +44,7 @@ type deliveryStore interface {
 	configStore
 	CreateClaimedRecordingWebhookDelivery(ctx context.Context, input *repository.RecordingWebhookDeliveryInput) (*repository.RecordingWebhookDelivery, error)
 	ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]repository.RecordingWebhookDelivery, error)
-	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error
+	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, httpStatus int, now time.Time) error
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error
 	SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error

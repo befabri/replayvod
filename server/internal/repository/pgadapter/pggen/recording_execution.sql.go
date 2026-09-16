@@ -12,20 +12,20 @@ import (
 )
 
 const checkpointAttempt = `-- name: CheckpointAttempt :execrows
-UPDATE jobs SET resume_state = $3, updated_at = NOW()
-WHERE jobs.id = $1 AND jobs.execution_id = $2 AND jobs.status = 'RUNNING'
+UPDATE jobs SET resume_state = $1, updated_at = NOW()
+WHERE jobs.id = $2 AND jobs.execution_id = $3 AND jobs.status = 'RUNNING'
   AND EXISTS (SELECT 1 FROM videos WHERE videos.id = jobs.video_id
       AND videos.job_id = jobs.id AND videos.status = 'RUNNING' AND videos.deleted_at IS NULL)
 `
 
 type CheckpointAttemptParams struct {
-	ID          string          `json:"id"`
+	State       json.RawMessage `json:"state"`
+	JobID       string          `json:"job_id"`
 	ExecutionID string          `json:"execution_id"`
-	ResumeState json.RawMessage `json:"resume_state"`
 }
 
 func (q *Queries) CheckpointAttempt(ctx context.Context, arg CheckpointAttemptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, checkpointAttempt, arg.ID, arg.ExecutionID, arg.ResumeState)
+	result, err := q.db.Exec(ctx, checkpointAttempt, arg.State, arg.JobID, arg.ExecutionID)
 	if err != nil {
 		return 0, err
 	}
@@ -85,9 +85,9 @@ ORDER BY videos.start_download_at, videos.id LIMIT $3
 `
 
 type ListQueuedArchiveJobsParams struct {
-	AfterStart time.Time `json:"after_start"`
-	AfterID    int64     `json:"after_id"`
-	BatchLimit int32     `json:"batch_limit"`
+	After   time.Time `json:"after"`
+	AfterID int64     `json:"after_id"`
+	Limit   int32     `json:"limit"`
 }
 
 type ListQueuedArchiveJobsRow struct {
@@ -97,7 +97,7 @@ type ListQueuedArchiveJobsRow struct {
 }
 
 func (q *Queries) ListQueuedArchiveJobs(ctx context.Context, arg ListQueuedArchiveJobsParams) ([]ListQueuedArchiveJobsRow, error) {
-	rows, err := q.db.Query(ctx, listQueuedArchiveJobs, arg.AfterStart, arg.AfterID, arg.BatchLimit)
+	rows, err := q.db.Query(ctx, listQueuedArchiveJobs, arg.After, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -124,12 +124,12 @@ ORDER BY jobs.id LIMIT $2
 `
 
 type ListRecoveryJobsParams struct {
-	ID    string `json:"id"`
-	Limit int32  `json:"limit"`
+	AfterID string `json:"after_id"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListRecoveryJobs(ctx context.Context, arg ListRecoveryJobsParams) ([]Job, error) {
-	rows, err := q.db.Query(ctx, listRecoveryJobs, arg.ID, arg.Limit)
+	rows, err := q.db.Query(ctx, listRecoveryJobs, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -171,12 +171,12 @@ ORDER BY jobs.id LIMIT $2
 `
 
 type ListStoppedJobsParams struct {
-	ID    string `json:"id"`
-	Limit int32  `json:"limit"`
+	AfterID string `json:"after_id"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListStoppedJobs(ctx context.Context, arg ListStoppedJobsParams) ([]Job, error) {
-	rows, err := q.db.Query(ctx, listStoppedJobs, arg.ID, arg.Limit)
+	rows, err := q.db.Query(ctx, listStoppedJobs, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -221,19 +221,19 @@ func (q *Queries) RequestJobStop(ctx context.Context, id string) error {
 }
 
 const setJobExecution = `-- name: SetJobExecution :execrows
-UPDATE jobs SET execution_id = $2, accepts_metadata = $3,
+UPDATE jobs SET execution_id = $1, accepts_metadata = $2,
     status = 'RUNNING', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-WHERE id = $1 AND status IN ('PENDING', 'RUNNING')
+WHERE id = $3 AND status IN ('PENDING', 'RUNNING')
 `
 
 type SetJobExecutionParams struct {
-	ID              string `json:"id"`
 	ExecutionID     string `json:"execution_id"`
 	AcceptsMetadata bool   `json:"accepts_metadata"`
+	JobID           string `json:"job_id"`
 }
 
 func (q *Queries) SetJobExecution(ctx context.Context, arg SetJobExecutionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setJobExecution, arg.ID, arg.ExecutionID, arg.AcceptsMetadata)
+	result, err := q.db.Exec(ctx, setJobExecution, arg.ExecutionID, arg.AcceptsMetadata, arg.JobID)
 	if err != nil {
 		return 0, err
 	}
@@ -246,12 +246,12 @@ WHERE id = $1 AND execution_id = $2 AND status = 'RUNNING'
 `
 
 type StopJobMetadataParams struct {
-	ID          string `json:"id"`
+	JobID       string `json:"job_id"`
 	ExecutionID string `json:"execution_id"`
 }
 
 func (q *Queries) StopJobMetadata(ctx context.Context, arg StopJobMetadataParams) (int64, error) {
-	result, err := q.db.Exec(ctx, stopJobMetadata, arg.ID, arg.ExecutionID)
+	result, err := q.db.Exec(ctx, stopJobMetadata, arg.JobID, arg.ExecutionID)
 	if err != nil {
 		return 0, err
 	}

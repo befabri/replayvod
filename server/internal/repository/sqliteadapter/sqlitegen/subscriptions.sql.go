@@ -90,16 +90,16 @@ func (q *Queries) DeleteSubscription(ctx context.Context, id string) error {
 
 const getActiveSubscriptionForBroadcasterType = `-- name: GetActiveSubscriptionForBroadcasterType :one
 SELECT id, status, type, version, cost, condition, broadcaster_id, transport_method, transport_callback, twitch_created_at, created_at, revoked_at, revoked_reason FROM subscriptions
-WHERE broadcaster_id = ? AND type = ? AND revoked_at IS NULL
+WHERE broadcaster_id = ?1 AND type = ?2 AND revoked_at IS NULL
 `
 
 type GetActiveSubscriptionForBroadcasterTypeParams struct {
 	BroadcasterID sql.NullString `json:"broadcaster_id"`
-	Type          string         `json:"type"`
+	SubType       string         `json:"sub_type"`
 }
 
 func (q *Queries) GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error) {
-	row := q.db.QueryRowContext(ctx, getActiveSubscriptionForBroadcasterType, arg.BroadcasterID, arg.Type)
+	row := q.db.QueryRowContext(ctx, getActiveSubscriptionForBroadcasterType, arg.BroadcasterID, arg.SubType)
 	var i Subscription
 	err := row.Scan(
 		&i.ID,
@@ -281,17 +281,17 @@ func (q *Queries) ListSubscriptionsByType(ctx context.Context, type_ string) ([]
 
 const markSubscriptionRevoked = `-- name: MarkSubscriptionRevoked :exec
 UPDATE subscriptions
-SET revoked_at = datetime('now'), revoked_reason = ?, status = 'revoked'
-WHERE id = ? AND revoked_at IS NULL
+SET revoked_at = datetime('now'), revoked_reason = ?1, status = 'revoked'
+WHERE id = ?2 AND revoked_at IS NULL
 `
 
 type MarkSubscriptionRevokedParams struct {
-	RevokedReason sql.NullString `json:"revoked_reason"`
-	ID            string         `json:"id"`
+	Reason sql.NullString `json:"reason"`
+	ID     string         `json:"id"`
 }
 
 func (q *Queries) MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error {
-	_, err := q.db.ExecContext(ctx, markSubscriptionRevoked, arg.RevokedReason, arg.ID)
+	_, err := q.db.ExecContext(ctx, markSubscriptionRevoked, arg.Reason, arg.ID)
 	return err
 }
 

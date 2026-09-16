@@ -205,8 +205,8 @@ func (a *SQLiteAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) (
 
 func (a *SQLiteAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
 	rows, err := a.queries.SearchCategories(ctx, sqlitegen.SearchCategoriesParams{
-		Query:    query,
-		RowLimit: int64(limit),
+		Query: query,
+		Limit: int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite search categories: %w", err)
@@ -220,8 +220,8 @@ func (a *SQLiteAdapter) SearchCategories(ctx context.Context, query string, limi
 
 func (a *SQLiteAdapter) SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]repository.Category, error) {
 	rows, err := a.queries.SearchCategoriesWithVideos(ctx, sqlitegen.SearchCategoriesWithVideosParams{
-		Query:    query,
-		RowLimit: int64(limit),
+		Query: query,
+		Limit: int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite search categories with videos: %w", err)
@@ -235,9 +235,9 @@ func (a *SQLiteAdapter) SearchCategoriesWithVideos(ctx context.Context, query st
 
 func (a *SQLiteAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
 	if err := a.queries.UpdateCategoryGameMetadata(ctx, sqlitegen.UpdateCategoryGameMetadataParams{
-		ID:       id,
-		NULLIF:   boxArtURL,
-		NULLIF_2: igdbID,
+		ID:        id,
+		BoxArtUrl: boxArtURL,
+		IgdbID:    igdbID,
 	}); err != nil {
 		return fmt.Errorf("sqlite update category game metadata %s: %w", id, err)
 	}
@@ -271,7 +271,7 @@ func (a *SQLiteAdapter) UpsertCategorySearchCache(ctx context.Context, input rep
 
 func (a *SQLiteAdapter) TouchCategorySearchCache(ctx context.Context, normalizedQuery string, at time.Time) error {
 	if err := a.queries.TouchCategorySearchCache(ctx, sqlitegen.TouchCategorySearchCacheParams{
-		LastAccessedAt:  sqliteTime(at),
+		At:              sqliteTime(at),
 		NormalizedQuery: normalizedQuery,
 	}); err != nil {
 		return fmt.Errorf("sqlite touch category search cache %q: %w", normalizedQuery, err)

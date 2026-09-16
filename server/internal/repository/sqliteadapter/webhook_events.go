@@ -35,15 +35,15 @@ func (a *SQLiteAdapter) CreateWebhookEvent(ctx context.Context, input *repositor
 
 func (a *SQLiteAdapter) MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error {
 	return a.queries.MarkWebhookEventFailed(ctx, sqlitegen.MarkWebhookEventFailedParams{
-		ID:    id,
-		Error: sql.NullString{String: errMsg, Valid: true},
+		ID:     id,
+		ErrMsg: sql.NullString{String: errMsg, Valid: true},
 	})
 }
 
 func (a *SQLiteAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
 	rows, err := a.queries.ListStuckWebhookEvents(ctx, sqlitegen.ListStuckWebhookEventsParams{
-		ReceivedAt: sqliteTime(before),
-		Limit:      int64(limit),
+		Before: sqliteTime(before),
+		Limit:  int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list stuck webhook events: %w", err)

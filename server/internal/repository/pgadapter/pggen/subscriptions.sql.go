@@ -96,14 +96,14 @@ WHERE broadcaster_id = $1 AND type = $2 AND revoked_at IS NULL
 
 type GetActiveSubscriptionForBroadcasterTypeParams struct {
 	BroadcasterID *string `json:"broadcaster_id"`
-	Type          string  `json:"type"`
+	SubType       string  `json:"sub_type"`
 }
 
 // Respects the partial UNIQUE: at most one active (non-revoked) sub per
 // (broadcaster_id, type). Used before creating to prevent duplicate calls
 // to Twitch that would fail with 409.
 func (q *Queries) GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error) {
-	row := q.db.QueryRow(ctx, getActiveSubscriptionForBroadcasterType, arg.BroadcasterID, arg.Type)
+	row := q.db.QueryRow(ctx, getActiveSubscriptionForBroadcasterType, arg.BroadcasterID, arg.SubType)
 	var i Subscription
 	err := row.Scan(
 		&i.ID,
@@ -276,20 +276,20 @@ func (q *Queries) ListSubscriptionsByType(ctx context.Context, type_ string) ([]
 
 const markSubscriptionRevoked = `-- name: MarkSubscriptionRevoked :exec
 UPDATE subscriptions
-SET revoked_at = NOW(), revoked_reason = $2, status = 'revoked'
-WHERE id = $1 AND revoked_at IS NULL
+SET revoked_at = NOW(), revoked_reason = $1, status = 'revoked'
+WHERE id = $2 AND revoked_at IS NULL
 `
 
 type MarkSubscriptionRevokedParams struct {
-	ID            string  `json:"id"`
-	RevokedReason *string `json:"revoked_reason"`
+	Reason *string `json:"reason"`
+	ID     string  `json:"id"`
 }
 
 // Soft-delete. Called when Twitch sends a revocation message or when we
 // issue a DELETE via the Helix API. Preserves the row for audit; the
 // partial UNIQUE index then allows creating a replacement subscription.
 func (q *Queries) MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error {
-	_, err := q.db.Exec(ctx, markSubscriptionRevoked, arg.ID, arg.RevokedReason)
+	_, err := q.db.Exec(ctx, markSubscriptionRevoked, arg.Reason, arg.ID)
 	return err
 }
 

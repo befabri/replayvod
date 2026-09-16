@@ -185,17 +185,17 @@ const markJobFailed = `-- name: MarkJobFailed :exec
 UPDATE jobs SET
     status = 'FAILED',
     finished_at = NOW(),
-    error = $2,
+    error = $1,
     updated_at = NOW()
-WHERE id = $1
+WHERE id = $2
 `
 
 type MarkJobFailedParams struct {
-	ID    string  `json:"id"`
-	Error *string `json:"error"`
+	ErrMsg *string `json:"err_msg"`
+	ID     string  `json:"id"`
 }
 
 func (q *Queries) MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error {
-	_, err := q.db.Exec(ctx, markJobFailed, arg.ID, arg.Error)
+	_, err := q.db.Exec(ctx, markJobFailed, arg.ErrMsg, arg.ID)
 	return err
 }

@@ -207,7 +207,7 @@ func (f *fakeRepo) ClaimDueRecordingWebhookDeliveries(_ context.Context, now tim
 	return out, nil
 }
 
-func (f *fakeRepo) MarkRecordingWebhookDeliveryDelivered(_ context.Context, id int64, status int, now time.Time) error {
+func (f *fakeRepo) MarkRecordingWebhookDeliveryDelivered(_ context.Context, id int64, httpStatus int, now time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	i, err := f.deliveryIndex(id)
@@ -215,7 +215,7 @@ func (f *fakeRepo) MarkRecordingWebhookDeliveryDelivered(_ context.Context, id i
 		return err
 	}
 	f.deliveries[i].Status = repository.RecordingWebhookDeliveryDelivered
-	f.deliveries[i].LastStatus = status
+	f.deliveries[i].LastStatus = httpStatus
 	f.deliveries[i].LastError = ""
 	f.deliveries[i].DeliveredAt = &now
 	f.deliveries[i].UpdatedAt = now

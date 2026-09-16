@@ -144,18 +144,18 @@ func (q *Queries) GetWebhookEventByEventID(ctx context.Context, eventID string) 
 
 const listStuckWebhookEvents = `-- name: ListStuckWebhookEvents :many
 SELECT id, event_id, message_type, event_type, subscription_id, broadcaster_id, message_timestamp, payload, status, error, received_at, processed_at FROM webhook_events
-WHERE status = 'received' AND received_at < ?
+WHERE status = 'received' AND received_at < ?1
 ORDER BY received_at DESC
-LIMIT ?
+LIMIT ?2
 `
 
 type ListStuckWebhookEventsParams struct {
-	ReceivedAt sqlitetype.Time `json:"received_at"`
-	Limit      int64           `json:"limit"`
+	Before sqlitetype.Time `json:"before"`
+	Limit  int64           `json:"limit"`
 }
 
 func (q *Queries) ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listStuckWebhookEvents, arg.ReceivedAt, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listStuckWebhookEvents, arg.Before, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -337,17 +337,17 @@ func (q *Queries) ListWebhookEventsByType(ctx context.Context, arg ListWebhookEv
 
 const markWebhookEventFailed = `-- name: MarkWebhookEventFailed :exec
 UPDATE webhook_events
-SET status = 'failed', processed_at = datetime('now'), error = ?
-WHERE id = ?
+SET status = 'failed', processed_at = datetime('now'), error = ?1
+WHERE id = ?2
 `
 
 type MarkWebhookEventFailedParams struct {
-	Error sql.NullString `json:"error"`
-	ID    int64          `json:"id"`
+	ErrMsg sql.NullString `json:"err_msg"`
+	ID     int64          `json:"id"`
 }
 
 func (q *Queries) MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markWebhookEventFailed, arg.Error, arg.ID)
+	_, err := q.db.ExecContext(ctx, markWebhookEventFailed, arg.ErrMsg, arg.ID)
 	return err
 }
 

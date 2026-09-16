@@ -228,16 +228,16 @@ RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_
 `
 
 type UpsertPlaybackCacheConfigParams struct {
-	PlaybackCacheEnabled      bool  `json:"playback_cache_enabled"`
-	PlaybackCacheMaxPercent   int32 `json:"playback_cache_max_percent"`
-	PlaybackCacheAutoGenerate bool  `json:"playback_cache_auto_generate"`
+	Enabled      bool  `json:"enabled"`
+	MaxPercent   int32 `json:"max_percent"`
+	AutoGenerate bool  `json:"auto_generate"`
 }
 
 // UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
 // Artifacts are generated asynchronously after downloads, so these settings
 // must be mutable at runtime without touching EventSub or webhook config.
 func (q *Queries) UpsertPlaybackCacheConfig(ctx context.Context, arg UpsertPlaybackCacheConfigParams) (ServerSetting, error) {
-	row := q.db.QueryRow(ctx, upsertPlaybackCacheConfig, arg.PlaybackCacheEnabled, arg.PlaybackCacheMaxPercent, arg.PlaybackCacheAutoGenerate)
+	row := q.db.QueryRow(ctx, upsertPlaybackCacheConfig, arg.Enabled, arg.MaxPercent, arg.AutoGenerate)
 	var i ServerSetting
 	err := row.Scan(
 		&i.ID,
@@ -281,9 +281,9 @@ RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_
 `
 
 type UpsertRecordingWebhookConfigParams struct {
-	RecordingWebhookEnabled bool   `json:"recording_webhook_enabled"`
-	RecordingWebhookUrl     string `json:"recording_webhook_url"`
-	RecordingWebhookEvents  string `json:"recording_webhook_events"`
+	Enabled bool   `json:"enabled"`
+	Url     string `json:"url"`
+	Events  string `json:"events"`
 }
 
 // UpsertRecordingWebhookConfig writes ONLY the recording-webhook config columns
@@ -292,7 +292,7 @@ type UpsertRecordingWebhookConfigParams struct {
 // two queries below so this config write can never clobber, truncate, or race
 // the signing key. Mirrors EnsureServerHMACSecret's single-concern style.
 func (q *Queries) UpsertRecordingWebhookConfig(ctx context.Context, arg UpsertRecordingWebhookConfigParams) (ServerSetting, error) {
-	row := q.db.QueryRow(ctx, upsertRecordingWebhookConfig, arg.RecordingWebhookEnabled, arg.RecordingWebhookUrl, arg.RecordingWebhookEvents)
+	row := q.db.QueryRow(ctx, upsertRecordingWebhookConfig, arg.Enabled, arg.Url, arg.Events)
 	var i ServerSetting
 	err := row.Scan(
 		&i.ID,

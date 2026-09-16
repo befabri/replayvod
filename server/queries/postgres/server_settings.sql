@@ -32,7 +32,7 @@ INSERT INTO server_settings (
     recording_webhook_url,
     recording_webhook_events
 )
-VALUES (1, $1, $2, $3)
+VALUES (1, @enabled, @url, @events)
 ON CONFLICT (id) DO UPDATE
 SET recording_webhook_enabled = EXCLUDED.recording_webhook_enabled,
     recording_webhook_url     = EXCLUDED.recording_webhook_url,
@@ -50,7 +50,7 @@ INSERT INTO server_settings (
     playback_cache_max_percent,
     playback_cache_auto_generate
 )
-VALUES (1, $1, $2, $3)
+VALUES (1, @enabled, @max_percent, @auto_generate)
 ON CONFLICT (id) DO UPDATE
 SET playback_cache_enabled       = EXCLUDED.playback_cache_enabled,
     playback_cache_max_percent   = EXCLUDED.playback_cache_max_percent,

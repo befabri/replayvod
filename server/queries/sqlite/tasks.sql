@@ -24,14 +24,14 @@ ORDER BY CASE WHEN next_run_at IS NULL THEN 0 ELSE 1 END, next_run_at;
 
 -- name: SetTaskEnabled :one
 UPDATE tasks
-SET is_enabled  = ?2,
+SET is_enabled  = @enabled,
     next_run_at = CASE
-        WHEN ?2 = 1 AND is_available = 1 AND interval_seconds > 0 AND next_run_at IS NULL
+        WHEN @enabled = 1 AND is_available = 1 AND interval_seconds > 0 AND next_run_at IS NULL
         THEN datetime('now')
         ELSE next_run_at
     END,
     updated_at  = datetime('now')
-WHERE name = ?1
+WHERE name = @name
 RETURNING *;
 
 -- name: SetTaskNextRun :one

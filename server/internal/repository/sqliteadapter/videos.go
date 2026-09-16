@@ -105,9 +105,9 @@ func (a *SQLiteAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64
 		fpsNull = sql.NullFloat64{Float64: *fps, Valid: true}
 	}
 	return a.queries.UpdateVideoSelectedVariant(ctx, sqlitegen.UpdateVideoSelectedVariantParams{
-		SelectedQuality: qualityNull,
-		SelectedFps:     fpsNull,
-		ID:              id,
+		Quality: qualityNull,
+		Fps:     fpsNull,
+		ID:      id,
 	})
 }
 
@@ -122,7 +122,7 @@ func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSec
 			SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
 			Thumbnail:       toNullString(thumbnail),
 			CompletionKind:  completionKind,
-			Truncated:       sqliteBool(truncated),
+			Truncated:       boolToInt64(truncated),
 		})
 	})
 }
@@ -138,7 +138,7 @@ func (a *SQLiteAdapter) MarkVideoDoneAndEnqueueRecordingWebhook(ctx context.Cont
 			SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
 			Thumbnail:       toNullString(thumbnail),
 			CompletionKind:  completionKind,
-			Truncated:       sqliteBool(truncated),
+			Truncated:       boolToInt64(truncated),
 		}); err != nil {
 			return err
 		}
@@ -153,9 +153,9 @@ func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg st
 		}
 		return q.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
 			ID:             id,
-			Error:          sql.NullString{String: errMsg, Valid: true},
+			ErrMsg:         sql.NullString{String: errMsg, Valid: true},
 			CompletionKind: completionKind,
-			Truncated:      sqliteBool(truncated),
+			Truncated:      boolToInt64(truncated),
 		})
 	})
 }
@@ -167,22 +167,14 @@ func (a *SQLiteAdapter) MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Co
 		}
 		if err := q.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
 			ID:             id,
-			Error:          sql.NullString{String: errMsg, Valid: true},
+			ErrMsg:         sql.NullString{String: errMsg, Valid: true},
 			CompletionKind: completionKind,
-			Truncated:      sqliteBool(truncated),
+			Truncated:      boolToInt64(truncated),
 		}); err != nil {
 			return err
 		}
 		return sqliteCreateRecordingWebhookDeliveryIfEnabled(ctx, q, delivery)
 	})
-}
-
-// sqliteBool encodes SQLite booleans as integer 0 or 1.
-func sqliteBool(v bool) int64 {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
@@ -216,8 +208,8 @@ func (a *SQLiteAdapter) ListVideosPage(ctx context.Context, opts repository.List
 
 func (a *SQLiteAdapter) SearchVideos(ctx context.Context, query string, limit int) ([]repository.Video, error) {
 	rows, err := a.queries.SearchVideos(ctx, sqlitegen.SearchVideosParams{
-		Query:    query,
-		RowLimit: int64(limit),
+		Query: query,
+		Limit: int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite search videos: %w", err)
@@ -257,7 +249,7 @@ func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, after
 	if limit <= 0 {
 		return []repository.Video{}, nil
 	}
-	rows, err := a.queries.ListVideosPendingManualDelete(ctx, sqlitegen.ListVideosPendingManualDeleteParams{AfterID: afterID, RowLimit: int64(limit)})
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, sqlitegen.ListVideosPendingManualDeleteParams{AfterID: afterID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
 	}
@@ -266,13 +258,13 @@ func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, after
 
 func (a *SQLiteAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind string) error {
 	return a.queries.SoftDeleteVideo(ctx, sqlitegen.SoftDeleteVideoParams{
-		ID:           id,
-		DeletionKind: sql.NullString{String: kind, Valid: true},
+		ID:   id,
+		Kind: sql.NullString{String: kind, Valid: true},
 	})
 }
 
 func (a *SQLiteAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
-	rows, err := a.queries.ListRetentionCandidates(ctx, sqlitegen.ListRetentionCandidatesParams{Now: sqliteTimePtr(&now), AfterID: afterID, BatchLimit: int64(limit)})
+	rows, err := a.queries.ListRetentionCandidates(ctx, sqlitegen.ListRetentionCandidatesParams{Now: sqliteTimePtr(&now), AfterID: afterID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list finished videos for retention: %w", err)
 	}
@@ -291,8 +283,8 @@ func (a *SQLiteAdapter) ListRetentionCandidates(ctx context.Context, now time.Ti
 func (a *SQLiteAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := q.SoftDeleteVideo(ctx, sqlitegen.SoftDeleteVideoParams{
-			ID:           videoID,
-			DeletionKind: sql.NullString{String: kind, Valid: true},
+			ID:   videoID,
+			Kind: sql.NullString{String: kind, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("sqlite tombstone video: %w", err)
 		}
@@ -498,7 +490,7 @@ func (a *SQLiteAdapter) ListVideosForStorageScan(ctx context.Context, afterID in
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid storage scan page")
 	}
-	rows, err := a.queries.ListVideosForStorageScan(ctx, sqlitegen.ListVideosForStorageScanParams{AfterID: afterID, PageSize: int64(limit)})
+	rows, err := a.queries.ListVideosForStorageScan(ctx, sqlitegen.ListVideosForStorageScanParams{AfterID: afterID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos for storage scan: %w", err)
 	}
@@ -565,7 +557,7 @@ func (a *SQLiteAdapter) ListMissingTombstones(ctx context.Context, afterID int64
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid storage scan page")
 	}
-	rows, err := a.queries.ListMissingTombstones(ctx, sqlitegen.ListMissingTombstonesParams{AfterID: afterID, PageSize: int64(limit)})
+	rows, err := a.queries.ListMissingTombstones(ctx, sqlitegen.ListMissingTombstonesParams{AfterID: afterID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list missing tombstones: %w", err)
 	}
@@ -621,7 +613,7 @@ func (a *SQLiteAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs
 }
 
 func (a *SQLiteAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListRecentArchiveFailures(ctx, sqlitegen.ListRecentArchiveFailuresParams{DownloadedAt: sqliteTimePtr(&since), Limit: int64(limit)})
+	rows, err := a.queries.ListRecentArchiveFailures(ctx, sqlitegen.ListRecentArchiveFailuresParams{Since: sqliteTimePtr(&since), Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list recent archive failures: %w", err)
 	}
@@ -629,7 +621,7 @@ func (a *SQLiteAdapter) ListRecentArchiveFailures(ctx context.Context, since tim
 }
 
 func (a *SQLiteAdapter) ListArchivesDueForRetry(ctx context.Context, now, after time.Time, afterID int64, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListArchivesDueForRetry(ctx, sqlitegen.ListArchivesDueForRetryParams{Now: sqliteTimePtr(&now), AfterTime: sqliteTimePtr(&after), AfterID: afterID, BatchLimit: int64(limit)})
+	rows, err := a.queries.ListArchivesDueForRetry(ctx, sqlitegen.ListArchivesDueForRetryParams{Now: sqliteTimePtr(&now), After: sqliteTimePtr(&after), AfterID: afterID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list archives due for retry: %w", err)
 	}
@@ -638,9 +630,9 @@ func (a *SQLiteAdapter) ListArchivesDueForRetry(ctx context.Context, now, after 
 
 func (a *SQLiteAdapter) MarkArchiveFailedForRetry(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, nextRetryAt time.Time) error {
 	return a.queries.MarkArchiveFailedForRetry(ctx, sqlitegen.MarkArchiveFailedForRetryParams{
-		Error:          sql.NullString{String: errMsg, Valid: true},
+		ErrMsg:         sql.NullString{String: errMsg, Valid: true},
 		CompletionKind: completionKind,
-		Truncated:      sqliteBool(truncated),
+		Truncated:      boolToInt64(truncated),
 		NextRetryAt:    sqliteTimePtr(&nextRetryAt),
 		ID:             id,
 	})
@@ -650,7 +642,7 @@ func (a *SQLiteAdapter) ListArchivesMissingPoster(ctx context.Context, since tim
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid poster page")
 	}
-	rows, err := a.queries.ListArchivesMissingPoster(ctx, sqlitegen.ListArchivesMissingPosterParams{Since: sqliteTime(since), AfterID: afterID, PageSize: int64(limit)})
+	rows, err := a.queries.ListArchivesMissingPoster(ctx, sqlitegen.ListArchivesMissingPosterParams{Since: sqliteTime(since), AfterID: afterID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list archives missing poster: %w", err)
 	}

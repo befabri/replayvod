@@ -14,7 +14,7 @@ func (a *SQLiteAdapter) CreateSchedule(ctx context.Context, input *repository.Sc
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create schedule: %w", err)
 	}
-	return sqliteScheduleToDomain(row), nil
+	return sqliteDownloadScheduleToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
@@ -24,7 +24,7 @@ func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *re
 		if err != nil {
 			return fmt.Errorf("sqlite create schedule: %w", mapErr(err))
 		}
-		sched := sqliteScheduleToDomain(row)
+		sched := sqliteDownloadScheduleToDomain(row)
 		if err := replaceSQLiteScheduleFilters(ctx, q, sched.ID, filters); err != nil {
 			return err
 		}
@@ -42,18 +42,18 @@ func (a *SQLiteAdapter) GetSchedule(ctx context.Context, id int64) (*repository.
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return sqliteScheduleToDomain(row), nil
+	return sqliteDownloadScheduleToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*repository.DownloadSchedule, error) {
 	row, err := a.queries.GetScheduleForUserChannel(ctx, sqlitegen.GetScheduleForUserChannelParams{
 		BroadcasterID: broadcasterID,
-		RequestedBy:   userID,
+		UserID:        userID,
 	})
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return sqliteScheduleToDomain(row), nil
+	return sqliteDownloadScheduleToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
@@ -61,7 +61,7 @@ func (a *SQLiteAdapter) UpdateSchedule(ctx context.Context, id int64, input *rep
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return sqliteScheduleToDomain(row), nil
+	return sqliteDownloadScheduleToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
@@ -71,7 +71,7 @@ func (a *SQLiteAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64,
 		if err != nil {
 			return fmt.Errorf("sqlite update schedule: %w", mapErr(err))
 		}
-		sched := sqliteScheduleToDomain(row)
+		sched := sqliteDownloadScheduleToDomain(row)
 		if err := replaceSQLiteScheduleFilters(ctx, q, sched.ID, filters); err != nil {
 			return err
 		}
@@ -89,7 +89,7 @@ func (a *SQLiteAdapter) ToggleSchedule(ctx context.Context, id int64) (*reposito
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return sqliteScheduleToDomain(row), nil
+	return sqliteDownloadScheduleToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]repository.DownloadSchedule, error) {
@@ -100,19 +100,19 @@ func (a *SQLiteAdapter) ListSchedules(ctx context.Context, limit, offset int) ([
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list schedules: %w", err)
 	}
-	return sqliteSchedulesToDomain(rows), nil
+	return sqliteDownloadSchedulesToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) ListSchedulesForUser(ctx context.Context, userID string, limit, offset int) ([]repository.DownloadSchedule, error) {
 	rows, err := a.queries.ListSchedulesForUser(ctx, sqlitegen.ListSchedulesForUserParams{
-		RequestedBy: userID,
-		Limit:       int64(limit),
-		Offset:      int64(offset),
+		UserID: userID,
+		Limit:  int64(limit),
+		Offset: int64(offset),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list schedules for user: %w", err)
 	}
-	return sqliteSchedulesToDomain(rows), nil
+	return sqliteDownloadSchedulesToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]repository.DownloadSchedule, error) {
@@ -120,7 +120,7 @@ func (a *SQLiteAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, b
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list active schedules for broadcaster: %w", err)
 	}
-	return sqliteSchedulesToDomain(rows), nil
+	return sqliteDownloadSchedulesToDomain(rows), nil
 }
 
 func sqliteCreateScheduleParams(input *repository.ScheduleInput) sqlitegen.CreateScheduleParams {
@@ -187,7 +187,7 @@ func replaceSQLiteScheduleFilters(ctx context.Context, q *sqlitegen.Queries, sch
 	return nil
 }
 
-func sqliteScheduleToDomain(s sqlitegen.DownloadSchedule) *repository.DownloadSchedule {
+func sqliteDownloadScheduleToDomain(s sqlitegen.DownloadSchedule) *repository.DownloadSchedule {
 	return &repository.DownloadSchedule{
 		ID:               s.ID,
 		BroadcasterID:    s.BroadcasterID,
@@ -210,10 +210,10 @@ func sqliteScheduleToDomain(s sqlitegen.DownloadSchedule) *repository.DownloadSc
 	}
 }
 
-func sqliteSchedulesToDomain(rows []sqlitegen.DownloadSchedule) []repository.DownloadSchedule {
+func sqliteDownloadSchedulesToDomain(rows []sqlitegen.DownloadSchedule) []repository.DownloadSchedule {
 	out := make([]repository.DownloadSchedule, len(rows))
 	for i, r := range rows {
-		out[i] = *sqliteScheduleToDomain(r)
+		out[i] = *sqliteDownloadScheduleToDomain(r)
 	}
 	return out
 }

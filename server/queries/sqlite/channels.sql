@@ -125,7 +125,7 @@ LIMIT (SELECT row_limit FROM params);
 -- SQLite output stays typed through the repeated CASE/LIKE expressions.
 WITH params AS (
     SELECT CAST(@query AS text) AS search_query,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT c.* FROM channels c
 CROSS JOIN params

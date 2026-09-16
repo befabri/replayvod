@@ -27,9 +27,9 @@ func (a *PGAdapter) UpsertServerSettings(ctx context.Context, s *repository.Serv
 
 func (a *PGAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*repository.ServerSettings, error) {
 	row, err := a.queries.UpsertRecordingWebhookConfig(ctx, pggen.UpsertRecordingWebhookConfigParams{
-		RecordingWebhookEnabled: enabled,
-		RecordingWebhookUrl:     url,
-		RecordingWebhookEvents:  events,
+		Enabled: enabled,
+		Url:     url,
+		Events:  events,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert recording webhook config: %w", err)
@@ -39,9 +39,9 @@ func (a *PGAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bo
 
 func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
 	row, err := a.queries.UpsertPlaybackCacheConfig(ctx, pggen.UpsertPlaybackCacheConfigParams{
-		PlaybackCacheEnabled:      enabled,
-		PlaybackCacheMaxPercent:   int32(maxPercent),
-		PlaybackCacheAutoGenerate: autoGenerate,
+		Enabled:      enabled,
+		MaxPercent:   int32(maxPercent),
+		AutoGenerate: autoGenerate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert playback cache config: %w", err)

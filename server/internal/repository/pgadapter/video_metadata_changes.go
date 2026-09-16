@@ -52,7 +52,7 @@ func (a *PGAdapter) RecordVideoMetadataChange(
 			if err := q.UpsertVideoTitleSpan(ctx, pggen.UpsertVideoTitleSpanParams{
 				VideoID: input.VideoID,
 				TitleID: t.ID,
-				AtTime:  at,
+				At:      at,
 			}); err != nil {
 				return fmt.Errorf("pg upsert video title span: %w", err)
 			}
@@ -81,7 +81,7 @@ func (a *PGAdapter) RecordVideoMetadataChange(
 			if err := q.UpsertVideoCategorySpan(ctx, pggen.UpsertVideoCategorySpanParams{
 				VideoID:    input.VideoID,
 				CategoryID: input.CategoryID,
-				AtTime:     at,
+				At:         at,
 			}); err != nil {
 				return fmt.Errorf("pg upsert video category span: %w", err)
 			}

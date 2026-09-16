@@ -90,12 +90,12 @@ SELECT key, video_id, digest, size_bytes, unresolved, delete_requested FROM medi
 `
 
 type ListMediaPublicationsParams struct {
-	Key   string `json:"key"`
+	After string `json:"after"`
 	Limit int32  `json:"limit"`
 }
 
 func (q *Queries) ListMediaPublications(ctx context.Context, arg ListMediaPublicationsParams) ([]MediaPublication, error) {
-	rows, err := q.db.Query(ctx, listMediaPublications, arg.Key, arg.Limit)
+	rows, err := q.db.Query(ctx, listMediaPublications, arg.After, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -127,12 +127,12 @@ SELECT key, video_id, digest, size_bytes, unresolved, delete_requested FROM medi
 
 type ListRecordingPublicationsParams struct {
 	VideoID int64  `json:"video_id"`
-	Key     string `json:"key"`
+	After   string `json:"after"`
 	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListRecordingPublications(ctx context.Context, arg ListRecordingPublicationsParams) ([]MediaPublication, error) {
-	rows, err := q.db.Query(ctx, listRecordingPublications, arg.VideoID, arg.Key, arg.Limit)
+	rows, err := q.db.Query(ctx, listRecordingPublications, arg.VideoID, arg.After, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

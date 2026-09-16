@@ -29,7 +29,7 @@ SELECT * FROM subscriptions WHERE id = ?;
 
 -- name: GetActiveSubscriptionForBroadcasterType :one
 SELECT * FROM subscriptions
-WHERE broadcaster_id = ? AND type = ? AND revoked_at IS NULL;
+WHERE broadcaster_id = @broadcaster_id AND type = @sub_type AND revoked_at IS NULL;
 
 -- name: ListActiveSubscriptions :many
 SELECT * FROM subscriptions
@@ -52,8 +52,8 @@ UPDATE subscriptions SET status = ? WHERE id = ?;
 
 -- name: MarkSubscriptionRevoked :exec
 UPDATE subscriptions
-SET revoked_at = datetime('now'), revoked_reason = ?, status = 'revoked'
-WHERE id = ? AND revoked_at IS NULL;
+SET revoked_at = datetime('now'), revoked_reason = @reason, status = 'revoked'
+WHERE id = @id AND revoked_at IS NULL;
 
 -- name: DeleteSubscription :exec
 DELETE FROM subscriptions WHERE id = ?;

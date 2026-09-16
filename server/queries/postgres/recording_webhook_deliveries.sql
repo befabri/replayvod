@@ -82,7 +82,7 @@ RETURNING rwd.*;
 -- name: MarkRecordingWebhookDeliveryDelivered :exec
 UPDATE recording_webhook_deliveries
 SET status = 'delivered',
-    last_status = @last_status::int,
+    last_status = @http_status::int,
     last_error = '',
     delivered_at = @now::timestamptz,
     updated_at = @now::timestamptz
@@ -91,8 +91,8 @@ WHERE id = @id::bigint;
 -- name: MarkRecordingWebhookDeliveryFinal :exec
 UPDATE recording_webhook_deliveries
 SET status = @status::text,
-    last_status = @last_status::int,
-    last_error = @last_error::text,
+    last_status = @http_status::int,
+    last_error = @err_msg::text,
     next_attempt_at = @next_attempt_at::timestamptz,
     updated_at = @now::timestamptz
 WHERE id = @id::bigint;

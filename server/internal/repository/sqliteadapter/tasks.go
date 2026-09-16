@@ -9,8 +9,8 @@ import (
 
 func (a *SQLiteAdapter) SetTaskEnabled(ctx context.Context, name string, enabled bool) (*repository.Task, error) {
 	row, err := a.queries.SetTaskEnabled(ctx, sqlitegen.SetTaskEnabledParams{
-		Name:      name,
-		IsEnabled: boolToInt64(enabled),
+		Name:    name,
+		Enabled: boolToInt64(enabled),
 	})
 	if err != nil {
 		return nil, mapErr(err)

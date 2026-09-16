@@ -29,7 +29,7 @@ func (a *SQLiteAdapter) CreateJob(ctx context.Context, input *repository.JobInpu
 
 func (a *SQLiteAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string) error {
 	return a.queries.MarkJobFailed(ctx, sqlitegen.MarkJobFailedParams{
-		ID:    id,
-		Error: sql.NullString{String: errMsg, Valid: true},
+		ID:     id,
+		ErrMsg: sql.NullString{String: errMsg, Valid: true},
 	})
 }

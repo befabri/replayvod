@@ -38,7 +38,7 @@ SELECT * FROM subscriptions WHERE id = $1;
 -- (broadcaster_id, type). Used before creating to prevent duplicate calls
 -- to Twitch that would fail with 409.
 SELECT * FROM subscriptions
-WHERE broadcaster_id = $1 AND type = $2 AND revoked_at IS NULL;
+WHERE broadcaster_id = @broadcaster_id AND type = @sub_type AND revoked_at IS NULL;
 
 -- name: ListActiveSubscriptions :many
 SELECT * FROM subscriptions
@@ -64,8 +64,8 @@ UPDATE subscriptions SET status = $2 WHERE id = $1;
 -- issue a DELETE via the Helix API. Preserves the row for audit; the
 -- partial UNIQUE index then allows creating a replacement subscription.
 UPDATE subscriptions
-SET revoked_at = NOW(), revoked_reason = $2, status = 'revoked'
-WHERE id = $1 AND revoked_at IS NULL;
+SET revoked_at = NOW(), revoked_reason = @reason, status = 'revoked'
+WHERE id = @id AND revoked_at IS NULL;
 
 -- name: DeleteSubscription :exec
 -- Hard-delete. Only intended for cleanup after a full system teardown or

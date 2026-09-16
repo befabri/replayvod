@@ -14,7 +14,7 @@ SELECT * FROM download_schedules WHERE id = ?;
 
 -- name: GetScheduleForUserChannel :one
 SELECT * FROM download_schedules
-WHERE broadcaster_id = ? AND requested_by = ?;
+WHERE broadcaster_id = @broadcaster_id AND requested_by = @user_id;
 
 -- name: UpdateSchedule :one
 UPDATE download_schedules SET
@@ -49,9 +49,9 @@ SELECT * FROM download_schedules ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
 -- name: ListSchedulesForUser :many
 SELECT * FROM download_schedules
-WHERE requested_by = ?
+WHERE requested_by = @user_id
 ORDER BY created_at DESC
-LIMIT ? OFFSET ?;
+LIMIT @limit OFFSET @offset;
 
 -- name: ListActiveSchedulesForBroadcaster :many
 SELECT * FROM download_schedules

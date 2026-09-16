@@ -678,8 +678,8 @@ LIMIT (SELECT row_limit FROM params)
 `
 
 type SearchCategoriesParams struct {
-	Query    string `json:"query"`
-	RowLimit int64  `json:"row_limit"`
+	Query string `json:"query"`
+	Limit int64  `json:"limit"`
 }
 
 // Case-insensitive substring match on name. unicode_lower is registered by the
@@ -687,7 +687,7 @@ type SearchCategoriesParams struct {
 // search. Bind params once in a CTE with explicit casts so sqlc's SQLite output
 // stays typed through the repeated CASE/LIKE expressions.
 func (q *Queries) SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error) {
-	rows, err := q.db.QueryContext(ctx, searchCategories, arg.Query, arg.RowLimit)
+	rows, err := q.db.QueryContext(ctx, searchCategories, arg.Query, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -747,8 +747,8 @@ LIMIT (SELECT row_limit FROM params)
 `
 
 type SearchCategoriesWithVideosParams struct {
-	Query    string `json:"query"`
-	RowLimit int64  `json:"row_limit"`
+	Query string `json:"query"`
+	Limit int64  `json:"limit"`
 }
 
 // Same ranking contract as SearchCategories, restricted to categories linked to
@@ -757,7 +757,7 @@ type SearchCategoriesWithVideosParams struct {
 // Bind params once in a CTE with explicit casts: this keeps sqlc's SQLite output
 // typed while avoiding missed @param rewrites in repeated CASE/LIKE expressions.
 func (q *Queries) SearchCategoriesWithVideos(ctx context.Context, arg SearchCategoriesWithVideosParams) ([]Category, error) {
-	rows, err := q.db.QueryContext(ctx, searchCategoriesWithVideos, arg.Query, arg.RowLimit)
+	rows, err := q.db.QueryContext(ctx, searchCategoriesWithVideos, arg.Query, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -791,18 +791,18 @@ func (q *Queries) SearchCategoriesWithVideos(ctx context.Context, arg SearchCate
 
 const touchCategorySearchCache = `-- name: TouchCategorySearchCache :exec
 UPDATE category_search_cache
-SET last_accessed_at = ?,
+SET last_accessed_at = ?1,
     updated_at = datetime('now')
-WHERE normalized_query = ?
+WHERE normalized_query = ?2
 `
 
 type TouchCategorySearchCacheParams struct {
-	LastAccessedAt  sqlitetype.Time `json:"last_accessed_at"`
+	At              sqlitetype.Time `json:"at"`
 	NormalizedQuery string          `json:"normalized_query"`
 }
 
 func (q *Queries) TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error {
-	_, err := q.db.ExecContext(ctx, touchCategorySearchCache, arg.LastAccessedAt, arg.NormalizedQuery)
+	_, err := q.db.ExecContext(ctx, touchCategorySearchCache, arg.At, arg.NormalizedQuery)
 	return err
 }
 
@@ -826,34 +826,34 @@ func (q *Queries) UpdateCategoryDescription(ctx context.Context, arg UpdateCateg
 
 const updateCategoryGameMetadata = `-- name: UpdateCategoryGameMetadata :exec
 UPDATE categories
-SET box_art_url = ifnull(nullif(?2, ''), box_art_url),
-    igdb_id = ifnull(nullif(?3, ''), igdb_id),
+SET box_art_url = ifnull(nullif(CAST(?1 AS TEXT), ''), box_art_url),
+    igdb_id = ifnull(nullif(CAST(?2 AS TEXT), ''), igdb_id),
     description = CASE
-        WHEN nullif(?3, '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(?3, '')
+        WHEN nullif(CAST(?2 AS TEXT), '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(CAST(?2 AS TEXT), '')
         THEN NULL
         ELSE description
     END,
     description_checked_at = CASE
-        WHEN nullif(?3, '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(?3, '')
+        WHEN nullif(CAST(?2 AS TEXT), '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(CAST(?2 AS TEXT), '')
         THEN NULL
         ELSE description_checked_at
     END,
     game_metadata_checked_at = datetime('now'),
     updated_at = datetime('now')
-WHERE id = ?1
+WHERE id = ?3
 `
 
 type UpdateCategoryGameMetadataParams struct {
-	ID       string      `json:"id"`
-	NULLIF   interface{} `json:"NULLIF"`
-	NULLIF_2 interface{} `json:"NULLIF_2"`
+	BoxArtUrl string `json:"box_art_url"`
+	IgdbID    string `json:"igdb_id"`
+	ID        string `json:"id"`
 }
 
 // Refresh the Twitch-side category metadata returned by Helix /games.
 // Empty inputs preserve the existing value so callers can safely write
 // whichever subset Twitch returned.
 func (q *Queries) UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error {
-	_, err := q.db.ExecContext(ctx, updateCategoryGameMetadata, arg.ID, arg.NULLIF, arg.NULLIF_2)
+	_, err := q.db.ExecContext(ctx, updateCategoryGameMetadata, arg.BoxArtUrl, arg.IgdbID, arg.ID)
 	return err
 }
 

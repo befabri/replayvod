@@ -346,18 +346,18 @@ ORDER BY next_retry_at,id LIMIT $4
 `
 
 type ListArchivesDueForRetryParams struct {
-	Now        time.Time `json:"now"`
-	AfterTime  time.Time `json:"after_time"`
-	AfterID    int64     `json:"after_id"`
-	BatchLimit int32     `json:"batch_limit"`
+	Now     time.Time `json:"now"`
+	After   time.Time `json:"after"`
+	AfterID int64     `json:"after_id"`
+	Limit   int32     `json:"limit"`
 }
 
 func (q *Queries) ListArchivesDueForRetry(ctx context.Context, arg ListArchivesDueForRetryParams) ([]Video, error) {
 	rows, err := q.db.Query(ctx, listArchivesDueForRetry,
 		arg.Now,
-		arg.AfterTime,
+		arg.After,
 		arg.AfterID,
-		arg.BatchLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -421,14 +421,14 @@ ORDER BY id ASC LIMIT $3::int
 `
 
 type ListArchivesMissingPosterParams struct {
-	Since    time.Time `json:"since"`
-	AfterID  int64     `json:"after_id"`
-	PageSize int32     `json:"page_size"`
+	Since   time.Time `json:"since"`
+	AfterID int64     `json:"after_id"`
+	Limit   int32     `json:"limit"`
 }
 
 // See sqlite/videos.sql ListArchivesMissingPoster.
 func (q *Queries) ListArchivesMissingPoster(ctx context.Context, arg ListArchivesMissingPosterParams) ([]Video, error) {
-	rows, err := q.db.Query(ctx, listArchivesMissingPoster, arg.Since, arg.AfterID, arg.PageSize)
+	rows, err := q.db.Query(ctx, listArchivesMissingPoster, arg.Since, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -491,8 +491,8 @@ ORDER BY videos.id ASC LIMIT $2::int
 `
 
 type ListMissingTombstonesParams struct {
-	AfterID  int64 `json:"after_id"`
-	PageSize int32 `json:"page_size"`
+	AfterID int64 `json:"after_id"`
+	Limit   int32 `json:"limit"`
 }
 
 type ListMissingTombstonesRow struct {
@@ -503,7 +503,7 @@ type ListMissingTombstonesRow struct {
 
 // Bounded keyset page of reversible tombstones for the scan's restore phase.
 func (q *Queries) ListMissingTombstones(ctx context.Context, arg ListMissingTombstonesParams) ([]ListMissingTombstonesRow, error) {
-	rows, err := q.db.Query(ctx, listMissingTombstones, arg.AfterID, arg.PageSize)
+	rows, err := q.db.Query(ctx, listMissingTombstones, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -650,12 +650,12 @@ ORDER BY downloaded_at DESC, id DESC LIMIT $2
 `
 
 type ListRecentArchiveFailuresParams struct {
-	DownloadedAt *time.Time `json:"downloaded_at"`
-	Limit        int32      `json:"limit"`
+	Since *time.Time `json:"since"`
+	Limit int32      `json:"limit"`
 }
 
 func (q *Queries) ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error) {
-	rows, err := q.db.Query(ctx, listRecentArchiveFailures, arg.DownloadedAt, arg.Limit)
+	rows, err := q.db.Query(ctx, listRecentArchiveFailures, arg.Since, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -730,9 +730,9 @@ WHERE videos.id > $1 AND deleted_at IS NULL
 `
 
 type ListRetentionCandidatesParams struct {
-	AfterID    int64     `json:"after_id"`
-	Now        time.Time `json:"now"`
-	BatchLimit int32     `json:"batch_limit"`
+	AfterID int64     `json:"after_id"`
+	Now     time.Time `json:"now"`
+	Limit   int32     `json:"limit"`
 }
 
 type ListRetentionCandidatesRow struct {
@@ -752,7 +752,7 @@ type ListRetentionCandidatesRow struct {
 // keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 // agree on "exactly at the deadline is still retained".
 func (q *Queries) ListRetentionCandidates(ctx context.Context, arg ListRetentionCandidatesParams) ([]ListRetentionCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listRetentionCandidates, arg.AfterID, arg.Now, arg.BatchLimit)
+	rows, err := q.db.Query(ctx, listRetentionCandidates, arg.AfterID, arg.Now, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1107,8 +1107,8 @@ ORDER BY videos.id ASC LIMIT $2::int
 `
 
 type ListVideosForStorageScanParams struct {
-	AfterID  int64 `json:"after_id"`
-	PageSize int32 `json:"page_size"`
+	AfterID int64 `json:"after_id"`
+	Limit   int32 `json:"limit"`
 }
 
 type ListVideosForStorageScanRow struct {
@@ -1119,7 +1119,7 @@ type ListVideosForStorageScanRow struct {
 
 // Bounded keyset page of terminal recordings safe to reconcile.
 func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error) {
-	rows, err := q.db.Query(ctx, listVideosForStorageScan, arg.AfterID, arg.PageSize)
+	rows, err := q.db.Query(ctx, listVideosForStorageScan, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1249,15 +1249,15 @@ LIMIT $2
 `
 
 type ListVideosPendingManualDeleteParams struct {
-	AfterID  int64 `json:"after_id"`
-	RowLimit int32 `json:"row_limit"`
+	AfterID int64 `json:"after_id"`
+	Limit   int32 `json:"limit"`
 }
 
 // Operator-requested deletions that are safe for the background worker to
 // finalize. The webhook frozen-parts guard mirrors retention: do not delete
 // video_parts until any pending/delivering delivery has captured them.
 func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, arg ListVideosPendingManualDeleteParams) ([]Video, error) {
-	rows, err := q.db.Query(ctx, listVideosPendingManualDelete, arg.AfterID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listVideosPendingManualDelete, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1314,29 +1314,29 @@ const markArchiveFailedForRetry = `-- name: MarkArchiveFailedForRetry :exec
 UPDATE videos SET
     status = 'FAILED',
     downloaded_at = NOW(),
-    error = $2,
-    completion_kind = $3,
-    truncated = $4,
-    next_retry_at = $5
-WHERE id = $1 AND source = 'vod'
+    error = $1,
+    completion_kind = $2,
+    truncated = $3,
+    next_retry_at = $4
+WHERE id = $5 AND source = 'vod'
 `
 
 type MarkArchiveFailedForRetryParams struct {
-	ID             int64      `json:"id"`
-	Error          *string    `json:"error"`
+	ErrMsg         *string    `json:"err_msg"`
 	CompletionKind string     `json:"completion_kind"`
 	Truncated      bool       `json:"truncated"`
 	NextRetryAt    *time.Time `json:"next_retry_at"`
+	ID             int64      `json:"id"`
 }
 
 // See sqlite/videos.sql MarkArchiveFailedForRetry.
 func (q *Queries) MarkArchiveFailedForRetry(ctx context.Context, arg MarkArchiveFailedForRetryParams) error {
 	_, err := q.db.Exec(ctx, markArchiveFailedForRetry,
-		arg.ID,
-		arg.Error,
+		arg.ErrMsg,
 		arg.CompletionKind,
 		arg.Truncated,
 		arg.NextRetryAt,
+		arg.ID,
 	)
 	return err
 }
@@ -1386,17 +1386,17 @@ const markVideoFailed = `-- name: MarkVideoFailed :exec
 UPDATE videos SET
     status = 'FAILED',
     downloaded_at = NOW(),
-    error = $2,
-    completion_kind = $3,
-    truncated = $4
-WHERE id = $1
+    error = $1,
+    completion_kind = $2,
+    truncated = $3
+WHERE id = $4
 `
 
 type MarkVideoFailedParams struct {
-	ID             int64   `json:"id"`
-	Error          *string `json:"error"`
+	ErrMsg         *string `json:"err_msg"`
 	CompletionKind string  `json:"completion_kind"`
 	Truncated      bool    `json:"truncated"`
+	ID             int64   `json:"id"`
 }
 
 // completion_kind: 'cancelled' for operator-initiated stops, 'partial'
@@ -1409,10 +1409,10 @@ type MarkVideoFailedParams struct {
 // transitioned to DONE via the natural ENDLIST path).
 func (q *Queries) MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error {
 	_, err := q.db.Exec(ctx, markVideoFailed,
-		arg.ID,
-		arg.Error,
+		arg.ErrMsg,
 		arg.CompletionKind,
 		arg.Truncated,
+		arg.ID,
 	)
 	return err
 }
@@ -1591,12 +1591,12 @@ LIMIT $1
 `
 
 type SearchVideosParams struct {
-	RowLimit int32  `json:"row_limit"`
-	Query    string `json:"query"`
+	Limit int32  `json:"limit"`
+	Query string `json:"query"`
 }
 
 func (q *Queries) SearchVideos(ctx context.Context, arg SearchVideosParams) ([]Video, error) {
-	rows, err := q.db.Query(ctx, searchVideos, arg.RowLimit, arg.Query)
+	rows, err := q.db.Query(ctx, searchVideos, arg.Limit, arg.Query)
 	if err != nil {
 		return nil, err
 	}
@@ -1687,21 +1687,21 @@ UPDATE videos
 SET deleted_at = NOW(),
     deletion_kind = CASE
       WHEN delete_requested_at IS NOT NULL THEN 'manual'
-      ELSE $2
+      ELSE $1
     END,
     thumbnail = NULL,
     delete_requested_at = NULL
-WHERE id = $1 AND (deleted_at IS NULL OR deletion_kind = 'missing')
+WHERE id = $2 AND (deleted_at IS NULL OR deletion_kind = 'missing')
 `
 
 type SoftDeleteVideoParams struct {
-	ID           int64   `json:"id"`
-	DeletionKind *string `json:"deletion_kind"`
+	Kind *string `json:"kind"`
+	ID   int64   `json:"id"`
 }
 
 // Tombstone a recording after its objects were deleted.
 func (q *Queries) SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error {
-	_, err := q.db.Exec(ctx, softDeleteVideo, arg.ID, arg.DeletionKind)
+	_, err := q.db.Exec(ctx, softDeleteVideo, arg.Kind, arg.ID)
 	return err
 }
 
@@ -1835,19 +1835,19 @@ func (q *Queries) TombstoneMissingVideo(ctx context.Context, id int64) (int64, e
 
 const updateVideoSelectedVariant = `-- name: UpdateVideoSelectedVariant :exec
 UPDATE videos SET
-    selected_quality = $2,
-    selected_fps = $3
-WHERE id = $1
+    selected_quality = $1,
+    selected_fps = $2
+WHERE id = $3
 `
 
 type UpdateVideoSelectedVariantParams struct {
-	ID              int64    `json:"id"`
-	SelectedQuality *string  `json:"selected_quality"`
-	SelectedFps     *float64 `json:"selected_fps"`
+	Quality *string  `json:"quality"`
+	Fps     *float64 `json:"fps"`
+	ID      int64    `json:"id"`
 }
 
 func (q *Queries) UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error {
-	_, err := q.db.Exec(ctx, updateVideoSelectedVariant, arg.ID, arg.SelectedQuality, arg.SelectedFps)
+	_, err := q.db.Exec(ctx, updateVideoSelectedVariant, arg.Quality, arg.Fps, arg.ID)
 	return err
 }
 

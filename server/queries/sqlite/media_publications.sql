@@ -19,7 +19,7 @@ UPDATE media_publications SET delete_requested = 1 WHERE key = ?1;
 DELETE FROM media_publications WHERE key = ?1 AND unresolved = 0;
 
 -- name: ListMediaPublications :many
-SELECT * FROM media_publications WHERE key > ?1 ORDER BY key LIMIT ?2;
+SELECT * FROM media_publications WHERE key > @after ORDER BY key LIMIT @limit;
 
 -- name: ListRecordingPublications :many
-SELECT * FROM media_publications WHERE video_id = ?1 AND key > ?2 ORDER BY key LIMIT ?3;
+SELECT * FROM media_publications WHERE video_id = @video_id AND key > @after ORDER BY key LIMIT @limit;

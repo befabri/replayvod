@@ -53,10 +53,10 @@ func (a *SQLiteAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, 
 	return out, nil
 }
 
-func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error {
+func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, httpStatus int, now time.Time) error {
 	if err := a.queries.MarkRecordingWebhookDeliveryDelivered(ctx, sqlitegen.MarkRecordingWebhookDeliveryDeliveredParams{
 		ID:         id,
-		LastStatus: int64(status),
+		HttpStatus: int64(httpStatus),
 		Now:        sqliteTimePtr(&now),
 	}); err != nil {
 		return fmt.Errorf("sqlite mark recording webhook delivery delivered: %w", err)
@@ -68,8 +68,8 @@ func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, i
 	if err := a.queries.MarkRecordingWebhookDeliveryFinal(ctx, sqlitegen.MarkRecordingWebhookDeliveryFinalParams{
 		ID:            id,
 		Status:        status,
-		LastStatus:    int64(httpStatus),
-		LastError:     errMsg,
+		HttpStatus:    int64(httpStatus),
+		ErrMsg:        errMsg,
 		NextAttemptAt: sqliteTime(nextAttemptAt),
 		Now:           sqliteTime(now),
 	}); err != nil {
