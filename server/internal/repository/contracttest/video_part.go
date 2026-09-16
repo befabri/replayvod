@@ -89,8 +89,12 @@ func testVideoCountsAndMissingThumbnails(t *testing.T, h Harness) {
 		t.Fatal(err)
 	}
 	poster := "poster.jpg"
-	if err := repo.MarkVideoDone(ctx, withPoster.ID, 60, 1024, &poster, repository.CompletionKindComplete, false); err != nil {
+	if err := repo.MarkVideoDone(ctx, withPoster.ID, 3600.5, 1<<30, &poster, repository.CompletionKindComplete, false); err != nil {
 		t.Fatal(err)
+	}
+	if got, err := repo.GetVideo(ctx, withPoster.ID); err != nil || got.Status != repository.VideoStatusDone || got.DurationSeconds == nil || *got.DurationSeconds != 3600.5 ||
+		got.SizeBytes == nil || *got.SizeBytes != 1<<30 || got.Thumbnail == nil || *got.Thumbnail != poster || got.DownloadedAt == nil {
+		t.Fatalf("finished video = %+v, %v", got, err)
 	}
 	for status, want := range map[string]int64{repository.VideoStatusPending: 1, repository.VideoStatusDone: 2, repository.VideoStatusFailed: 0} {
 		if n, err := repo.CountVideosByStatus(ctx, status); err != nil || n != want {

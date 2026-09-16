@@ -77,6 +77,17 @@ func testListRetentionCandidates(t *testing.T, h Harness) {
 	finish(failedComplete, repository.VideoStatusFailed, repository.CompletionKindComplete, overdue)
 	pending := mk("pending", &window)
 	h.BackdateVideoDownloadedAt(t, pending.ID, overdue)
+	// A finished row that never recorded when it finished has no deadline.
+	unstamped, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID: "done-unstamped", Filename: "done-unstamped", DisplayName: "bc-1",
+		Status: repository.VideoStatusDone, Quality: repository.QualityHigh,
+		BroadcasterID: "bc-1", RecordingType: repository.RecordingTypeVideo,
+		RetentionWindowHours: &window,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names[unstamped.ID] = "done-unstamped"
 	gone := mk("gone", &window)
 	finish(gone, repository.VideoStatusDone, repository.CompletionKindComplete, overdue)
 	if err := repo.SoftDeleteVideo(ctx, gone.ID, repository.DeletionKindRetention); err != nil {

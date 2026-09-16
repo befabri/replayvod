@@ -23,13 +23,15 @@ func testStreamLifecycleAndListing(t *testing.T, h Harness) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
+	mature := true
 	for _, s := range []repository.StreamInput{
 		{ID: "a1", BroadcasterID: "bc-a", Type: "live", Language: "en", ViewerCount: 5, StartedAt: now.Add(-2 * time.Hour)},
-		{ID: "a2", BroadcasterID: "bc-a", Type: "live", Language: "en", ViewerCount: 5, StartedAt: now.Add(-time.Hour)},
+		{ID: "a2", BroadcasterID: "bc-a", Type: "live", Language: "en", ViewerCount: 5, StartedAt: now.Add(-time.Hour), IsMature: &mature},
 		{ID: "b1", BroadcasterID: "bc-b", Type: "live", Language: "fr", ViewerCount: 1, StartedAt: now},
 	} {
-		if _, err := repo.UpsertStream(ctx, &s); err != nil {
-			t.Fatalf("seed stream %s: %v", s.ID, err)
+		got, err := repo.UpsertStream(ctx, &s)
+		if err != nil || !got.StartedAt.Equal(s.StartedAt) || (s.IsMature == nil) != (got.IsMature == nil) || (s.IsMature != nil && *got.IsMature != *s.IsMature) {
+			t.Fatalf("seed stream %s = %+v, %v", s.ID, got, err)
 		}
 	}
 	active, err := repo.ListActiveStreams(ctx)

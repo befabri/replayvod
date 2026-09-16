@@ -36,9 +36,11 @@ func testUserLookupAndWhitelist(t *testing.T, h Harness) {
 	if !seen["alice"] || !seen["bob"] {
 		t.Fatalf("users = %+v", users)
 	}
-	for _, id := range []string{"w-1", "w-2"} {
+	// The bootstrap seed adds the owner on every start, so a repeat must be
+	// accepted rather than rejected as a duplicate.
+	for _, id := range []string{"w-1", "w-2", "w-1"} {
 		if err := repo.AddToWhitelist(ctx, id); err != nil {
-			t.Fatal(err)
+			t.Fatalf("add %s: %v", id, err)
 		}
 	}
 	if err := repo.RemoveFromWhitelist(ctx, "w-1"); err != nil {
