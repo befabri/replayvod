@@ -130,12 +130,9 @@ jobs:
       - run: go vet ./...
       - name: Server tests and race detection
         run: go test -race -count=1 ./...
-      - name: Install sqlc
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+      # Pinned in server/Taskfile.yml as well; keep the two in step.
       - name: Check committed sqlc output is up to date
-        run: |
-          "$(go env GOPATH)/bin/sqlc" generate
-          git diff --exit-code internal/repository/pgadapter/pggen internal/repository/sqliteadapter/sqlitegen
+        run: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0 diff
       # The PG/SQLite adapter row mappers + simple method bodies are generated
       # from the domain model + the sqlc output above. Regenerate and fail on
       # drift (also catches a hand-written method left unharvested) and on a

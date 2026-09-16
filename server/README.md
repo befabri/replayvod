@@ -270,13 +270,15 @@ databases. Docker must be running. Additional suites use build tags.
 
 ```bash
 task test                   # unit and database tests, PostgreSQL 17 via Docker
+task test-race              # the same under the race detector, uncached, as CI runs it
 task test-integration       # additional HTTP and Garage S3 integration tests
 task test-upgrade           # latest published release → candidate Docker image
 task test-upgrade-full      # historical releases, including larger datasets
 task test-ffmpeg            # //go:build ffmpeg       — real ffmpeg/ffprobe
 task test-live              # //go:build live         — real Twitch endpoints (opt-in)
 task vet
-task check                  # vet + test
+task check                  # fmt, vet, build, codegen drift checks, test
+task check:full             # everything CI runs: adds race, ffmpeg, integration, tRPC drift
 ```
 
 The optional [test environment recipe](test-environment/Dockerfile) provides Go,

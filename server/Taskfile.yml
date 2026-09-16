@@ -2,6 +2,9 @@ version: "3"
 
 vars:
   BINARY_NAME: server
+  # sqlc is pinned here and in .github/workflows/landing.yml; keep the two in
+  # step. go run resolves it from the module cache without touching go.mod.
+  SQLC: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
   # Ratchet ceiling for `task crap:gate`. No function in internal/ may exceed
   # this CRAP score. It only goes down: as you cover/refactor the worst
   # offenders, run `task crap` to see the new max and lower this toward 6.0.
@@ -26,6 +29,11 @@ tasks:
     desc: Run all tests
     cmds:
       - go test ./...
+
+  test-race:
+    desc: Run all tests under the race detector without cached results, as CI does
+    cmds:
+      - go test -race -count=1 ./...
 
   test-upgrade:
     desc: Build the production image and verify upgrades from existing installations
@@ -148,13 +156,12 @@ tasks:
   sqlc:
     desc: Generate sqlc code
     cmds:
-      - sqlc generate
+      - "{{.SQLC}} generate"
 
   sqlc:check:
-    desc: CI gate — fails when committed pggen/sqlitegen are out of sync with queries
+    desc: CI gate — fails when committed pggen/sqlitegen are out of sync with queries, without rewriting them
     cmds:
-      - task: sqlc
-      - git diff --exit-code internal/repository/pgadapter/pggen internal/repository/sqliteadapter/sqlitegen
+      - "{{.SQLC}} diff"
 
   trpcgen:
     desc: Generate TypeScript + Zod types from tRPC procedures
@@ -217,8 +224,39 @@ tasks:
     cmds:
       - gofmt -w .
 
-  check:
-    desc: Run all checks (vet + test)
+  fmt:check:
+    desc: Fail listing any file gofmt would rewrite
     cmds:
+      - |
+        out=$(gofmt -l .); [ -z "$out" ] || { echo "$out"; exit 1; }
+
+  check:
+    desc: |
+      Pre-commit gate: format, vet, build, every codegen drift check that
+      does not rewrite files, and the test suite. Needs Docker for the
+      PostgreSQL packages. Everything CI runs on top of this is in check:full.
+    cmds:
+      - task: fmt:check
       - task: vet
+      - go build -o /dev/null ./cmd/server
+      - task: sqlc:check
+      - task: repo-adapter-gen:check
+      - task: twitch-api-gen:check
       - task: test
+
+  check:full:
+    desc: |
+      Everything the Public CI server and server-integration jobs run,
+      plus fmt:check and the build. trpcgen:check rewrites
+      dashboard/src/api/generated/ before diffing it.
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - go build -o /dev/null ./cmd/server
+      - task: sqlc:check
+      - task: repo-adapter-gen:check
+      - task: twitch-api-gen:check
+      - task: trpcgen:check
+      - task: test-race
+      - task: test-ffmpeg
+      - task: test-integration
