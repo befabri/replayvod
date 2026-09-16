@@ -133,6 +133,28 @@ func Run(t *testing.T, newHarness Factory) {
 
 	run("VideoMetadataChange_RoundTripsMediaOffset", testVideoMetadataChangeRoundTripsMediaOffset)
 
+	// lookups, listings and deletes generated from single queries
+	run("Session_Lifecycle", testSessionLifecycle)
+	run("AppToken_Expiry", testAppTokenExpiry)
+	run("User_LookupAndWhitelist", testUserLookupAndWhitelist)
+	run("User_FollowsAndUnfollow", testUserFollowsAndUnfollow)
+	run("Channel_LookupAndDelete", testChannelLookupAndDelete)
+	run("Stream_LifecycleAndListing", testStreamLifecycleAndListing)
+	run("Stream_MetadataLinks", testStreamMetadataLinks)
+	run("Tag_TagsAndVideoTags", testTagsAndVideoTags)
+	run("Category_LookupAndSearchCache", testCategoryLookupAndSearchCache)
+	run("Schedule_FiltersAndToggle", testScheduleFiltersAndToggle)
+	run("Subscription_LookupsAndCounts", testSubscriptionLookupsAndCounts)
+	run("EventSub_Snapshots", testEventSubSnapshots)
+	run("WebhookEvent_ProcessingAndListing", testWebhookEventProcessingAndListing)
+	run("EventLog_ListingAndCounts", testEventLogListingAndCounts)
+	run("FetchLog_ListingByType", testFetchLogListingByType)
+	run("VideoPart_Lifecycle", testVideoPartsLifecycle)
+	run("Video_CountsAndMissingThumbnails", testVideoCountsAndMissingThumbnails)
+	run("PlaybackAsset_LookupAndReadyBytes", testPlaybackAssetLookupAndReadyBytes)
+	run("Settings_Lookup", testSettingsLookup)
+	run("Task_Listing", testTaskListing)
+
 	// errors
 	run("NotFound_OnMissingGet", testNotFoundOnMissingGet)
 
