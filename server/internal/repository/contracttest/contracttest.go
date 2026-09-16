@@ -65,6 +65,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("StoppedAdmissionRejectsInitialMetadata", testStoppedAdmissionRejectsInitialMetadata)
 	run("JobStopAndMetadataGuards", testJobStopAndMetadataGuards)
 	run("RecordingIntent_ActivationWindow", testRecordingIntentActivationWindow)
+	run("RecordingIntent_DeadlinePrecision", testRecordingIntentDeadlinePrecision)
 	run("RecordingIntent_CloseReleasesChannel", testCloseRecordingIntentReleasesChannel)
 	run("RecordingIntent_GetByJob", testGetRecordingIntentByJob)
 	run("RecordingIntent_LinkVideoPositionsAndUniqueness", testLinkRecordingIntentVideoPositionsAndUniqueness)

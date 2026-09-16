@@ -66,3 +66,23 @@ func (t *Time) Scan(src any) error {
 func (t Time) Value() (driver.Value, error) {
 	return Format(t.Time), nil
 }
+
+const preciseLayout = "2006-01-02 15:04:05.000000000"
+
+// PreciseTime is a Time written with its nanoseconds. It is for the few
+// columns compared against instants that carry sub-second parts, such as a
+// recording intent's restart deadline, where whole seconds would let an
+// observation a millisecond late slip inside the window. Scan reads either
+// layout, but as text a precise value sorts after the plain spelling of its
+// own second, so a column and the values compared to it must share one.
+type PreciseTime struct {
+	Time
+}
+
+func NewPreciseTime(t time.Time) PreciseTime {
+	return PreciseTime{Time: NewTime(t)}
+}
+
+func (t PreciseTime) Value() (driver.Value, error) {
+	return t.UTC().Format(preciseLayout), nil
+}

@@ -3,4 +3,4 @@
 # when a count rises. Raising a count by hand is a deliberate, reviewable
 # decision that a new method cannot be generated.
 pgadapter 109
-sqliteadapter 110
+sqliteadapter 109

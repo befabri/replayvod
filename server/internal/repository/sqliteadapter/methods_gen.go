@@ -13,6 +13,10 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
+func (a *SQLiteAdapter) ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error {
+	return executionAffected(a.queries.ActivateRecordingIntent(ctx, sqlitegen.ActivateRecordingIntentParams{ID: id, PreviousJobID: previousJobID, NextJobID: nextJobID, StreamID: streamID, ObservedAt: sqlitePreciseTimePtr(&observedAt)}))
+}
+
 func (a *SQLiteAdapter) AddToWhitelist(ctx context.Context, twitchUserID string) error {
 	return a.queries.AddToWhitelist(ctx, twitchUserID)
 }

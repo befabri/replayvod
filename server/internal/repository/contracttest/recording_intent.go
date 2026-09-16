@@ -104,6 +104,33 @@ func testRecordingIntentActivationWindow(t *testing.T, h Harness) {
 	}
 }
 
+// testRecordingIntentDeadlinePrecision pins the restart deadline to the
+// millisecond on every backend: a deadline off the whole second reads back
+// exactly, an observation a millisecond past it is stale, and one on it
+// activates.
+func testRecordingIntentDeadlinePrecision(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	first := seedIntentAttempt(t, ctx, repo, "precision-channel", "precision", "precision-first")
+	deadline := time.Now().UTC().Truncate(time.Second).Add(2*time.Minute + 500*time.Millisecond)
+	if err := repo.SetRecordingIntentWaiting(ctx, "precision", first.JobID, deadline); err != nil {
+		t.Fatal(err)
+	}
+	intent, err := repo.GetRecordingIntent(ctx, "precision")
+	if err != nil || intent.WaitUntil == nil || !intent.WaitUntil.Equal(deadline) {
+		t.Fatalf("deadline %v read back as %+v, %v", deadline, intent, err)
+	}
+	if err := repo.ActivateRecordingIntent(ctx, "precision", first.JobID, "precision-second", "stream-2", deadline.Add(time.Millisecond)); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("observation a millisecond past the deadline activated: %v", err)
+	}
+	if err := repo.ActivateRecordingIntent(ctx, "precision", first.JobID, "precision-second", "stream-2", deadline); err != nil {
+		t.Fatalf("observation on the deadline: %v", err)
+	}
+	intent, err = repo.GetRecordingIntent(ctx, "precision")
+	if err != nil || intent.Status != repository.RecordingIntentStatusActive || intent.CurrentJobID != "precision-second" || intent.WaitUntil != nil {
+		t.Fatalf("activated intent = %+v, %v", intent, err)
+	}
+}
+
 func testCloseRecordingIntentReleasesChannel(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	first := seedIntentAttempt(t, ctx, repo, "close-channel", "close", "close-first")

@@ -146,6 +146,22 @@ func timePtrFromSQLite(t *sqlitetype.Time) *time.Time {
 	return &out
 }
 
+func sqlitePreciseTimePtr(t *time.Time) *sqlitetype.PreciseTime {
+	if t == nil {
+		return nil
+	}
+	out := sqlitetype.NewPreciseTime(*t)
+	return &out
+}
+
+func timePtrFromSQLitePrecise(t *sqlitetype.PreciseTime) *time.Time {
+	if t == nil {
+		return nil
+	}
+	out := t.Time.Time
+	return &out
+}
+
 // anyToFloat64 accepts SQLite REAL and INTEGER aggregates; NULL and unknown
 // representations yield zero.
 func anyToFloat64(v any) float64 {

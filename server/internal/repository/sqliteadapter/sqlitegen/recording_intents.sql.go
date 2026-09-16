@@ -13,15 +13,15 @@ import (
 )
 
 const activateRecordingIntent = `-- name: ActivateRecordingIntent :execrows
-UPDATE recording_intents SET status='active',current_job_id=?1,last_stream_id=?2,wait_until=NULL WHERE id=?3 AND current_job_id=?4 AND status='waiting' AND stop_requested=0 AND wait_until >= CAST(?5 AS TEXT)
+UPDATE recording_intents SET status='active',current_job_id=?1,last_stream_id=?2,wait_until=NULL WHERE id=?3 AND current_job_id=?4 AND status='waiting' AND stop_requested=0 AND wait_until >= ?5
 `
 
 type ActivateRecordingIntentParams struct {
-	NextJobID     string `json:"next_job_id"`
-	StreamID      string `json:"stream_id"`
-	ID            string `json:"id"`
-	PreviousJobID string `json:"previous_job_id"`
-	ObservedAt    string `json:"observed_at"`
+	NextJobID     string                  `json:"next_job_id"`
+	StreamID      string                  `json:"stream_id"`
+	ID            string                  `json:"id"`
+	PreviousJobID string                  `json:"previous_job_id"`
+	ObservedAt    *sqlitetype.PreciseTime `json:"observed_at"`
 }
 
 func (q *Queries) ActivateRecordingIntent(ctx context.Context, arg ActivateRecordingIntentParams) (int64, error) {
@@ -311,13 +311,13 @@ func (q *Queries) RequestRecordingIntentStop(ctx context.Context, id string) err
 }
 
 const setRecordingIntentWaiting = `-- name: SetRecordingIntentWaiting :execrows
-UPDATE recording_intents SET status='waiting',wait_until=CAST(?1 AS TEXT) WHERE id=?2 AND current_job_id=?3 AND status='active' AND stop_requested=0
+UPDATE recording_intents SET status='waiting',wait_until=?1 WHERE id=?2 AND current_job_id=?3 AND status='active' AND stop_requested=0
 `
 
 type SetRecordingIntentWaitingParams struct {
-	Until string `json:"until"`
-	ID    string `json:"id"`
-	JobID string `json:"job_id"`
+	Until *sqlitetype.PreciseTime `json:"until"`
+	ID    string                  `json:"id"`
+	JobID string                  `json:"job_id"`
 }
 
 func (q *Queries) SetRecordingIntentWaiting(ctx context.Context, arg SetRecordingIntentWaitingParams) (int64, error) {

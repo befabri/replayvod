@@ -189,8 +189,10 @@ sql:
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
           - column: "recording_intents.created_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          # The restart deadline is compared against observation instants
+          # carrying sub-second parts, so it keeps its nanoseconds.
           - column: "recording_intents.wait_until"
-            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "PreciseTime", pointer: true }
           - column: "jobs.created_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "jobs.updated_at"

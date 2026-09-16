@@ -55,6 +55,10 @@ type Repository interface {
 	LockRecordingIntent(ctx context.Context, id string) (*RecordingIntent, error)
 	GetRecordingIntentByJob(ctx context.Context, jobID string) (*RecordingIntent, error)
 	ListRecoverableRecordingIntents(ctx context.Context, afterID string, limit int) ([]RecordingIntent, error)
+	// SetRecordingIntentWaiting parks the intent until the deadline and
+	// ActivateRecordingIntent admits the successor observed on or before it.
+	// Backends keep the deadline to at least the millisecond, so an
+	// observation a millisecond past it is stale everywhere.
 	SetRecordingIntentWaiting(ctx context.Context, id, jobID string, until time.Time) error
 	ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error
 	CloseRecordingIntent(ctx context.Context, id, status string) error

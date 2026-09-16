@@ -13,7 +13,7 @@ func (a *SQLiteAdapter) CreateRecordingIntent(ctx context.Context, input reposit
 }
 
 func (a *SQLiteAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID string, until time.Time) error {
-	n, err := a.queries.SetRecordingIntentWaiting(ctx, sqlitegen.SetRecordingIntentWaitingParams{ID: id, JobID: jobID, Until: until.UTC().Format("2006-01-02 15:04:05.000000000")})
+	n, err := a.queries.SetRecordingIntentWaiting(ctx, sqlitegen.SetRecordingIntentWaitingParams{ID: id, JobID: jobID, Until: sqlitePreciseTimePtr(&until)})
 	if err != nil {
 		return err
 	}
@@ -28,9 +28,6 @@ func (a *SQLiteAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID
 		return nil
 	}
 	return repository.ErrStaleExecution
-}
-func (a *SQLiteAdapter) ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error {
-	return executionAffected(a.queries.ActivateRecordingIntent(ctx, sqlitegen.ActivateRecordingIntentParams{ID: id, PreviousJobID: previousJobID, NextJobID: nextJobID, StreamID: streamID, ObservedAt: observedAt.UTC().Format("2006-01-02 15:04:05.000000000")}))
 }
 
 func (a *SQLiteAdapter) ListRelatedRecordings(ctx context.Context, videoID int64) ([]repository.RelatedRecording, error) {

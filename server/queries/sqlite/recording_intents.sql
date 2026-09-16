@@ -15,10 +15,10 @@ SELECT recording_intents.* FROM recording_intents JOIN recording_intent_videos O
 SELECT recording_intents.* FROM recording_intents WHERE recording_intents.id>sqlc.arg(after_id) AND (recording_intents.status IN ('active','waiting') OR EXISTS (SELECT 1 FROM recording_intent_videos r JOIN videos v ON v.id=r.video_id JOIN jobs j ON j.id=v.job_id WHERE r.intent_id=recording_intents.id AND j.status IN ('PENDING','RUNNING'))) ORDER BY recording_intents.id LIMIT sqlc.arg(limit);
 
 -- name: SetRecordingIntentWaiting :execrows
-UPDATE recording_intents SET status='waiting',wait_until=CAST(sqlc.arg(until) AS TEXT) WHERE id=sqlc.arg(id) AND current_job_id=sqlc.arg(job_id) AND status='active' AND stop_requested=0;
+UPDATE recording_intents SET status='waiting',wait_until=sqlc.arg(until) WHERE id=sqlc.arg(id) AND current_job_id=sqlc.arg(job_id) AND status='active' AND stop_requested=0;
 
 -- name: ActivateRecordingIntent :execrows
-UPDATE recording_intents SET status='active',current_job_id=sqlc.arg(next_job_id),last_stream_id=sqlc.arg(stream_id),wait_until=NULL WHERE id=sqlc.arg(id) AND current_job_id=sqlc.arg(previous_job_id) AND status='waiting' AND stop_requested=0 AND wait_until >= CAST(sqlc.arg(observed_at) AS TEXT);
+UPDATE recording_intents SET status='active',current_job_id=sqlc.arg(next_job_id),last_stream_id=sqlc.arg(stream_id),wait_until=NULL WHERE id=sqlc.arg(id) AND current_job_id=sqlc.arg(previous_job_id) AND status='waiting' AND stop_requested=0 AND wait_until >= sqlc.arg(observed_at);
 
 -- name: CloseRecordingIntent :exec
 UPDATE recording_intents SET status=sqlc.arg(status),wait_until=NULL WHERE id=sqlc.arg(id);

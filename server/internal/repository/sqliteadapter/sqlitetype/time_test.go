@@ -24,6 +24,11 @@ func TestTimeScan(t *testing.T) {
 			want: time.Date(2026, 4, 12, 15, 30, 45, 0, time.UTC),
 		},
 		{
+			name: "precise layout keeps its nanoseconds",
+			src:  "2026-04-12 15:30:45.123456789",
+			want: time.Date(2026, 4, 12, 15, 30, 45, 123456789, time.UTC),
+		},
+		{
 			name: "nil is zero for optional projection",
 			src:  nil,
 			want: time.Time{},
@@ -63,5 +68,26 @@ func TestTimeValueFormatsUTC(t *testing.T) {
 	var _ driver.Value = got
 	if got != "2026-06-03 11:00:00" {
 		t.Fatalf("Value() = %q, want UTC SQLite layout", got)
+	}
+}
+
+func TestPreciseTimeValueKeepsNanoseconds(t *testing.T) {
+	in := NewPreciseTime(time.Date(2026, 6, 3, 12, 0, 0, 123456789, time.FixedZone("offset", 3600)))
+	got, err := in.Value()
+	if err != nil {
+		t.Fatalf("Value() error = %v", err)
+	}
+	if got != "2026-06-03 11:00:00.123456789" {
+		t.Fatalf("Value() = %q, want UTC precise layout", got)
+	}
+	var back PreciseTime
+	if err := back.Scan(got); err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if !back.Equal(in.Time.Time) {
+		t.Fatalf("round trip = %v, want %v", back.Time.Time, in.Time.Time)
+	}
+	if plain, _ := NewTime(in.Time.Time).Value(); !(plain.(string) < got.(string)) {
+		t.Fatalf("precise %q must sort after the same second %q", got, plain)
 	}
 }

@@ -158,7 +158,7 @@ func sqliteRecordingIntentToDomain(src sqlitegen.RecordingIntent) *repository.Re
 		Status:        src.Status,
 		StopRequested: src.StopRequested != 0,
 		WaitSeconds:   src.WaitSeconds,
-		WaitUntil:     timePtrFromSQLite(src.WaitUntil),
+		WaitUntil:     timePtrFromSQLitePrecise(src.WaitUntil),
 	}
 }
 
