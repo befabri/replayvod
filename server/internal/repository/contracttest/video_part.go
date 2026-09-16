@@ -147,3 +147,46 @@ func testPlaybackAssetLookupAndReadyBytes(t *testing.T, h Harness) {
 		t.Fatalf("ready bytes after delete = %d, %v", n, err)
 	}
 }
+
+func testListVideoPartsForVideos(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "bc-1")
+	first := seedLiveJob(t, ctx, repo, "parts-first", "bc-1")
+	second := seedLiveJob(t, ctx, repo, "parts-second", "bc-1")
+	third := seedLiveJob(t, ctx, repo, "parts-third", "bc-1")
+	for _, p := range []struct {
+		video *repository.Video
+		index int32
+	}{{second, 2}, {first, 3}, {second, 1}, {first, 1}, {third, 1}} {
+		if _, err := repo.CreateVideoPart(ctx, &repository.VideoPartInput{
+			VideoID: p.video.ID, PartIndex: p.index, Filename: fmt.Sprintf("%s-%d.mp4", p.video.JobID, p.index),
+			Quality: "1080", Codec: repository.CodecH264, SegmentFormat: repository.SegmentFormatFMP4,
+		}); err != nil {
+			t.Fatalf("create part %d of %s: %v", p.index, p.video.JobID, err)
+		}
+	}
+	if parts, err := repo.ListVideoPartsForVideos(ctx, nil); err != nil || len(parts) != 0 {
+		t.Fatalf("parts of no videos = %+v, %v", parts, err)
+	}
+	if parts, err := repo.ListVideoPartsForVideos(ctx, []int64{third.ID + 1000}); err != nil || len(parts) != 0 {
+		t.Fatalf("parts of an unknown video = %+v, %v", parts, err)
+	}
+	parts, err := repo.ListVideoPartsForVideos(ctx, []int64{second.ID, third.ID + 1000, first.ID, second.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSlice(t, partFilenames(parts), []string{"parts-first-1.mp4", "parts-first-3.mp4", "parts-second-1.mp4", "parts-second-2.mp4"})
+	for _, p := range parts {
+		if p.VideoID != first.ID && p.VideoID != second.ID {
+			t.Fatalf("part %+v belongs to a video that was not requested", p)
+		}
+	}
+}
+
+func partFilenames(parts []repository.VideoPart) []string {
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		out[i] = p.Filename
+	}
+	return out
+}

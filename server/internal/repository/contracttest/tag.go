@@ -2,6 +2,7 @@ package contracttest
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -108,4 +109,49 @@ func testCategoryLookupAndSearchCache(t *testing.T, h Harness) {
 	if got, err := repo.GetCategorySearchCache(ctx, "fresh"); err != nil || len(got.CategoryIDs) != 1 || got.CategoryIDs[0] != "a" {
 		t.Fatalf("live cache lost: %+v, %v", got, err)
 	}
+}
+
+func testPruneCategorySearchCache(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	now := time.Now().UTC().Truncate(time.Second)
+	// Insertion order is interleaved with access recency so that neither the
+	// oldest nor the newest rows are the ones expected to survive.
+	access := map[string]time.Duration{"hot": -time.Hour, "stale": -4 * time.Hour, "recent": -2 * time.Hour, "old": -3 * time.Hour}
+	cache := func(query string) {
+		t.Helper()
+		if _, err := repo.UpsertCategorySearchCache(ctx, repository.CategorySearchCacheInput{
+			NormalizedQuery: query, CategoryIDs: []string{query}, ExpiresAt: now.Add(time.Hour), LastAccessedAt: now.Add(access[query]),
+		}); err != nil {
+			t.Fatalf("cache %s: %v", query, err)
+		}
+	}
+	for _, query := range []string{"hot", "stale", "recent", "old"} {
+		cache(query)
+	}
+	prune := func(maxRows int, want ...string) {
+		t.Helper()
+		if err := repo.PruneCategorySearchCache(ctx, maxRows); err != nil {
+			t.Fatalf("prune to %d: %v", maxRows, err)
+		}
+		for _, query := range []string{"hot", "stale", "recent", "old"} {
+			_, err := repo.GetCategorySearchCache(ctx, query)
+			switch {
+			case err != nil && !errors.Is(err, repository.ErrNotFound):
+				t.Fatal(err)
+			case (err == nil) != slices.Contains(want, query):
+				t.Fatalf("after pruning to %d, %s cached = %v, want survivors %v", maxRows, query, err == nil, want)
+			}
+		}
+	}
+	prune(10, "hot", "stale", "recent", "old")
+	prune(4, "hot", "stale", "recent", "old")
+	prune(2, "hot", "recent")
+	if err := repo.TouchCategorySearchCache(ctx, "hot", now.Add(-6*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	prune(1, "recent")
+	prune(0)
+	cache("hot")
+	prune(-1)
+	prune(0)
 }

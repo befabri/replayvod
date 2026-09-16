@@ -2,6 +2,7 @@ package contracttest
 
 import (
 	"context"
+	"maps"
 	"testing"
 	"time"
 
@@ -108,4 +109,132 @@ func testVideoStatisticsTotals(t *testing.T, h Harness) {
 		}
 	}
 	assertTotals("viewer", repository.VideoStatsTotals{Removed: 7})
+}
+
+func testVideoStatsByStatus(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	byStatus := func() map[string]int64 {
+		t.Helper()
+		rows, err := repo.VideoStatsByStatus(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make(map[string]int64, len(rows))
+		for _, r := range rows {
+			if _, dup := out[r.Status]; dup {
+				t.Fatalf("status %s repeats in %+v", r.Status, rows)
+			}
+			out[r.Status] = r.Count
+		}
+		return out
+	}
+	if got := byStatus(); len(got) != 0 {
+		t.Fatalf("stats of an empty library = %v", got)
+	}
+	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
+	create := func(job string) *repository.Video {
+		t.Helper()
+		v, err := repo.CreateVideo(ctx, executionInput(job))
+		if err != nil {
+			t.Fatalf("create %s: %v", job, err)
+		}
+		return v
+	}
+	create("pending")
+	pendingGone := create("pending-gone")
+	running := create("running")
+	if err := repo.UpdateVideoStatus(ctx, running.ID, repository.VideoStatusRunning); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []*repository.Video{create("done"), create("done-gone")} {
+		if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed := create("failed")
+	if err := repo.MarkVideoFailed(ctx, failed.ID, "boom", repository.CompletionKindComplete, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SoftDeleteVideo(ctx, pendingGone.ID, repository.DeletionKindManual); err != nil {
+		t.Fatal(err)
+	}
+	doneGone, err := repo.GetVideoByJobID(ctx, "done-gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SoftDeleteVideo(ctx, doneGone.ID, repository.DeletionKindRetention); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int64{
+		repository.VideoStatusPending: 1, repository.VideoStatusRunning: 1,
+		repository.VideoStatusDone: 1, repository.VideoStatusFailed: 1,
+	}
+	if got := byStatus(); !maps.Equal(got, want) {
+		t.Fatalf("stats by status = %v, want %v", got, want)
+	}
+	if err := repo.SoftDeleteVideo(ctx, failed.ID, repository.DeletionKindManual); err != nil {
+		t.Fatal(err)
+	}
+	delete(want, repository.VideoStatusFailed)
+	if got := byStatus(); !maps.Equal(got, want) {
+		t.Fatalf("stats after removing every failed row = %v, want %v", got, want)
+	}
+}
+
+func testVideoStatsTotalsByBroadcaster(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	assertTotals := func(broadcasterID string, want repository.VideoStatsTotals) {
+		t.Helper()
+		got, err := repo.VideoStatsTotalsByBroadcaster(ctx, broadcasterID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if *got != want {
+			t.Fatalf("totals for %q = %+v, want %+v", broadcasterID, *got, want)
+		}
+	}
+	assertTotals("a", repository.VideoStatsTotals{})
+	for _, id := range []string{"a", "b"} {
+		if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: id, BroadcasterLogin: id, BroadcasterName: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	create := func(job, channel, status string) *repository.Video {
+		t.Helper()
+		v, err := repo.CreateVideo(ctx, &repository.VideoInput{
+			JobID: job, Filename: job, DisplayName: job, BroadcasterID: channel,
+			Status: status, Quality: repository.QualityHigh, Language: "en",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	done := func(job, channel string, duration float64, size int64, kind string) *repository.Video {
+		t.Helper()
+		v := create(job, channel, repository.VideoStatusPending)
+		if err := repo.MarkVideoDone(ctx, v.ID, duration, size, nil, kind, false); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	done("big", "a", 100.25, 1<<40, repository.CompletionKindComplete)
+	done("small", "a", 200.5, 7, repository.CompletionKindPartial)
+	create("bare", "a", repository.VideoStatusDone)
+	create("running", "a", repository.VideoStatusRunning)
+	failed := create("failed", "a", repository.VideoStatusPending)
+	if err := repo.MarkVideoFailed(ctx, failed.ID, "boom", repository.CompletionKindPartial, true); err != nil {
+		t.Fatal(err)
+	}
+	gone := done("gone", "a", 9000, 1<<42, repository.CompletionKindComplete)
+	if err := repo.SoftDeleteVideo(ctx, gone.ID, repository.DeletionKindRetention); err != nil {
+		t.Fatal(err)
+	}
+	done("other", "b", 50.125, 3, repository.CompletionKindComplete)
+	assertTotals("a", repository.VideoStatsTotals{Total: 3, TotalSize: 1<<40 + 7, TotalDuration: 300.75})
+	assertTotals("b", repository.VideoStatsTotals{Total: 1, TotalSize: 3, TotalDuration: 50.125})
+	assertTotals("missing", repository.VideoStatsTotals{})
+	if library, err := repo.VideoStatsTotals(ctx, ""); err != nil || library.Removed != 1 {
+		t.Fatalf("library totals = %+v, %v; the tombstone counts there and nowhere per broadcaster", library, err)
+	}
 }

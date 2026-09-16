@@ -563,3 +563,47 @@ func collectVideoListPageJobIDs(t *testing.T, ctx context.Context, repo reposito
 		cursor = page.NextCursor
 	}
 }
+
+func testUpdateVideoSelectedVariant(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "bc-1")
+	v := seedLiveJob(t, ctx, repo, "variant-job", "bc-1")
+	if v.SelectedQuality != nil || v.SelectedFPS != nil {
+		t.Fatalf("new video already has a variant: %+v", v)
+	}
+	variant := func(when string, wantQuality *string, wantFPS *float64) {
+		t.Helper()
+		got, err := repo.GetVideo(ctx, v.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (got.SelectedQuality == nil) != (wantQuality == nil) || (wantQuality != nil && *got.SelectedQuality != *wantQuality) ||
+			(got.SelectedFPS == nil) != (wantFPS == nil) || (wantFPS != nil && *got.SelectedFPS != *wantFPS) {
+			t.Fatalf("variant %s = %v/%v, want %v/%v", when, got.SelectedQuality, got.SelectedFPS, wantQuality, wantFPS)
+		}
+		if got.Quality != v.Quality || got.Status != v.Status {
+			t.Fatalf("variant update %s changed the requested tier or status: %+v", when, got)
+		}
+	}
+	high, low, fps := "1080p60", "720p", 59.94
+	if err := repo.UpdateVideoSelectedVariant(ctx, v.ID, high, &fps); err != nil {
+		t.Fatal(err)
+	}
+	variant("after selecting", &high, &fps)
+	if err := repo.UpdateVideoSelectedVariant(ctx, v.ID, low, nil); err != nil {
+		t.Fatal(err)
+	}
+	variant("after dropping the frame rate", &low, nil)
+	if err := repo.UpdateVideoSelectedVariant(ctx, v.ID, "", &fps); err != nil {
+		t.Fatal(err)
+	}
+	variant("after an empty quality", nil, &fps)
+	if err := repo.UpdateVideoSelectedVariant(ctx, v.ID, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	variant("after clearing", nil, nil)
+	if err := repo.UpdateVideoSelectedVariant(ctx, v.ID+1000, high, &fps); err != nil {
+		t.Fatalf("variant of an unknown video: %v", err)
+	}
+	variant("after updating an unknown video", nil, nil)
+}

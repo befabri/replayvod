@@ -51,6 +51,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run := func(name string, fn func(*testing.T, Harness)) {
 		t.Run(name, func(t *testing.T) { fn(t, newHarness(t)) })
 	}
+	run("Ping", testPing)
 	run("RowLocks_RequireTransaction", testRowLocksRequireTransaction)
 	run("Recording_TerminalTransaction", testRecordingTerminalTransaction)
 	run("Recording_TerminalOutboxRollback", testRecordingTerminalOutboxRollback)
@@ -96,6 +97,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Subscription_RevokeKeepsRowForAudit", testSubscriptionRevokeKeepsRowForAudit)
 	run("Subscription_ListActiveStableWithTiedCreatedAt", testSubscriptionListActiveStableWithTiedCreatedAt)
 	run("Subscription_ActiveUniquePerBroadcasterType", testSubscriptionActiveUniquePerBroadcasterType)
+	run("Subscription_UpsertMirrorsTwitch", testUpsertSubscriptionMirrorsTwitch)
 
 	run("WebhookEvent_DedupOnConflict", testWebhookEventDedupOnConflict)
 	run("WebhookEvent_PayloadRoundTrip", testWebhookEventPayloadRoundTrip)
@@ -139,10 +141,12 @@ func Run(t *testing.T, newHarness Factory) {
 	run("User_LookupAndWhitelist", testUserLookupAndWhitelist)
 	run("User_FollowsAndUnfollow", testUserFollowsAndUnfollow)
 	run("Channel_LookupAndDelete", testChannelLookupAndDelete)
+	run("Channel_ListUserStatesForChannels", testListChannelUserStatesForChannels)
 	run("Stream_LifecycleAndListing", testStreamLifecycleAndListing)
 	run("Stream_MetadataLinks", testStreamMetadataLinks)
 	run("Tag_TagsAndVideoTags", testTagsAndVideoTags)
 	run("Category_LookupAndSearchCache", testCategoryLookupAndSearchCache)
+	run("Category_PruneSearchCache", testPruneCategorySearchCache)
 	run("Schedule_FiltersAndToggle", testScheduleFiltersAndToggle)
 	run("Subscription_LookupsAndCounts", testSubscriptionLookupsAndCounts)
 	run("EventSub_Snapshots", testEventSubSnapshots)
@@ -150,6 +154,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("EventLog_ListingAndCounts", testEventLogListingAndCounts)
 	run("FetchLog_ListingByType", testFetchLogListingByType)
 	run("VideoPart_Lifecycle", testVideoPartsLifecycle)
+	run("VideoPart_ListForVideos", testListVideoPartsForVideos)
 	run("Video_CountsAndMissingThumbnails", testVideoCountsAndMissingThumbnails)
 	run("PlaybackAsset_LookupAndReadyBytes", testPlaybackAssetLookupAndReadyBytes)
 	run("Settings_Lookup", testSettingsLookup)
@@ -162,6 +167,8 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_ListForStorageScan", testListVideosForStorageScan)
 	run("Video_SoftDeleteThumbnail", testSoftDeleteVideoThumbnail)
 	run("Video_MissingTombstoneRestoreAndPermanentRemoval", testMissingTombstoneRestoreAndPermanentRemoval)
+	run("Video_FinalizeDelete", testFinalizeDelete)
+	run("Video_ListRetentionCandidates", testListRetentionCandidates)
 
 	run("PlaybackAsset_ReadyToFailedTransition", testPlaybackAssetReadyToFailedTransition)
 	run("PlaybackAsset_ListReadyLRUOrder", testPlaybackAssetListReadyLRUOrder)
@@ -189,6 +196,7 @@ func Run(t *testing.T, newHarness Factory) {
 
 	// videos
 	run("Video_CreateNormalizesRecordingSettings", testCreateVideoNormalizesRecordingSettings)
+	run("Video_UpdateSelectedVariant", testUpdateVideoSelectedVariant)
 	run("Video_ListByJobIDs", testListVideosByJobIDs)
 	run("Video_ListPageCursorPagination", testListVideosPageCursorPagination)
 	run("Video_ListPageFiltersAndNullCursor", testListVideosPageFiltersAndNullCursor)
@@ -225,6 +233,8 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_ListPageTerminalOnlyHistoryWhen", testListVideosPageTerminalOnlyHistoryWhen)
 	run("Video_UserStateFiltersAndStatistics", testVideoUserStateFiltersAndStatistics)
 	run("Video_StatisticsTotals", testVideoStatisticsTotals)
+	run("Video_StatsByStatus", testVideoStatsByStatus)
+	run("Video_StatsTotalsByBroadcaster", testVideoStatsTotalsByBroadcaster)
 	run("User_PlaybackSettings", testUserPlaybackSettings)
 	run("Video_ContinueWatchingPolicyAndOrder", testContinueWatchingPolicyAndOrder)
 	run("Video_HistoryOutcomeCounts", testVideoHistoryOutcomeCounts)

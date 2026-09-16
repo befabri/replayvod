@@ -233,3 +233,63 @@ func testWebhookEventPayloadRoundTrip(t *testing.T, h Harness) {
 		t.Errorf("payload round-trip differs:\n want=%q\n got =%q", string(payload), string(reloaded.Payload))
 	}
 }
+
+func testUpsertSubscriptionMirrorsTwitch(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "bc-1")
+	bid := "bc-1"
+	created := time.Now().UTC().Truncate(time.Second)
+	input := func(id, status string, cost int64, callback string) *repository.SubscriptionInput {
+		return &repository.SubscriptionInput{
+			ID: id, Status: status, Type: "stream.online", Version: "1", Cost: cost,
+			Condition: []byte(`{"broadcaster_user_id":"bc-1"}`), BroadcasterID: &bid,
+			TransportMethod: "webhook", TransportCallback: callback, TwitchCreatedAt: created,
+		}
+	}
+	first, err := repo.UpsertSubscription(ctx, input("sub-mirror", "enabled", 1, "https://example/cb"))
+	if err != nil || first.ID != "sub-mirror" || first.Status != "enabled" || first.Cost != 1 || first.RevokedAt != nil || !first.TwitchCreatedAt.Equal(created) || first.CreatedAt.IsZero() {
+		t.Fatalf("mirrored subscription = %+v, %v", first, err)
+	}
+	if n, err := repo.CountActiveSubscriptions(ctx); err != nil || n != 1 {
+		t.Fatalf("active count = %d, %v", n, err)
+	}
+	if _, err := repo.CreateSubscription(ctx, input("sub-mirror", "enabled", 1, "https://example/cb")); err == nil {
+		t.Fatal("create accepted an id the mirror already holds")
+	}
+
+	drift := input("sub-mirror", "webhook_callback_verification_failed", 0, "https://example/cb2")
+	drift.Type, drift.Version, drift.TwitchCreatedAt = "stream.offline", "2", created.Add(time.Hour)
+	second, err := repo.UpsertSubscription(ctx, drift)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Status != drift.Status || second.Cost != 0 || second.TransportCallback != "https://example/cb2" {
+		t.Fatalf("second upsert kept stale mutable columns: %+v", second)
+	}
+	if second.Type != "stream.online" || second.Version != "1" || !second.TwitchCreatedAt.Equal(created) || !second.CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("second upsert rewrote identity columns: %+v", second)
+	}
+	if got, err := repo.GetSubscription(ctx, "sub-mirror"); err != nil || got.Status != drift.Status || got.Cost != 0 {
+		t.Fatalf("stored subscription = %+v, %v", got, err)
+	}
+	if _, err := repo.UpsertSubscription(ctx, input("sub-second", "enabled", 1, "https://example/cb")); err == nil {
+		t.Fatal("upsert accepted a second active subscription for the same broadcaster and type")
+	}
+
+	if err := repo.MarkSubscriptionRevoked(ctx, "sub-mirror", "user_removed"); err != nil {
+		t.Fatal(err)
+	}
+	revived, err := repo.UpsertSubscription(ctx, input("sub-mirror", "enabled", 1, "https://example/cb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revived.Status != "enabled" || revived.RevokedAt == nil || revived.RevokedReason == nil || *revived.RevokedReason != "user_removed" {
+		t.Fatalf("upsert after revoke = %+v, want the status refreshed and the revocation kept", revived)
+	}
+	if _, err := repo.UpsertSubscription(ctx, input("sub-second", "enabled", 1, "https://example/cb")); err != nil {
+		t.Fatalf("upsert beside a revoked subscription: %v", err)
+	}
+	if active, err := repo.ListActiveSubscriptions(ctx, 10, 0); err != nil || len(active) != 1 || active[0].ID != "sub-second" {
+		t.Fatalf("active subscriptions = %+v, %v", active, err)
+	}
+}
