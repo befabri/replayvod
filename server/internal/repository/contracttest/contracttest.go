@@ -159,6 +159,14 @@ func Run(t *testing.T, newHarness Factory) {
 	run("PlaybackAsset_LookupAndReadyBytes", testPlaybackAssetLookupAndReadyBytes)
 	run("Settings_Lookup", testSettingsLookup)
 	run("Task_Listing", testTaskListing)
+	run("User_UpsertKeepsAssignedRole", testUserUpsertKeepsAssignedRole)
+	run("Channel_ColumnsRoundTrip", testChannelColumnsRoundTrip)
+	run("Category_ColumnsRoundTrip", testCategoryColumnsRoundTrip)
+	run("Video_ColumnsRoundTrip", testVideoColumnsRoundTrip)
+	run("Video_RetentionRefsOutliveSchedule", testVideoRetentionRefsOutliveSchedule)
+	run("ServerSettings_FreshInsertHasEmptyURLs", testServerSettingsFreshInsertHasEmptyURLs)
+	run("VideoMetadataChange_ProjectsPartialObservations", testVideoMetadataChangesProjectPartialObservations)
+	run("EventLog_DataRoundTrip", testEventLogDataRoundTrip)
 
 	// errors
 	run("NotFound_OnMissingGet", testNotFoundOnMissingGet)

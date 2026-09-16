@@ -155,3 +155,20 @@ func testPruneCategorySearchCache(t *testing.T, h Harness) {
 	prune(-1)
 	prune(0)
 }
+
+func testCategoryColumnsRoundTrip(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	art, igdb := "https://cdn.example.com/g-rt-{width}x{height}.jpg", "igdb-rt"
+	in := &repository.Category{ID: "cat-rt", Name: "Roundtrip", BoxArtURL: &art, IGDBID: &igdb}
+	if _, err := repo.UpsertCategory(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.SearchCategories(ctx, "Roundtrip", 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("search = %+v, %v", rows, err)
+	}
+	got := rows[0]
+	if got.ID != in.ID || got.Name != in.Name || derefString(got.BoxArtURL) != art || derefString(got.IGDBID) != igdb || got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("category = %+v", got)
+	}
+}

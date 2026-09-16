@@ -105,3 +105,30 @@ func testUserFollowsAndUnfollow(t *testing.T, h Harness) {
 		t.Fatalf("follows of an unknown user = %+v, %v", follows, err)
 	}
 }
+
+// testUserUpsertKeepsAssignedRole is the regression gate for the upsert
+// leaving role out of its update: a returning user keeps the role an admin
+// assigned rather than the default the Twitch sync passes on every login.
+func testUserUpsertKeepsAssignedRole(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	email, profile := "test@example.com", "https://example.com/pic.png"
+	created, err := repo.UpsertUser(ctx, &repository.User{ID: "12345", Login: "testuser", DisplayName: "TestUser", Email: &email, ProfileImageURL: &profile, Role: "viewer"})
+	if err != nil || created.CreatedAt.IsZero() {
+		t.Fatalf("created user = %+v, %v", created, err)
+	}
+	got, err := repo.GetUser(ctx, "12345")
+	if err != nil || got.Login != "testuser" || got.Role != "viewer" || got.Email == nil || *got.Email != email || got.ProfileImageURL == nil || *got.ProfileImageURL != profile {
+		t.Fatalf("user = %+v, %v", got, err)
+	}
+	updated, err := repo.UpsertUser(ctx, &repository.User{ID: "12345", Login: "testuser", DisplayName: "Renamed", Email: &email, ProfileImageURL: &profile, Role: "viewer"})
+	if err != nil || updated.DisplayName != "Renamed" || !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("re-upserted user = %+v, %v; created %v", updated, err, created.CreatedAt)
+	}
+	if err := repo.UpdateUserRole(ctx, "12345", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	promoted, err := repo.UpsertUser(ctx, &repository.User{ID: "12345", Login: "testuser", DisplayName: "Renamed", Email: &email, ProfileImageURL: &profile, Role: "viewer"})
+	if err != nil || promoted.Role != "admin" {
+		t.Fatalf("upsert clobbered the assigned role: %+v, %v", promoted, err)
+	}
+}

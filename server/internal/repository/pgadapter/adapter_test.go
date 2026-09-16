@@ -21,86 +21,6 @@ func newTestAdapter(t *testing.T) *PGAdapter {
 	return New(pool)
 }
 
-// TestUser_Upsert_RoundTrip covers the primary auth path: OAuth callback
-// upserts a Twitch user, later reads load the same fields. A second upsert
-// should update mutable fields (DisplayName) but preserve CreatedAt so the
-// "first-login wins" semantics aren't lost.
-func TestUser_Upsert_RoundTrip(t *testing.T) {
-	ctx := context.Background()
-	a := newTestAdapter(t)
-
-	email := "test@example.com"
-	profile := "https://example.com/pic.png"
-	created, err := a.UpsertUser(ctx, &repository.User{
-		ID:              "12345",
-		Login:           "testuser",
-		DisplayName:     "TestUser",
-		Email:           &email,
-		ProfileImageURL: &profile,
-		Role:            "viewer",
-	})
-	if err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-	if created.CreatedAt.IsZero() {
-		t.Error("CreatedAt should be set by the DB default")
-	}
-
-	got, err := a.GetUser(ctx, "12345")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Login != "testuser" {
-		t.Errorf("Login: got %q", got.Login)
-	}
-	if got.Role != "viewer" {
-		t.Errorf("Role: got %q", got.Role)
-	}
-	if got.Email == nil || *got.Email != email {
-		t.Errorf("Email round-trip: %v", got.Email)
-	}
-	if got.ProfileImageURL == nil || *got.ProfileImageURL != profile {
-		t.Errorf("ProfileImageURL round-trip: %v", got.ProfileImageURL)
-	}
-
-	// Re-upsert with a changed display name AND a different role. The query
-	// deliberately excludes `role` from the ON CONFLICT UPDATE SET so that
-	// a returning user keeps whatever role the admin assigned them — not
-	// whatever Twitch-synced default the caller happens to pass. This test
-	// is the regression gate: if someone adds `role = EXCLUDED.role` to the
-	// upsert, a privilege downgrade (or escalation) ships silently.
-	updated, err := a.UpsertUser(ctx, &repository.User{
-		ID: "12345", Login: "testuser", DisplayName: "Renamed",
-		Email: &email, ProfileImageURL: &profile, Role: "viewer",
-	})
-	if err != nil {
-		t.Fatalf("re-upsert: %v", err)
-	}
-	if updated.DisplayName != "Renamed" {
-		t.Errorf("DisplayName not updated: got %q", updated.DisplayName)
-	}
-	if !updated.CreatedAt.Equal(created.CreatedAt) {
-		t.Errorf("CreatedAt must be preserved across upsert: was %v, now %v",
-			created.CreatedAt, updated.CreatedAt)
-	}
-
-	// Manually promote to admin via the dedicated mutation, then re-upsert
-	// with the default "viewer" role — the promoted role must survive.
-	if err := a.UpdateUserRole(ctx, "12345", "admin"); err != nil {
-		t.Fatalf("update role: %v", err)
-	}
-	reUpsert, err := a.UpsertUser(ctx, &repository.User{
-		ID: "12345", Login: "testuser", DisplayName: "Renamed",
-		Email: &email, ProfileImageURL: &profile, Role: "viewer",
-	})
-	if err != nil {
-		t.Fatalf("re-upsert after promote: %v", err)
-	}
-	if reUpsert.Role != "admin" {
-		t.Errorf("upsert must not clobber role: want admin, got %q", reUpsert.Role)
-	}
-}
-
 func TestServerSettings_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -215,37 +135,5 @@ func TestServerSettings_UpsertPreservesCreatedAtAndAdvancesUpdatedAt(t *testing.
 	}
 	if !updated.UpdatedAt.After(old) {
 		t.Fatalf("updated_at = %v, want advanced past %v on upsert", updated.UpdatedAt, old)
-	}
-}
-
-// TestUpsertChannel_ViewCountExceedsInt32 is the regression guard for the
-// view_count int32 truncation: the largest Twitch channels report view counts
-// above the signed-32-bit ceiling, and the old INTEGER column wrapped them.
-// After widening to BIGINT the value must round-trip intact through both the
-// upsert return and a fresh read.
-func TestUpsertChannel_ViewCountExceedsInt32(t *testing.T) {
-	ctx := context.Background()
-	a := newTestAdapter(t)
-
-	const huge = int64(3_000_000_000) // > math.MaxInt32 (2_147_483_647)
-	saved, err := a.UpsertChannel(ctx, &repository.Channel{
-		BroadcasterID:    "big-channel",
-		BroadcasterLogin: "big",
-		BroadcasterName:  "Big",
-		ViewCount:        huge,
-	})
-	if err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
-	}
-	if saved.ViewCount != huge {
-		t.Fatalf("upsert returned view_count = %d, want %d (truncated to int32?)", saved.ViewCount, huge)
-	}
-
-	got, err := a.GetChannel(ctx, "big-channel")
-	if err != nil {
-		t.Fatalf("GetChannel: %v", err)
-	}
-	if got.ViewCount != huge {
-		t.Fatalf("persisted view_count = %d, want %d", got.ViewCount, huge)
 	}
 }

@@ -12,11 +12,13 @@ func testChannelLookupAndDelete(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	SeedUserChannel(t, ctx, repo, "viewer", "beta")
 	description := "plays chess"
-	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "alpha", BroadcasterLogin: "alpha", BroadcasterName: "Alpha", Description: &description, ViewCount: 7}); err != nil {
-		t.Fatal(err)
+	// Twitch view counts exceed int32; a narrower column or scan truncates.
+	const views = int64(3_000_000_000)
+	if saved, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "alpha", BroadcasterLogin: "alpha", BroadcasterName: "Alpha", Description: &description, ViewCount: views}); err != nil || saved.ViewCount != views {
+		t.Fatalf("upserted channel = %+v, %v", saved, err)
 	}
 	got, err := repo.GetChannel(ctx, "alpha")
-	if err != nil || got.BroadcasterLogin != "alpha" || got.BroadcasterName != "Alpha" || got.Description == nil || *got.Description != description || got.ViewCount != 7 {
+	if err != nil || got.BroadcasterLogin != "alpha" || got.BroadcasterName != "Alpha" || got.Description == nil || *got.Description != description || got.ViewCount != views {
 		t.Fatalf("channel = %+v, %v", got, err)
 	}
 	if byLogin, err := repo.GetChannelByLogin(ctx, "alpha"); err != nil || byLogin.BroadcasterID != "alpha" {
@@ -109,5 +111,43 @@ func testListChannelUserStatesForChannels(t *testing.T, h Harness) {
 	}
 	if got := favorites("viewer", "beta", "beta"); !maps.Equal(got, map[string]bool{"beta": false}) {
 		t.Fatalf("states for a repeated channel = %v", got)
+	}
+}
+
+func testChannelColumnsRoundTrip(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	lang, profile, offline, desc, btype := "en", "https://example.com/profile.png", "https://example.com/offline.png", "Channel description with context.", "partner"
+	in := &repository.Channel{
+		BroadcasterID: "bc-rt", BroadcasterLogin: "login_rt", BroadcasterName: "Display RT",
+		BroadcasterLanguage: &lang, ProfileImageURL: &profile, OfflineImageURL: &offline, Description: &desc, BroadcasterType: &btype, ViewCount: 9876,
+	}
+	if _, err := repo.UpsertChannel(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.SearchChannels(ctx, "login_rt", 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("search = %+v, %v", rows, err)
+	}
+	got := rows[0]
+	for _, c := range []struct {
+		name      string
+		got, want any
+	}{
+		{"BroadcasterID", got.BroadcasterID, in.BroadcasterID},
+		{"BroadcasterLogin", got.BroadcasterLogin, in.BroadcasterLogin},
+		{"BroadcasterName", got.BroadcasterName, in.BroadcasterName},
+		{"BroadcasterLanguage", derefString(got.BroadcasterLanguage), lang},
+		{"ProfileImageURL", derefString(got.ProfileImageURL), profile},
+		{"OfflineImageURL", derefString(got.OfflineImageURL), offline},
+		{"Description", derefString(got.Description), desc},
+		{"BroadcasterType", derefString(got.BroadcasterType), btype},
+		{"ViewCount", got.ViewCount, in.ViewCount},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
+		}
+	}
+	if got.CreatedAt.IsZero() {
+		t.Error("CreatedAt was not stamped by the database")
 	}
 }

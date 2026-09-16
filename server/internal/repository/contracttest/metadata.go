@@ -77,3 +77,28 @@ func testVideoMetadataChangeRoundTripsMediaOffset(t *testing.T, h Harness) {
 		t.Fatalf("Category = %+v, want game-1/Game One", events[0].Category)
 	}
 }
+
+// testVideoMetadataChangesProjectPartialObservations pins that an
+// observation carrying only a title, or only a category, lists with the
+// other side absent rather than failing on the empty join.
+func testVideoMetadataChangesProjectPartialObservations(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	videoID := SeedMetadataVideo(t, ctx, repo, "meta-partial", "meta-partial-job")
+	at := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{JobID: "meta-partial-job", ExecutionID: "metadata-execution", VideoID: videoID, OccurredAt: at, Title: "Title only"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{JobID: "meta-partial-job", ExecutionID: "metadata-execution", VideoID: videoID, OccurredAt: at.Add(time.Minute), CategoryID: "game-partial", CategoryName: "Category only"}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+	if events[0].Title == nil || events[0].Title.Name != "Title only" || events[0].Category != nil {
+		t.Fatalf("title-only event = %+v", events[0])
+	}
+	if events[1].Title != nil || events[1].Category == nil || events[1].Category.ID != "game-partial" {
+		t.Fatalf("category-only event = %+v", events[1])
+	}
+}

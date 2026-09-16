@@ -19,13 +19,10 @@ func testdbSQLiteDB(t *testing.T) *sql.DB {
 	return testdb.NewSQLiteDB(t)
 }
 
-// TestEventLog_Append_PreservesJSONData checks the JSON round-trip on the data
-// column. SQLite stores TEXT, so unlike the Postgres JSONB path this asserts
-// byte-for-byte equality: a structured-logging caller needs the bytes back
-// unchanged so downstream JSON consumers don't silently get a string-of-bytes.
-// The semantic round-trip is covered backend-agnostically by the contract
-// suite (WebhookEvent_PayloadRoundTrip); this pins SQLite's stronger
-// byte-exact guarantee.
+// TestEventLog_Append_PreservesJSONData pins SQLite's byte-exact storage of
+// the data column, which the contract suite cannot promise because Postgres
+// JSONB reorders keys. The semantic round trip both backends owe is
+// EventLog_DataRoundTrip in contracttest.
 func TestEventLog_Append_PreservesJSONData(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)

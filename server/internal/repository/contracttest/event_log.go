@@ -1,6 +1,7 @@
 package contracttest
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -72,5 +73,30 @@ func testFetchLogListingByType(t *testing.T, h Harness) {
 	}
 	if n, err := repo.CountFetchLogsByType(ctx, "helix"); err != nil || n != 2 {
 		t.Fatalf("helix count = %d, %v", n, err)
+	}
+}
+
+// testEventLogDataRoundTrip compares the structured data semantically:
+// Postgres stores it as JSONB and may reorder keys, SQLite keeps the text.
+func testEventLogDataRoundTrip(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	data := json.RawMessage(`{"schedule_id":42,"job_id":"abc-123","nested":{"parts":[1,2,3]}}`)
+	created, err := repo.CreateEventLog(ctx, &repository.EventLogInput{Domain: "recording", EventType: "start", Severity: repository.EventLogSeverityInfo, Message: "started", Data: data})
+	if err != nil || created.CreatedAt.IsZero() {
+		t.Fatalf("created log = %+v, %v", created, err)
+	}
+	var want, got any
+	if err := json.Unmarshal(data, &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(created.Data, &got); err != nil || !jsonEqual(got, want) {
+		t.Fatalf("returned data = %s, %v; want %s", created.Data, err, data)
+	}
+	listed, err := repo.ListEventLogs(ctx, 10, 0)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("logs = %+v, %v", listed, err)
+	}
+	if err := json.Unmarshal(listed[0].Data, &got); err != nil || !jsonEqual(got, want) {
+		t.Fatalf("listed data = %s, %v; want %s", listed[0].Data, err, data)
 	}
 }
