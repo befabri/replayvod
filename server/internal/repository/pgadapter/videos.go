@@ -18,13 +18,13 @@ func (a *PGAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64,
 	at = at.UTC()
 	if err := a.queries.ResumeVideoTitleSpan(ctx, pggen.ResumeVideoTitleSpanParams{
 		VideoID: videoID,
-		AtTime:  at,
+		At:      at,
 	}); err != nil {
 		return fmt.Errorf("pg resume video title spans: %w", err)
 	}
 	if err := a.queries.ResumeVideoCategorySpan(ctx, pggen.ResumeVideoCategorySpanParams{
 		VideoID: videoID,
-		AtTime:  at,
+		At:      at,
 	}); err != nil {
 		return fmt.Errorf("pg resume video category spans: %w", err)
 	}
@@ -37,13 +37,13 @@ func closeOpenVideoMetadataSpansWith(ctx context.Context, q *pggen.Queries, vide
 	at = at.UTC()
 	if err := q.CloseOpenVideoTitleSpans(ctx, pggen.CloseOpenVideoTitleSpansParams{
 		VideoID: videoID,
-		AtTime:  at,
+		At:      at,
 	}); err != nil {
 		return fmt.Errorf("pg close video title spans: %w", err)
 	}
 	if err := q.CloseOpenVideoCategorySpans(ctx, pggen.CloseOpenVideoCategorySpansParams{
 		VideoID: videoID,
-		AtTime:  at,
+		At:      at,
 	}); err != nil {
 		return fmt.Errorf("pg close video category spans: %w", err)
 	}

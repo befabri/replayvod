@@ -33,8 +33,8 @@ ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING;
 
 -- name: CloseOpenVideoCategorySpans :exec
 UPDATE video_category_spans vcs
-   SET ended_at = sqlc.arg('at_time')::timestamptz,
-       duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at_time')::timestamptz - vcs.started_at))
+   SET ended_at = sqlc.arg('at')::timestamptz,
+       duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at')::timestamptz - vcs.started_at))
  WHERE vcs.video_id = sqlc.arg('video_id')
    AND vcs.ended_at IS NULL;
 
@@ -47,7 +47,7 @@ WITH latest AS (
     LIMIT 1
 )
 INSERT INTO video_category_spans (video_id, category_id, started_at)
-SELECT sqlc.arg('video_id'), latest.category_id, sqlc.arg('at_time')::timestamptz
+SELECT sqlc.arg('video_id'), latest.category_id, sqlc.arg('at')::timestamptz
 FROM latest
 WHERE NOT EXISTS (
     SELECT 1 FROM video_category_spans

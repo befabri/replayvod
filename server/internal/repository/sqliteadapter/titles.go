@@ -18,7 +18,7 @@ func (a *SQLiteAdapter) UpsertVideoTitleSpan(ctx context.Context, videoID int64,
 	ts := sqliteTime(at)
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := q.CloseOtherOpenVideoTitleSpans(ctx, sqlitegen.CloseOtherOpenVideoTitleSpansParams{
-			AtTime:  &ts,
+			At:      &ts,
 			VideoID: videoID,
 			TitleID: titleID,
 		}); err != nil {
@@ -27,7 +27,7 @@ func (a *SQLiteAdapter) UpsertVideoTitleSpan(ctx context.Context, videoID int64,
 		if err := q.InsertVideoTitleSpan(ctx, sqlitegen.InsertVideoTitleSpanParams{
 			VideoID: videoID,
 			TitleID: titleID,
-			AtTime:  ts,
+			At:      ts,
 		}); err != nil {
 			return fmt.Errorf("sqlite insert video title span: %w", err)
 		}

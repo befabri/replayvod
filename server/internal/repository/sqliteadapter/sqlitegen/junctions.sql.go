@@ -22,12 +22,12 @@ UPDATE video_category_spans
 `
 
 type CloseOpenVideoCategorySpansParams struct {
-	AtTime  *sqlitetype.Time `json:"at_time"`
+	At      *sqlitetype.Time `json:"at"`
 	VideoID int64            `json:"video_id"`
 }
 
 func (q *Queries) CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error {
-	_, err := q.db.ExecContext(ctx, closeOpenVideoCategorySpans, arg.AtTime, arg.VideoID)
+	_, err := q.db.ExecContext(ctx, closeOpenVideoCategorySpans, arg.At, arg.VideoID)
 	return err
 }
 
@@ -41,7 +41,7 @@ UPDATE video_category_spans
 `
 
 type CloseOtherOpenVideoCategorySpansParams struct {
-	AtTime     *sqlitetype.Time `json:"at_time"`
+	At         *sqlitetype.Time `json:"at"`
 	VideoID    int64            `json:"video_id"`
 	CategoryID string           `json:"category_id"`
 }
@@ -50,7 +50,7 @@ type CloseOtherOpenVideoCategorySpansParams struct {
 // upsert. Called first inside the same tx as InsertVideoCategorySpan;
 // closes only the spans whose category_id differs from the new one.
 func (q *Queries) CloseOtherOpenVideoCategorySpans(ctx context.Context, arg CloseOtherOpenVideoCategorySpansParams) error {
-	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoCategorySpans, arg.AtTime, arg.VideoID, arg.CategoryID)
+	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoCategorySpans, arg.At, arg.VideoID, arg.CategoryID)
 	return err
 }
 
@@ -63,12 +63,12 @@ ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING
 type InsertVideoCategorySpanParams struct {
 	VideoID    int64           `json:"video_id"`
 	CategoryID string          `json:"category_id"`
-	AtTime     sqlitetype.Time `json:"at_time"`
+	At         sqlitetype.Time `json:"at"`
 }
 
-// @at_time: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
+// @at: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
 func (q *Queries) InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error {
-	_, err := q.db.ExecContext(ctx, insertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.AtTime)
+	_, err := q.db.ExecContext(ctx, insertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.At)
 	return err
 }
 
@@ -330,7 +330,7 @@ type ResumeVideoCategorySpanParams struct {
 }
 
 // See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
-// uses positional ?1/?2 instead of @video_id/@at_time.
+// uses positional ?1/?2 instead of @video_id/@at.
 func (q *Queries) ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error {
 	_, err := q.db.ExecContext(ctx, resumeVideoCategorySpan, arg.VideoID, arg.StartedAt)
 	return err

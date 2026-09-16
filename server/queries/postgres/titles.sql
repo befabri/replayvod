@@ -43,14 +43,14 @@ ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING;
 -- terminates (clean end or cancelled) so the history shows a finite
 -- duration instead of an open-ended span.
 UPDATE video_title_spans vts
-   SET ended_at = sqlc.arg('at_time')::timestamptz,
-       duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at_time')::timestamptz - vts.started_at))
+   SET ended_at = sqlc.arg('at')::timestamptz,
+       duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM (sqlc.arg('at')::timestamptz - vts.started_at))
  WHERE vts.video_id = sqlc.arg('video_id')
    AND vts.ended_at IS NULL;
 
 -- name: ResumeVideoTitleSpan :exec
 -- After CloseOpenVideoTitleSpans ran against a prior failed/
--- suspended recording, reopen a new span starting at at_time
+-- suspended recording, reopen a new span starting at at
 -- carrying the most recent title — unless one is already open.
 -- Idempotent across retry loops.
 WITH latest AS (
@@ -61,7 +61,7 @@ WITH latest AS (
     LIMIT 1
 )
 INSERT INTO video_title_spans (video_id, title_id, started_at)
-SELECT sqlc.arg('video_id'), latest.title_id, sqlc.arg('at_time')::timestamptz
+SELECT sqlc.arg('video_id'), latest.title_id, sqlc.arg('at')::timestamptz
 FROM latest
 WHERE NOT EXISTS (
     SELECT 1 FROM video_title_spans

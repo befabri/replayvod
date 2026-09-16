@@ -52,7 +52,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 			// Close and insert spans in the observation transaction so readers cannot see
 			// a partially applied title change.
 			if err := q.CloseOtherOpenVideoTitleSpans(ctx, sqlitegen.CloseOtherOpenVideoTitleSpansParams{
-				AtTime:  &ts,
+				At:      &ts,
 				VideoID: input.VideoID,
 				TitleID: t.ID,
 			}); err != nil {
@@ -61,7 +61,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 			if err := q.InsertVideoTitleSpan(ctx, sqlitegen.InsertVideoTitleSpanParams{
 				VideoID: input.VideoID,
 				TitleID: t.ID,
-				AtTime:  ts,
+				At:      ts,
 			}); err != nil {
 				return fmt.Errorf("sqlite insert video title span: %w", err)
 			}
@@ -88,7 +88,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 				return fmt.Errorf("sqlite link video category: %w", err)
 			}
 			if err := q.CloseOtherOpenVideoCategorySpans(ctx, sqlitegen.CloseOtherOpenVideoCategorySpansParams{
-				AtTime:     &ts,
+				At:         &ts,
 				VideoID:    input.VideoID,
 				CategoryID: input.CategoryID,
 			}); err != nil {
@@ -97,7 +97,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 			if err := q.InsertVideoCategorySpan(ctx, sqlitegen.InsertVideoCategorySpanParams{
 				VideoID:    input.VideoID,
 				CategoryID: input.CategoryID,
-				AtTime:     ts,
+				At:         ts,
 			}); err != nil {
 				return fmt.Errorf("sqlite insert video category span: %w", err)
 			}

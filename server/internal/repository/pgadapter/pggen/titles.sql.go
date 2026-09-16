@@ -19,7 +19,7 @@ UPDATE video_title_spans vts
 `
 
 type CloseOpenVideoTitleSpansParams struct {
-	AtTime  time.Time `json:"at_time"`
+	At      time.Time `json:"at"`
 	VideoID int64     `json:"video_id"`
 }
 
@@ -28,7 +28,7 @@ type CloseOpenVideoTitleSpansParams struct {
 // terminates (clean end or cancelled) so the history shows a finite
 // duration instead of an open-ended span.
 func (q *Queries) CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error {
-	_, err := q.db.Exec(ctx, closeOpenVideoTitleSpans, arg.AtTime, arg.VideoID)
+	_, err := q.db.Exec(ctx, closeOpenVideoTitleSpans, arg.At, arg.VideoID)
 	return err
 }
 
@@ -163,15 +163,15 @@ WHERE NOT EXISTS (
 
 type ResumeVideoTitleSpanParams struct {
 	VideoID int64     `json:"video_id"`
-	AtTime  time.Time `json:"at_time"`
+	At      time.Time `json:"at"`
 }
 
 // After CloseOpenVideoTitleSpans ran against a prior failed/
-// suspended recording, reopen a new span starting at at_time
+// suspended recording, reopen a new span starting at at
 // carrying the most recent title — unless one is already open.
 // Idempotent across retry loops.
 func (q *Queries) ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error {
-	_, err := q.db.Exec(ctx, resumeVideoTitleSpan, arg.VideoID, arg.AtTime)
+	_, err := q.db.Exec(ctx, resumeVideoTitleSpan, arg.VideoID, arg.At)
 	return err
 }
 

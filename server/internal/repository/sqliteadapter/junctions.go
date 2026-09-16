@@ -17,7 +17,7 @@ func (a *SQLiteAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int
 	ts := sqliteTime(at)
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := q.CloseOtherOpenVideoCategorySpans(ctx, sqlitegen.CloseOtherOpenVideoCategorySpansParams{
-			AtTime:     &ts,
+			At:         &ts,
 			VideoID:    videoID,
 			CategoryID: categoryID,
 		}); err != nil {
@@ -26,7 +26,7 @@ func (a *SQLiteAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int
 		if err := q.InsertVideoCategorySpan(ctx, sqlitegen.InsertVideoCategorySpanParams{
 			VideoID:    videoID,
 			CategoryID: categoryID,
-			AtTime:     ts,
+			At:         ts,
 		}); err != nil {
 			return fmt.Errorf("sqlite insert video category span: %w", err)
 		}

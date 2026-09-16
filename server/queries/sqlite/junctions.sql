@@ -21,28 +21,28 @@ ORDER BY t.name;
 -- upsert. Called first inside the same tx as InsertVideoCategorySpan;
 -- closes only the spans whose category_id differs from the new one.
 UPDATE video_category_spans
-   SET ended_at = @at_time,
-       duration_seconds = duration_seconds + ((julianday(@at_time) - julianday(started_at)) * 86400.0)
+   SET ended_at = @at,
+       duration_seconds = duration_seconds + ((julianday(@at) - julianday(started_at)) * 86400.0)
  WHERE video_id = @video_id
    AND ended_at IS NULL
    AND category_id <> @category_id;
 
 -- name: InsertVideoCategorySpan :exec
--- @at_time: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
+-- @at: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
 INSERT INTO video_category_spans (video_id, category_id, started_at)
-VALUES (@video_id, @category_id, @at_time)
+VALUES (@video_id, @category_id, @at)
 ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING;
 
 -- name: CloseOpenVideoCategorySpans :exec
 UPDATE video_category_spans
-   SET ended_at = @at_time,
-       duration_seconds = duration_seconds + ((julianday(@at_time) - julianday(started_at)) * 86400.0)
+   SET ended_at = @at,
+       duration_seconds = duration_seconds + ((julianday(@at) - julianday(started_at)) * 86400.0)
  WHERE video_id = @video_id
    AND ended_at IS NULL;
 
 -- name: ResumeVideoCategorySpan :exec
 -- See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
--- uses positional ?1/?2 instead of @video_id/@at_time.
+-- uses positional ?1/?2 instead of @video_id/@at.
 INSERT INTO video_category_spans (video_id, category_id, started_at)
 SELECT ?1, latest.category_id, ?2
 FROM (

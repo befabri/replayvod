@@ -20,12 +20,12 @@ ORDER BY t.id;
 -- Called first inside the same tx as InsertVideoTitleSpan; closes only
 -- the spans whose title_id differs from the new one.
 --
--- @at_time is sqlitetype.Time so its Valuer emits the shape SQLite's
+-- @at is sqlitetype.Time so its Valuer emits the shape SQLite's
 -- julianday() accepts. Some native time.Time bindings format to RFC3339,
 -- which julianday() can treat as NULL and corrupt duration sums.
 UPDATE video_title_spans
-   SET ended_at = @at_time,
-       duration_seconds = duration_seconds + ((julianday(@at_time) - julianday(started_at)) * 86400.0)
+   SET ended_at = @at,
+       duration_seconds = duration_seconds + ((julianday(@at) - julianday(started_at)) * 86400.0)
  WHERE video_id = @video_id
    AND ended_at IS NULL
    AND title_id <> @title_id;
@@ -35,13 +35,13 @@ UPDATE video_title_spans
 -- (video_id, title_id) WHERE ended_at IS NULL keeps the same-title
 -- re-enter case a no-op.
 INSERT INTO video_title_spans (video_id, title_id, started_at)
-VALUES (@video_id, @title_id, @at_time)
+VALUES (@video_id, @title_id, @at)
 ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING;
 
 -- name: CloseOpenVideoTitleSpans :exec
 UPDATE video_title_spans
-   SET ended_at = @at_time,
-       duration_seconds = duration_seconds + ((julianday(@at_time) - julianday(started_at)) * 86400.0)
+   SET ended_at = @at,
+       duration_seconds = duration_seconds + ((julianday(@at) - julianday(started_at)) * 86400.0)
  WHERE video_id = @video_id
    AND ended_at IS NULL;
 

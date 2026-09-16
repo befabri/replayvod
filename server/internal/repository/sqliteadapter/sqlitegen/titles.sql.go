@@ -20,12 +20,12 @@ UPDATE video_title_spans
 `
 
 type CloseOpenVideoTitleSpansParams struct {
-	AtTime  *sqlitetype.Time `json:"at_time"`
+	At      *sqlitetype.Time `json:"at"`
 	VideoID int64            `json:"video_id"`
 }
 
 func (q *Queries) CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error {
-	_, err := q.db.ExecContext(ctx, closeOpenVideoTitleSpans, arg.AtTime, arg.VideoID)
+	_, err := q.db.ExecContext(ctx, closeOpenVideoTitleSpans, arg.At, arg.VideoID)
 	return err
 }
 
@@ -39,7 +39,7 @@ UPDATE video_title_spans
 `
 
 type CloseOtherOpenVideoTitleSpansParams struct {
-	AtTime  *sqlitetype.Time `json:"at_time"`
+	At      *sqlitetype.Time `json:"at"`
 	VideoID int64            `json:"video_id"`
 	TitleID int64            `json:"title_id"`
 }
@@ -48,11 +48,11 @@ type CloseOtherOpenVideoTitleSpansParams struct {
 // Called first inside the same tx as InsertVideoTitleSpan; closes only
 // the spans whose title_id differs from the new one.
 //
-// @at_time is sqlitetype.Time so its Valuer emits the shape SQLite's
+// @at is sqlitetype.Time so its Valuer emits the shape SQLite's
 // julianday() accepts. Some native time.Time bindings format to RFC3339,
 // which julianday() can treat as NULL and corrupt duration sums.
 func (q *Queries) CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error {
-	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoTitleSpans, arg.AtTime, arg.VideoID, arg.TitleID)
+	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoTitleSpans, arg.At, arg.VideoID, arg.TitleID)
 	return err
 }
 
@@ -65,14 +65,14 @@ ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING
 type InsertVideoTitleSpanParams struct {
 	VideoID int64           `json:"video_id"`
 	TitleID int64           `json:"title_id"`
-	AtTime  sqlitetype.Time `json:"at_time"`
+	At      sqlitetype.Time `json:"at"`
 }
 
 // The INSERT half of the upsert. The partial unique index on
 // (video_id, title_id) WHERE ended_at IS NULL keeps the same-title
 // re-enter case a no-op.
 func (q *Queries) InsertVideoTitleSpan(ctx context.Context, arg InsertVideoTitleSpanParams) error {
-	_, err := q.db.ExecContext(ctx, insertVideoTitleSpan, arg.VideoID, arg.TitleID, arg.AtTime)
+	_, err := q.db.ExecContext(ctx, insertVideoTitleSpan, arg.VideoID, arg.TitleID, arg.At)
 	return err
 }
 

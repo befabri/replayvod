@@ -37,13 +37,13 @@ func (a *SQLiteAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID in
 func closeOpenVideoMetadataSpansWith(ctx context.Context, q *sqlitegen.Queries, videoID int64, at time.Time) error {
 	ts := sqliteTime(at)
 	if err := q.CloseOpenVideoTitleSpans(ctx, sqlitegen.CloseOpenVideoTitleSpansParams{
-		AtTime:  &ts,
+		At:      &ts,
 		VideoID: videoID,
 	}); err != nil {
 		return fmt.Errorf("sqlite close video title spans: %w", err)
 	}
 	if err := q.CloseOpenVideoCategorySpans(ctx, sqlitegen.CloseOpenVideoCategorySpansParams{
-		AtTime:  &ts,
+		At:      &ts,
 		VideoID: videoID,
 	}); err != nil {
 		return fmt.Errorf("sqlite close video category spans: %w", err)

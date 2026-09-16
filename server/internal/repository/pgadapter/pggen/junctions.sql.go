@@ -19,12 +19,12 @@ UPDATE video_category_spans vcs
 `
 
 type CloseOpenVideoCategorySpansParams struct {
-	AtTime  time.Time `json:"at_time"`
+	At      time.Time `json:"at"`
 	VideoID int64     `json:"video_id"`
 }
 
 func (q *Queries) CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error {
-	_, err := q.db.Exec(ctx, closeOpenVideoCategorySpans, arg.AtTime, arg.VideoID)
+	_, err := q.db.Exec(ctx, closeOpenVideoCategorySpans, arg.At, arg.VideoID)
 	return err
 }
 
@@ -267,11 +267,11 @@ WHERE NOT EXISTS (
 
 type ResumeVideoCategorySpanParams struct {
 	VideoID int64     `json:"video_id"`
-	AtTime  time.Time `json:"at_time"`
+	At      time.Time `json:"at"`
 }
 
 func (q *Queries) ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error {
-	_, err := q.db.Exec(ctx, resumeVideoCategorySpan, arg.VideoID, arg.AtTime)
+	_, err := q.db.Exec(ctx, resumeVideoCategorySpan, arg.VideoID, arg.At)
 	return err
 }
 
