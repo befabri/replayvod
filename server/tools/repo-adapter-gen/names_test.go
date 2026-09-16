@@ -63,7 +63,13 @@ func TestMisnamedParams(t *testing.T) {
 			sig:    ctxSig([]string{"error"}, param{"input", "*ThingInput"}),
 		},
 		{
-			name:   "a domain value beside scalars still exempts the method",
+			name:   "scalars beside a domain value are still held to their names",
+			method: "ListVisible",
+			sig:    ctxSig([]string{"[]Thing", "error"}, param{"opts", "ListOpts"}, param{"rowLimit", "int"}),
+			want:   []string{"ListVisible: parameter rowLimit has no field in ListVisibleParams (Limit, OwnerID)"},
+		},
+		{
+			name:   "a domain value beside matching scalars passes",
 			method: "ListVisible",
 			sig:    ctxSig([]string{"[]Thing", "error"}, param{"opts", "ListOpts"}, param{"limit", "int"}),
 		},

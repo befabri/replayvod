@@ -404,7 +404,7 @@ type Querier interface {
 	RestoreMissingVideo(ctx context.Context, id int64) (int64, error)
 	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
 	// After CloseOpenVideoTitleSpans ran against a prior failed/
-	// suspended recording, reopen a new span starting at at_time
+	// suspended recording, reopen a new span starting at at
 	// carrying the most recent title — unless one is already open.
 	// Idempotent across retry loops.
 	ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error

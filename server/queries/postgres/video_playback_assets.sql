@@ -30,7 +30,7 @@ WHERE video_id = $1
 SELECT * FROM video_playback_assets WHERE status='ready'
  AND (last_accessed_at,generated_at,video_id)
  > (sqlc.arg(after_access)::timestamptz,sqlc.arg(after_generated)::timestamptz,CAST(sqlc.arg(after_id) AS BIGINT))
-ORDER BY last_accessed_at,generated_at,video_id LIMIT sqlc.arg(batch_limit);
+ORDER BY last_accessed_at,generated_at,video_id LIMIT sqlc.arg('limit');
 
 -- name: SumReadyPlaybackBytes :one
 SELECT CAST(coalesce(sum(size_bytes),0) AS BIGINT) FROM video_playback_assets WHERE status='ready';

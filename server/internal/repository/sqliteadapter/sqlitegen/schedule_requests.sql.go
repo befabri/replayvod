@@ -120,7 +120,7 @@ LIMIT ?3
 type ListScheduleRequestsParams struct {
 	BeforeCreatedAt sqlitetype.Time `json:"before_created_at"`
 	BeforeID        int64           `json:"before_id"`
-	PageLimit       int64           `json:"page_limit"`
+	Limit           int64           `json:"limit"`
 }
 
 type ListScheduleRequestsRow struct {
@@ -141,7 +141,7 @@ type ListScheduleRequestsRow struct {
 }
 
 func (q *Queries) ListScheduleRequests(ctx context.Context, arg ListScheduleRequestsParams) ([]ListScheduleRequestsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listScheduleRequests, arg.BeforeCreatedAt, arg.BeforeID, arg.PageLimit)
+	rows, err := q.db.QueryContext(ctx, listScheduleRequests, arg.BeforeCreatedAt, arg.BeforeID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -190,10 +190,10 @@ LIMIT ?4
 `
 
 type ListScheduleRequestsForUserParams struct {
-	RequestedBy     string          `json:"requested_by"`
+	UserID          string          `json:"user_id"`
 	BeforeCreatedAt sqlitetype.Time `json:"before_created_at"`
 	BeforeID        int64           `json:"before_id"`
-	PageLimit       int64           `json:"page_limit"`
+	Limit           int64           `json:"limit"`
 }
 
 type ListScheduleRequestsForUserRow struct {
@@ -215,10 +215,10 @@ type ListScheduleRequestsForUserRow struct {
 
 func (q *Queries) ListScheduleRequestsForUser(ctx context.Context, arg ListScheduleRequestsForUserParams) ([]ListScheduleRequestsForUserRow, error) {
 	rows, err := q.db.QueryContext(ctx, listScheduleRequestsForUser,
-		arg.RequestedBy,
+		arg.UserID,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,
-		arg.PageLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

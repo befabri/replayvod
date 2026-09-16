@@ -27,7 +27,7 @@ func (a *PGAdapter) UpsertVideoPlaybackAsset(ctx context.Context, input *reposit
 }
 
 func (a *PGAdapter) ListReadyVideoPlaybackAssets(ctx context.Context, after repository.PlaybackAssetCursor, limit int) ([]repository.VideoPlaybackAsset, error) {
-	rows, err := a.queries.ListReadyVideoPlaybackAssets(ctx, pggen.ListReadyVideoPlaybackAssetsParams{AfterAccess: after.AccessedAt, AfterGenerated: after.GeneratedAt, AfterID: after.VideoID, BatchLimit: int32(limit)})
+	rows, err := a.queries.ListReadyVideoPlaybackAssets(ctx, pggen.ListReadyVideoPlaybackAssetsParams{AfterAccess: after.AccessedAt, AfterGenerated: after.GeneratedAt, AfterID: after.VideoID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list ready video playback assets: %w", err)
 	}

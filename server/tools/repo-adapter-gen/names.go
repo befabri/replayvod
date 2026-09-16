@@ -15,13 +15,14 @@ func isScalarType(typ string) bool {
 	return base != "" && !strings.HasPrefix(base, "<") && !isDomainType(base)
 }
 
-// misnamedParams lists the parameters of name that its query's Params struct
-// spells differently, which is what leaves a method hand-written after every
-// other shape matches. Only methods whose parameters are all scalars are
-// compared, and only against a Params struct. A parameter counts when some
-// field has a type it converts to: a value the adapter derives by hand, such
-// as a time passed on as milliseconds, never reaches the query under its own
-// name, so it has nothing to be named after.
+// misnamedParams lists the scalar parameters of name that its query's Params
+// struct spells differently, which is what leaves a method hand-written after
+// every other shape matches. Only a Params struct is compared. A domain struct
+// parameter is destructured by hand and skipped, but the scalars beside it are
+// still held to their names. A scalar counts when some field has a type it
+// converts to: a value the adapter derives by hand, such as a time passed on
+// as milliseconds, never reaches the query under its own name, so it has
+// nothing to be named after.
 func (r renderer) misnamedParams(name string, sig methodSig) []string {
 	if len(sig.params) == 0 || sig.params[0].typ != "context.Context" {
 		return nil
@@ -38,11 +39,6 @@ func (r renderer) misnamedParams(name string, sig methodSig) []string {
 	if !ok {
 		return nil
 	}
-	for _, p := range sig.params[1:] {
-		if !isScalarType(p.typ) {
-			return nil
-		}
-	}
 	fieldByNorm := make(map[string]string, len(fields))
 	fieldNames := make([]string, 0, len(fields))
 	for f := range fields {
@@ -52,6 +48,9 @@ func (r renderer) misnamedParams(name string, sig methodSig) []string {
 	sort.Strings(fieldNames)
 	var out []string
 	for _, p := range sig.params[1:] {
+		if !isScalarType(p.typ) {
+			continue
+		}
 		if _, ok := fieldByNorm[strings.ToLower(p.name)]; ok {
 			continue
 		}

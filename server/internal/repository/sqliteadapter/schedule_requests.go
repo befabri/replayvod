@@ -26,7 +26,7 @@ func sqliteScheduleRequestToDomain(row sqlitegen.ScheduleRequest) *repository.Sc
 
 func (a *SQLiteAdapter) ListScheduleRequests(ctx context.Context, limit int, cursor *repository.ScheduleRequestCursor) ([]repository.ScheduleRequestView, error) {
 	limit, before := repository.ScheduleRequestQueryBounds(limit, cursor)
-	rows, err := a.queries.ListScheduleRequests(ctx, sqlitegen.ListScheduleRequestsParams{BeforeCreatedAt: sqliteTime(before.CreatedAt), BeforeID: before.ID, PageLimit: int64(limit)})
+	rows, err := a.queries.ListScheduleRequests(ctx, sqlitegen.ListScheduleRequestsParams{BeforeCreatedAt: sqliteTime(before.CreatedAt), BeforeID: before.ID, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list schedule requests: %w", err)
 	}
@@ -39,7 +39,7 @@ func (a *SQLiteAdapter) ListScheduleRequests(ctx context.Context, limit int, cur
 
 func (a *SQLiteAdapter) ListScheduleRequestsForUser(ctx context.Context, userID string, limit int, cursor *repository.ScheduleRequestCursor) ([]repository.ScheduleRequestView, error) {
 	limit, before := repository.ScheduleRequestQueryBounds(limit, cursor)
-	rows, err := a.queries.ListScheduleRequestsForUser(ctx, sqlitegen.ListScheduleRequestsForUserParams{BeforeCreatedAt: sqliteTime(before.CreatedAt), BeforeID: before.ID, PageLimit: int64(limit), RequestedBy: userID})
+	rows, err := a.queries.ListScheduleRequestsForUser(ctx, sqlitegen.ListScheduleRequestsForUserParams{BeforeCreatedAt: sqliteTime(before.CreatedAt), BeforeID: before.ID, Limit: int64(limit), UserID: userID})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list schedule requests for user %s: %w", userID, err)
 	}

@@ -14,7 +14,7 @@ INNER JOIN channels c ON c.broadcaster_id = sr.broadcaster_id
 INNER JOIN users u ON u.id = sr.requested_by
 WHERE (sr.created_at, sr.id) < (sqlc.arg(before_created_at), CAST(sqlc.arg(before_id) AS BIGINT))
 ORDER BY sr.created_at DESC, sr.id DESC
-LIMIT sqlc.arg(page_limit);
+LIMIT sqlc.arg('limit');
 
 -- name: ListScheduleRequestsForUser :many
 SELECT sr.*, c.broadcaster_login, c.broadcaster_name, c.profile_image_url,
@@ -22,9 +22,9 @@ SELECT sr.*, c.broadcaster_login, c.broadcaster_name, c.profile_image_url,
 FROM schedule_requests sr
 INNER JOIN channels c ON c.broadcaster_id = sr.broadcaster_id
 INNER JOIN users u ON u.id = sr.requested_by
-WHERE sr.requested_by = sqlc.arg(requested_by) AND (sr.created_at, sr.id) < (sqlc.arg(before_created_at), CAST(sqlc.arg(before_id) AS BIGINT))
+WHERE sr.requested_by = sqlc.arg(user_id) AND (sr.created_at, sr.id) < (sqlc.arg(before_created_at), CAST(sqlc.arg(before_id) AS BIGINT))
 ORDER BY sr.created_at DESC, sr.id DESC
-LIMIT sqlc.arg(page_limit);
+LIMIT sqlc.arg('limit');
 
 -- name: DecideScheduleRequest :execrows
 UPDATE schedule_requests

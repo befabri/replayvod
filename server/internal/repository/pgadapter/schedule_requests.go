@@ -27,7 +27,7 @@ func pgScheduleRequestToDomain(row pggen.ScheduleRequest) *repository.ScheduleRe
 
 func (a *PGAdapter) ListScheduleRequests(ctx context.Context, limit int, cursor *repository.ScheduleRequestCursor) ([]repository.ScheduleRequestView, error) {
 	limit, before := repository.ScheduleRequestQueryBounds(limit, cursor)
-	rows, err := a.queries.ListScheduleRequests(ctx, pggen.ListScheduleRequestsParams{BeforeCreatedAt: before.CreatedAt, BeforeID: before.ID, PageLimit: int32(limit)})
+	rows, err := a.queries.ListScheduleRequests(ctx, pggen.ListScheduleRequestsParams{BeforeCreatedAt: before.CreatedAt, BeforeID: before.ID, Limit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list schedule requests: %w", err)
 	}
@@ -40,7 +40,7 @@ func (a *PGAdapter) ListScheduleRequests(ctx context.Context, limit int, cursor 
 
 func (a *PGAdapter) ListScheduleRequestsForUser(ctx context.Context, userID string, limit int, cursor *repository.ScheduleRequestCursor) ([]repository.ScheduleRequestView, error) {
 	limit, before := repository.ScheduleRequestQueryBounds(limit, cursor)
-	rows, err := a.queries.ListScheduleRequestsForUser(ctx, pggen.ListScheduleRequestsForUserParams{BeforeCreatedAt: before.CreatedAt, BeforeID: before.ID, PageLimit: int32(limit), RequestedBy: userID})
+	rows, err := a.queries.ListScheduleRequestsForUser(ctx, pggen.ListScheduleRequestsForUserParams{BeforeCreatedAt: before.CreatedAt, BeforeID: before.ID, Limit: int32(limit), UserID: userID})
 	if err != nil {
 		return nil, fmt.Errorf("pg list schedule requests for user %s: %w", userID, err)
 	}

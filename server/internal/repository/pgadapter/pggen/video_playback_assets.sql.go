@@ -53,7 +53,7 @@ type ListReadyVideoPlaybackAssetsParams struct {
 	AfterAccess    time.Time `json:"after_access"`
 	AfterGenerated time.Time `json:"after_generated"`
 	AfterID        int64     `json:"after_id"`
-	BatchLimit     int32     `json:"batch_limit"`
+	Limit          int32     `json:"limit"`
 }
 
 func (q *Queries) ListReadyVideoPlaybackAssets(ctx context.Context, arg ListReadyVideoPlaybackAssetsParams) ([]VideoPlaybackAsset, error) {
@@ -61,7 +61,7 @@ func (q *Queries) ListReadyVideoPlaybackAssets(ctx context.Context, arg ListRead
 		arg.AfterAccess,
 		arg.AfterGenerated,
 		arg.AfterID,
-		arg.BatchLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

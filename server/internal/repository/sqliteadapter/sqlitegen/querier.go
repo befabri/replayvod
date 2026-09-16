@@ -32,7 +32,7 @@ type Querier interface {
 	// Called first inside the same tx as InsertVideoTitleSpan; closes only
 	// the spans whose title_id differs from the new one.
 	//
-	// @at_time is sqlitetype.Time so its Valuer emits the shape SQLite's
+	// @at is sqlitetype.Time so its Valuer emits the shape SQLite's
 	// julianday() accepts. Some native time.Time bindings format to RFC3339,
 	// which julianday() can treat as NULL and corrupt duration sums.
 	CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error
@@ -172,7 +172,7 @@ type Querier interface {
 	// alias and a clobbered DeleteVideoParts). One-line form sidesteps
 	// the parser bug.
 	HasFinalizedVideoParts(ctx context.Context, videoID int64) (int64, error)
-	// @at_time: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
+	// @at: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
 	InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error
 	InsertVideoMetadataChange(ctx context.Context, arg InsertVideoMetadataChangeParams) (int64, error)
 	// The INSERT half of the upsert. The partial unique index on
@@ -367,7 +367,7 @@ type Querier interface {
 	// See postgres/videos.sql RestoreMissingVideo.
 	RestoreMissingVideo(ctx context.Context, id int64) (int64, error)
 	// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
-	// uses positional ?1/?2 instead of @video_id/@at_time.
+	// uses positional ?1/?2 instead of @video_id/@at.
 	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
 	// sqlc-sqlite's @-rewriter misses some @video_id occurrences when
 	// the param is referenced from three clauses in the same statement,
