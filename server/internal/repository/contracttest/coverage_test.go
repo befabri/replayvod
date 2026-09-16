@@ -20,20 +20,19 @@ import (
 // the method set itself comes from reflection.
 const repositorySource = "../repository.go"
 
-const allowlistPath = "testdata/uncovered.txt"
-
 // forbiddenImportPrefix rejects the adapter packages: with a concrete adapter
 // in scope, a selector call named like a Repository method might not be one.
 const forbiddenImportPrefix = "github.com/befabri/replayvod/server/internal/repository/"
 
-// TestContractCoverageRatchet fails when a Repository method has no contract
-// test and is not listed in testdata/uncovered.txt, and when that list holds an
-// entry that is covered or is no longer a method. A method is covered when a
+// TestContractCoverage fails when a Repository method has no contract test or
+// a contract test is not registered to run. A method is covered when a
 // non-test file in this package calls a selector with its name on something
-// other than an imported package. Name matching is sound only while this
-// package references no concrete adapter and neither Harness nor *testing.T
-// shares a method name with Repository; both are checked.
-func TestContractCoverageRatchet(t *testing.T) {
+// other than an imported package; a test is a top-level func named test* that
+// takes a *testing.T and a Harness, and it runs only when Run registers it.
+// Name matching is sound only while this package references no concrete
+// adapter and neither Harness nor *testing.T shares a method name with
+// Repository; both are checked.
+func TestContractCoverage(t *testing.T) {
 	methods := methodNames(reflect.TypeFor[repository.Repository]())
 	for _, other := range []reflect.Type{reflect.TypeFor[Harness](), reflect.TypeFor[*testing.T]()} {
 		for _, name := range methodNames(other) {
@@ -45,6 +44,7 @@ func TestContractCoverageRatchet(t *testing.T) {
 
 	fset := token.NewFileSet()
 	called := map[string]bool{}
+	var tests, registered []string
 	for _, file := range parsePackageFiles(t, fset) {
 		packages := map[string]bool{}
 		for _, imp := range file.Imports {
@@ -57,10 +57,20 @@ func TestContractCoverageRatchet(t *testing.T) {
 			}
 			packages[importName(imp, path)] = true
 		}
+		for _, decl := range file.Decls {
+			if fd, ok := decl.(*ast.FuncDecl); ok && isContractTest(fd) {
+				tests = append(tests, fd.Name.Name)
+			}
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
+			}
+			if fn, ok := call.Fun.(*ast.Ident); ok && fn.Name == "run" && len(call.Args) == 2 {
+				if test, ok := call.Args[1].(*ast.Ident); ok {
+					registered = append(registered, test.Name)
+				}
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
 			if !ok {
@@ -82,36 +92,32 @@ func TestContractCoverageRatchet(t *testing.T) {
 			uncovered = append(uncovered, name)
 		}
 	}
-	allowed := readAllowlist(t)
-	clusters := interfaceClusters(t)
+	if len(uncovered) > 0 {
+		t.Errorf("Repository methods without a contract test (%d):\n%s", len(uncovered), interfaceClusters(t).report(uncovered))
+	}
+	for _, test := range tests {
+		if !slices.Contains(registered, test) {
+			t.Errorf("%s is never registered with run in Run, so it covers nothing", test)
+		}
+	}
+	slices.Sort(registered)
+	for i := 1; i < len(registered); i++ {
+		if registered[i] == registered[i-1] {
+			t.Errorf("%s is registered more than once", registered[i])
+		}
+	}
+	t.Logf("%d Repository methods, %d contract tests", len(methods), len(tests))
+}
 
-	var unlisted, covered, stale []string
-	for _, name := range uncovered {
-		if !slices.Contains(allowed, name) {
-			unlisted = append(unlisted, name)
-		}
+// isContractTest reports whether fd is a contract test: a top-level func
+// named test* taking a *testing.T and a Harness.
+func isContractTest(fd *ast.FuncDecl) bool {
+	if fd.Recv != nil || !strings.HasPrefix(fd.Name.Name, "test") || fd.Type.Params.NumFields() != 2 {
+		return false
 	}
-	for _, name := range allowed {
-		switch {
-		case !slices.Contains(methods, name):
-			stale = append(stale, name)
-		case called[name]:
-			covered = append(covered, name)
-		}
-	}
-	if len(unlisted) > 0 {
-		t.Errorf("Repository methods without a contract test (%d); add one for each rather than growing %s:\n%s",
-			len(unlisted), allowlistPath, clusters.report(unlisted))
-	}
-	if len(covered) > 0 {
-		t.Errorf("entries in %s that now have a contract test (%d); remove them, the list only shrinks:\n%s",
-			allowlistPath, len(covered), clusters.report(covered))
-	}
-	if len(stale) > 0 {
-		t.Errorf("entries in %s that are not Repository methods (%d); remove them:\n\t%s",
-			allowlistPath, len(stale), strings.Join(stale, "\n\t"))
-	}
-	t.Logf("%d of %d Repository methods have no contract test", len(uncovered), len(methods))
+	second := fd.Type.Params.List[len(fd.Type.Params.List)-1].Type
+	ident, ok := second.(*ast.Ident)
+	return ok && ident.Name == "Harness"
 }
 
 // importName returns the identifier an import binds in the file: its alias
@@ -155,35 +161,6 @@ func parsePackageFiles(t *testing.T, fset *token.FileSet) []*ast.File {
 		t.Fatal("no contract test sources found")
 	}
 	return files
-}
-
-// readAllowlist reads allowlistPath, one name per line, # starting a comment.
-func readAllowlist(t *testing.T) []string {
-	t.Helper()
-	data, err := os.ReadFile(allowlistPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	seen := map[string]bool{}
-	for i, line := range strings.Split(string(data), "\n") {
-		if at := strings.IndexByte(line, '#'); at >= 0 {
-			line = line[:at]
-		}
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
-		switch {
-		case seen[name]:
-			t.Errorf("%s:%d: duplicate entry %s", allowlistPath, i+1, name)
-		case len(names) > 0 && names[len(names)-1] > name:
-			t.Errorf("%s:%d: %s is out of order; keep the file sorted", allowlistPath, i+1, name)
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	return names
 }
 
 // methodCluster is one blank-line-separated run of interface methods, the only

@@ -1,5 +1,0 @@
-# Repository methods that still have no contract test, one per line, sorted.
-# Entries may only be removed, never added: a new Repository method must ship
-# with a contract test. Removing an entry requires a contract test that calls
-# the method. TestContractCoverageRatchet enforces both directions.
-# Every Repository method now has a contract test, so this list is empty.
