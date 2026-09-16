@@ -194,7 +194,7 @@ func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session
 func (a *SQLiteAdapter) GetSession(ctx context.Context, hashedID string) (*repository.Session, error) {
 	row, err := a.queries.GetSession(ctx, hashedID)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite get session: %w", err)
+		return nil, fmt.Errorf("sqlite get session: %w", mapErr(err))
 	}
 	return &repository.Session{
 		HashedID:        row.HashedID,
@@ -231,7 +231,7 @@ func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]
 func (a *SQLiteAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
 	row, err := a.queries.GetLatestAppToken(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite get latest app token: %w", err)
+		return nil, fmt.Errorf("sqlite get latest app token: %w", mapErr(err))
 	}
 	return &repository.AppAccessToken{
 		ID:        row.ID,
