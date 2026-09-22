@@ -135,10 +135,8 @@ jobs:
         run: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0 diff
       # The PG/SQLite adapter row mappers + simple method bodies are generated
       # from the domain model + the sqlc output above. Regenerate and fail on
-      # drift (also catches a hand-written method left unharvested) and on a
-      # rise in the hand-written method counts recorded in
-      # tools/repo-adapter-gen/handwritten_baseline.txt. Runs after the sqlc
-      # gate so the gen input is current.
+      # drift (also catches a hand-written method left unharvested). Runs
+      # after the sqlc gate so the gen input is current.
       - name: Check committed repository adapter codegen is up to date
         run: go run ./tools/repo-adapter-gen -check
       # Real ffmpeg/ffprobe integration tests (build tag `ffmpeg`) — the

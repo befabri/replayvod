@@ -5,12 +5,12 @@
 //
 //	go run ./tools/repo-adapter-gen
 //	go run ./tools/repo-adapter-gen -check
+//	go run ./tools/repo-adapter-gen -why
 //
 // repo-adapter-gen.yaml in the project root describes the repository layout,
 // the adapter conventions and the type conversions (see config.go); the
-// engine carries no project names. The baseline file it names records how
-// many interface methods each adapter still implements by hand; a run lowers
-// the numbers and -check fails when they rise.
+// engine carries no project names. -why explains, per hand-written method,
+// why the generator leaves it alone.
 package main
 
 import (
@@ -110,6 +110,7 @@ func main() {
 	root := flag.String("root", ".", "project root; config paths are relative to it")
 	cfgPath := flag.String("config", "repo-adapter-gen.yaml", "config file, relative to root")
 	check := flag.Bool("check", false, "verify generated files are up to date instead of writing")
+	why := flag.Bool("why", false, "explain why each hand-written method is not generated, then exit")
 	flag.Parse()
 
 	cfg, err := loadConfig(filepath.Join(*root, *cfgPath))
@@ -133,7 +134,6 @@ func main() {
 		fail(err)
 	}
 
-	handCounts := map[string]int{}
 	for _, d := range dialects {
 		// sqlc places model and query parameter structs in separate files.
 		genDir := filepath.Join(*root, d.dir, d.genPkg)
@@ -146,15 +146,25 @@ func main() {
 			fail(err)
 		}
 		r := renderer{cfg: cfg, d: d, domain: domain, gen: gen, queries: queries, values: values}
+		if *why {
+			lines, err := r.explain(methods, *root)
+			if err != nil {
+				fail(err)
+			}
+			for _, line := range lines {
+				fmt.Println(line)
+			}
+			fmt.Printf("%s: %d hand-written\n", d.name, len(lines))
+			continue
+		}
 		mapperSrc, err := r.generateMappers()
 		if err != nil {
 			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		methodSrc, harvest, handCount, err := r.generateMethods(methods, *root)
+		methodSrc, harvest, err := r.generateMethods(methods, *root)
 		if err != nil {
 			fail(fmt.Errorf("%s methods: %w", d.name, err))
 		}
-		handCounts[filepath.Base(d.dir)] = handCount
 		outputs := []struct {
 			path string
 			src  []byte
@@ -182,9 +192,6 @@ func main() {
 				fail(fmt.Errorf("%s harvest: %w", d.name, err))
 			}
 		}
-	}
-	if err := ratchet(filepath.Join(*root, cfg.Baseline), handCounts, *check); err != nil {
-		fail(err)
 	}
 }
 

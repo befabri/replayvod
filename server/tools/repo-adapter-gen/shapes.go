@@ -59,8 +59,8 @@ func (r renderer) mapperName(name string) string {
 	return r.d.name + name + r.cfg.Conventions.MapperSuffix
 }
 
-// mapErr renders the error-mapper call the adapters apply to a query error.
-func (r renderer) mapErr() string {
+// mappedErr renders the configured error mapper applied to err.
+func (r renderer) mappedErr() string {
 	return r.cfg.Conventions.ErrorMapper + "(err)"
 }
 
@@ -235,7 +235,7 @@ func (r renderer) errWraps(name, qname string, sig methodSig, names []string) []
 			verbs = append(verbs, verbArg{" %d", names[1]})
 		}
 	}
-	inners := []string{"err", r.mapErr()}
+	inners := []string{"err", r.mappedErr()}
 	out := append([]string(nil), inners...)
 	for _, ph := range phrases {
 		for _, v := range verbs {
@@ -290,10 +290,10 @@ func (r renderer) execCandidates(head, invoke string, wraps []string, g guards) 
 	h := head + " error {\n" + r.guardSrc(g, "")
 	out := []candidate{
 		{emit: h + "\treturn " + invoke + "\n}\n", match: []string{h + ifErrReturn(invoke, "err")}},
-		{emit: h + "\treturn " + r.cfg.Conventions.ErrorMapper + "(" + invoke + ")\n}\n", match: []string{h + ifErrReturn(invoke, r.mapErr())}},
+		{emit: h + "\treturn " + r.cfg.Conventions.ErrorMapper + "(" + invoke + ")\n}\n", match: []string{h + ifErrReturn(invoke, r.mappedErr())}},
 	}
 	for _, w := range wraps {
-		if w == "err" || w == r.mapErr() {
+		if w == "err" || w == r.mappedErr() {
 			continue
 		}
 		out = append(out, candidate{emit: h + ifErrReturn(invoke, w)})
@@ -322,7 +322,7 @@ func (r renderer) discardCandidates(head, invoke string, wraps []string, g guard
 	var out []candidate
 	for _, w := range wraps {
 		ifForm := h + "\tif _, err := " + invoke + "; err != nil {\n\t\treturn " + w + "\n\t}\n\treturn nil\n}\n"
-		if w == "err" || w == r.mapErr() {
+		if w == "err" || w == r.mappedErr() {
 			out = append(out, candidate{emit: h + "\t_, err := " + invoke + "\n\treturn " + w + "\n}\n", match: []string{ifForm}})
 			continue
 		}
@@ -356,8 +356,8 @@ func (r renderer) scalarCandidates(head, invoke, dom, row string, wraps []string
 		switch {
 		case w == "err" && conv == "v" && r.guardSrc(g, zero) == "":
 			c = candidate{emit: h + "\treturn " + invoke + "\n}\n", match: []string{h + body, h + "\tv, err := " + invoke + "\n\treturn v, err\n}\n"}}
-		case w == r.mapErr() && conv == "v":
-			c.match = []string{h + "\tv, err := " + invoke + "\n\treturn v, " + r.mapErr() + "\n}\n"}
+		case w == r.mappedErr() && conv == "v":
+			c.match = []string{h + "\tv, err := " + invoke + "\n\treturn v, " + r.mappedErr() + "\n}\n"}
 		}
 		out = append(out, c)
 	}

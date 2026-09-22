@@ -1,6 +1,6 @@
 # repo-adapter-gen: this project's description of its repository layout and
-# adapter conventions. The generator's engine (shapes, harvest, normalization,
-# ratchet) reads nothing project-specific from anywhere else, so every name,
+# adapter conventions. The generator's engine (shapes, harvest, normalization)
+# reads nothing project-specific from anywhere else, so every name,
 # helper and type conversion it emits is decided here.
 
 domain:
@@ -13,9 +13,6 @@ domain:
   # Validated value objects (private fields, a value-receiver Validate and
   # scalar accessors named after SQL parameters) are discovered here.
   value_objects: internal/repository
-
-# Hand-written interface methods per adapter package; the count may only fall.
-baseline: tools/repo-adapter-gen/handwritten_baseline.txt
 
 # The dialect whose SQL is the source of truth for row-locking intent. SQLite
 # emulates the same queries with a no-op UPDATE ... RETURNING, so the set of

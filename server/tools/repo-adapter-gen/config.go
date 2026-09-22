@@ -25,7 +25,6 @@ type config struct {
 		Interface     string `yaml:"interface"`
 		ValueObjects  string `yaml:"value_objects"`
 	} `yaml:"domain"`
-	Baseline       string            `yaml:"baseline"`
 	LockingDialect string            `yaml:"locking_dialect"`
 	Dialects       []dialectSpec     `yaml:"dialects"`
 	Conventions    conventions       `yaml:"conventions"`
@@ -109,7 +108,7 @@ func (c *config) resolve() error {
 	for _, f := range []struct{ name, value string }{
 		{"domain.package", c.Domain.Package}, {"domain.import", c.Domain.Import}, {"domain.models", c.Domain.Models},
 		{"domain.interface_file", c.Domain.InterfaceFile}, {"domain.interface", c.Domain.Interface},
-		{"domain.value_objects", c.Domain.ValueObjects}, {"baseline", c.Baseline}, {"locking_dialect", c.LockingDialect},
+		{"domain.value_objects", c.Domain.ValueObjects}, {"locking_dialect", c.LockingDialect},
 		{"conventions.queries_field", cv.QueriesField}, {"conventions.error_mapper", cv.ErrorMapper},
 		{"conventions.not_found", cv.NotFound}, {"conventions.transaction_check", cv.TransactionCheck},
 		{"conventions.no_transaction", cv.NoTransaction}, {"conventions.affected", cv.Affected},
