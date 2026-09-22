@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
@@ -59,7 +60,15 @@ func (s *healthBlockedRoot) ProbeRoot(context.Context) error {
 	return nil
 }
 
+// TestHealthHandlerRespondsDuringStuckProbeAndRejectsExpiredSuccess runs in a
+// bubble, whose clock advances only once every goroutine is durably blocked, so
+// slow setup I/O can neither exhaust the probe deadline nor expire the verdict
+// before the first request.
 func TestHealthHandlerRespondsDuringStuckProbeAndRejectsExpiredSuccess(t *testing.T) {
+	synctest.Test(t, testHealthHandlerRespondsDuringStuckProbeAndRejectsExpiredSuccess)
+}
+
+func testHealthHandlerRespondsDuringStuckProbeAndRejectsExpiredSuccess(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	local, err := storage.NewLocal(filepath.Join(t.TempDir(), "data"))
 	if err != nil {

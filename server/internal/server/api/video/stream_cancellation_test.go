@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -64,7 +65,7 @@ func (m *hungMount) ProbeRoot(ctx context.Context) error {
 // monitor, so the readiness errors under test are the ones production builds
 // rather than shapes hand-written by the test.
 type stalledStorageFixture struct {
-	srv   *httptest.Server
+	h     http.Handler
 	mount *hungMount
 	repo  *signedRepo
 	logs  *capturingHandler
@@ -119,9 +120,15 @@ func newStalledStorageFixture(t *testing.T, probeTimeout time.Duration, opts ...
 			})
 		})
 	})
-	srv := httptest.NewServer(router)
-	t.Cleanup(srv.Close)
-	return &stalledStorageFixture{srv: srv, mount: mount, repo: repo, logs: logs, done: done}
+	return &stalledStorageFixture{h: router, mount: mount, repo: repo, logs: logs, done: done}
+}
+
+// get serves in process: a bubble's clock cannot advance while a goroutine
+// waits on a real socket.
+func (f *stalledStorageFixture) get(ctx context.Context, path string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	f.h.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1"+path, nil))
+	return rec
 }
 
 func (f *stalledStorageFixture) awaitHandler(t *testing.T) {
@@ -147,21 +154,16 @@ func (f *stalledStorageFixture) awaitProbe(t *testing.T) {
 // probe is still in the backend. That abort is not an outage, and logging it as
 // one pages on error volume while saying nothing true about storage.
 func TestStreamPart_ClientAbortIsNotLoggedAsAStorageOutage(t *testing.T) {
+	synctest.Test(t, testStreamPartClientAbortIsNotLoggedAsAStorageOutage)
+}
+
+func testStreamPartClientAbortIsNotLoggedAsAStorageOutage(t *testing.T) {
 	marker := newBlockingMarker(true)
 	close(marker.release)
 	f := newStalledStorageFixture(t, 10*time.Second, WithMissingMarker(marker))
 
 	ctx, cancel := context.WithCancel(t.Context())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.srv.URL+"/api/v1/videos/7/parts/1/stream", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			resp.Body.Close()
-		}
-	}()
+	go f.get(ctx, "/videos/7/parts/1/stream")
 
 	f.awaitProbe(t)
 	cancel()
@@ -181,19 +183,19 @@ func TestStreamPart_ClientAbortIsNotLoggedAsAStorageOutage(t *testing.T) {
 // the player the request was abandoned and it stops retrying an outage that 503
 // would have ridden out.
 func TestStreamPart_StalledStorageKeeps503SoThePlayerRetries(t *testing.T) {
+	synctest.Test(t, testStreamPartStalledStorageKeeps503SoThePlayerRetries)
+}
+
+func testStreamPartStalledStorageKeeps503SoThePlayerRetries(t *testing.T) {
 	marker := newBlockingMarker(true)
 	close(marker.release)
 	f := newStalledStorageFixture(t, 100*time.Millisecond, WithMissingMarker(marker))
 
-	resp, err := http.Get(f.srv.URL + "/api/v1/videos/7/parts/1/stream")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
+	resp := f.get(t.Context(), "/videos/7/parts/1/stream")
 	f.awaitHandler(t)
 
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503 for a connected viewer on stalled storage", resp.StatusCode)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 for a connected viewer on stalled storage", resp.Code)
 	}
 	if n := f.logs.countAtLeast(slog.LevelError); n == 0 {
 		t.Fatal("a stalled backend was never surfaced as an error")
@@ -206,17 +208,17 @@ func TestStreamPart_StalledStorageKeeps503SoThePlayerRetries(t *testing.T) {
 // TestPlaybackStream_StalledStorageKeeps503SoThePlayerRetries pins the same
 // stall on the playback route, which reaches the verdict through its own branch.
 func TestPlaybackStream_StalledStorageKeeps503SoThePlayerRetries(t *testing.T) {
+	synctest.Test(t, testPlaybackStreamStalledStorageKeeps503SoThePlayerRetries)
+}
+
+func testPlaybackStreamStalledStorageKeeps503SoThePlayerRetries(t *testing.T) {
 	f := newStalledStorageFixture(t, 100*time.Millisecond)
 
-	resp, err := http.Get(f.srv.URL + "/api/v1/videos/7/playback/stream")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
+	resp := f.get(t.Context(), "/videos/7/playback/stream")
 	f.awaitHandler(t)
 
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503 for a connected viewer on stalled storage", resp.StatusCode)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 for a connected viewer on stalled storage", resp.Code)
 	}
 	if f.repo.deletes != 0 {
 		t.Fatal("demoted a ready playback asset on a storage stall")

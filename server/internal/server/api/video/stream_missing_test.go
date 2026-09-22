@@ -50,7 +50,7 @@ func TestStreamPart_StuckProbeAnswers503WithoutTombstoning(t *testing.T) {
 	}
 	store := &streamBlockedRoot{LocalStorage: local, entered: make(chan struct{}), release: make(chan struct{})}
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
-	mon := storagehealth.New(repo, store, nil, testClientLogger(), "local", local.Root, storagehealth.WithProbeTimeout(200*time.Millisecond))
+	mon := storagehealth.New(repo, store, nil, testClientLogger(), "local", local.Root)
 	if _, err := mon.Attach(t.Context()); err != nil {
 		t.Fatal(err)
 	}

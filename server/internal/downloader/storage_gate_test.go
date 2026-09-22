@@ -66,7 +66,7 @@ func (s *downloaderBlockedRoot) ProbeRoot(ctx context.Context) error {
 func TestStartAndProgressDoNotBlockBehindStorageProbe(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	store := &downloaderBlockedRoot{Identity: mediatest.Raw(s.storage).(storage.Identity), entered: make(chan struct{}), release: make(chan struct{})}
-	mon := storagehealth.New(s.repo, store, nil, s.log, "local", "test", storagehealth.WithProbeTimeout(200*time.Millisecond))
+	mon := storagehealth.New(s.repo, store, nil, s.log, "local", "test")
 	if _, err := mon.Attach(t.Context()); err != nil {
 		t.Fatal(err)
 	}
