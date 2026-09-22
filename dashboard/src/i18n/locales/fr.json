@@ -125,6 +125,8 @@
 		"subtitle": "Connectez-vous avec Twitch pour rejoindre ce serveur ReplayVOD."
 	},
 	"common": {
+		"page_load_failed": "Impossible de charger cette page",
+		"page_load_retry": "Veuillez réessayer. Si le problème persiste, contactez l’administrateur de votre serveur.",
 		"retry": "Réessayer",
 		"loading": "Chargement…",
 		"saving": "Enregistrement…",

@@ -9,6 +9,7 @@ import {
 	SIDEBAR_MARGIN_EXPANDED,
 	Sidebar,
 } from "@/components/layout/sidebar";
+import { RouteError } from "@/components/route-error";
 import { PlaybackSettingsProvider } from "@/features/settings/playback";
 import { StorageBanner } from "@/features/storage/components/StorageBanner";
 import { useLiveStreamStatus } from "@/features/streams-live/queries";
@@ -18,10 +19,6 @@ import { resolveSession, setUser } from "@/stores/auth";
 import { uiStore } from "@/stores/ui";
 
 export const Route = createFileRoute("/dashboard")({
-	// Resolve the session before the protected layout renders. An unauthenticated
-	// visitor is redirected here, in the loader phase, so no protected chrome ever
-	// paints. The guard stays pure (it does not touch authStore); the resolved
-	// user rides the route context and hydrates the store after mount below.
 	beforeLoad: async () => {
 		const user = await resolveSession();
 		if (!user) throw redirect({ to: "/login", search: { error: undefined } });
@@ -29,6 +26,7 @@ export const Route = createFileRoute("/dashboard")({
 	},
 	component: DashboardLayout,
 	pendingComponent: DashboardPending,
+	errorComponent: RouteError,
 });
 
 function DashboardPending() {
@@ -46,10 +44,6 @@ function DashboardLayout() {
 	const { user } = Route.useRouteContext();
 	const collapsed = useSelector(uiStore, (s) => s.sidebarCollapsed);
 
-	// Hydrate the auth store from the route-resolved session after mount. Kept
-	// out of the beforeLoad guard so the store (which Navbar/Sidebar subscribe
-	// to) isn't mutated mid-navigation, which previously produced
-	// update-before-mount and hydration warnings.
 	useEffect(() => {
 		setUser(user);
 	}, [user]);

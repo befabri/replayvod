@@ -125,6 +125,8 @@
 		"subtitle": "Sign in with Twitch to join this ReplayVOD server."
 	},
 	"common": {
+		"page_load_failed": "Could not load this page",
+		"page_load_retry": "Please try again. If the problem continues, contact your server administrator.",
 		"retry": "Retry",
 		"loading": "Loading…",
 		"saving": "Saving…",

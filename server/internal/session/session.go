@@ -87,8 +87,11 @@ func (m *Manager) Get(ctx context.Context, r *http.Request) (*repository.Session
 
 	hashedID := HashSessionID(cookie.Value)
 	sess, err := m.repo.GetSession(ctx, hashedID)
-	if err != nil {
+	if errors.Is(err, repository.ErrNotFound) {
 		return nil, nil // Session not found = expired/revoked
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get session: %w", err)
 	}
 
 	if time.Now().After(sess.ExpiresAt) {

@@ -1,11 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { RouteError } from "@/components/route-error";
 import { resolveSession } from "@/stores/auth";
 
-// The index route is a pure dispatcher: resolve the session before anything
-// renders, then redirect to the dashboard or login. Doing it in beforeLoad
-// (rather than a mount effect that navigates) means there's no transient
-// blank/null frame on "/".
 export const Route = createFileRoute("/")({
+	errorComponent: RouteError,
 	beforeLoad: async () => {
 		const user = await resolveSession();
 		if (user) throw redirect({ to: "/dashboard" });

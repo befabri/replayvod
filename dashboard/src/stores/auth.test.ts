@@ -110,20 +110,95 @@ describe("resolveSession", () => {
 		expect(authStore.state.isAuthenticated).toBe(false);
 	});
 
-	it("returns null on a 401", async () => {
-		sessionQuery.mockRejectedValue({ data: { httpStatus: 401 } });
+	it.each([
+		{ data: { httpStatus: 401 } },
+		{ data: { code: "UNAUTHORIZED" } },
+	])("caches confirmed unauthorized responses: %j", async (error) => {
+		sessionQuery.mockRejectedValue(error);
+		const state = authStore.state;
 
-		const user = await resolveSession();
+		await expect(resolveSession()).resolves.toBeNull();
+		await expect(resolveSession()).resolves.toBeNull();
 
-		expect(user).toBeNull();
+		expect(sessionQuery).toHaveBeenCalledTimes(1);
+		expect(authStore.state).toBe(state);
 	});
 
-	it("treats an unknown role as no session", async () => {
-		sessionQuery.mockResolvedValue({ ...VALID_SESSION, role: "superadmin" });
+	it.each([
+		[
+			"server error",
+			{ data: { httpStatus: 500, code: "INTERNAL_SERVER_ERROR" } },
+		],
+		["network failure", new TypeError("Failed to fetch")],
+	])("retries a %s without resetting the cache or mutating auth", async (_, error) => {
+		sessionQuery.mockRejectedValueOnce(error).mockResolvedValue(VALID_SESSION);
+		const state = authStore.state;
 
-		const user = await resolveSession();
+		await expect(resolveSession()).rejects.toBe(error);
+		expect(authStore.state).toBe(state);
+		await expect(resolveSession()).resolves.toMatchObject({ login: "alice" });
+		await expect(resolveSession()).resolves.toMatchObject({ login: "alice" });
 
-		expect(user).toBeNull();
+		expect(sessionQuery).toHaveBeenCalledTimes(2);
+		expect(authStore.state).toBe(state);
+		expect(redirectSpy).not.toHaveBeenCalled();
+	});
+
+	it("rejects an unknown role and retries validation without resetting the cache", async () => {
+		sessionQuery
+			.mockResolvedValueOnce({ ...VALID_SESSION, role: "superadmin" })
+			.mockResolvedValue(VALID_SESSION);
+		const state = authStore.state;
+
+		await expect(resolveSession()).rejects.toThrow(
+			"Invalid session response: unknown role",
+		);
+		await expect(resolveSession()).resolves.toMatchObject({ role: "owner" });
+
+		expect(sessionQuery).toHaveBeenCalledTimes(2);
+		expect(authStore.state).toBe(state);
+		expect(redirectSpy).not.toHaveBeenCalled();
+	});
+
+	it("preserves existing auth state when a fresh validation fails", async () => {
+		setUser({ id: "u1", login: "alice", displayName: "Alice", role: "owner" });
+		resetSessionCache();
+		const state = authStore.state;
+		const error = new Error("connection reset");
+		sessionQuery.mockRejectedValueOnce(error).mockResolvedValue(VALID_SESSION);
+
+		await expect(resolveSession()).rejects.toBe(error);
+		expect(authStore.state).toBe(state);
+		await expect(resolveSession()).resolves.toMatchObject({ login: "alice" });
+		expect(authStore.state).toBe(state);
+	});
+
+	it("clears the in-flight promise even if the transport throws synchronously", async () => {
+		const error = new Error("transport unavailable");
+		sessionQuery
+			.mockImplementationOnce(() => {
+				throw error;
+			})
+			.mockResolvedValue(VALID_SESSION);
+
+		await expect(resolveSession()).rejects.toBe(error);
+		await expect(resolveSession()).resolves.toMatchObject({ login: "alice" });
+		expect(sessionQuery).toHaveBeenCalledTimes(2);
+	});
+
+	it("dedupes concurrent failures and concurrent recovery attempts", async () => {
+		const error = new Error("network unavailable");
+		sessionQuery.mockRejectedValueOnce(error).mockResolvedValue(VALID_SESSION);
+
+		const first = resolveSession();
+		expect(resolveSession()).toBe(first);
+		await expect(first).rejects.toBe(error);
+		expect(sessionQuery).toHaveBeenCalledTimes(1);
+
+		const retry = resolveSession();
+		expect(resolveSession()).toBe(retry);
+		await expect(retry).resolves.toMatchObject({ login: "alice" });
+		expect(sessionQuery).toHaveBeenCalledTimes(2);
 	});
 
 	it("dedupes concurrent calls into a single request", async () => {
@@ -218,12 +293,14 @@ describe("revalidateSession (SSE probe)", () => {
 		expect(sessionQuery).toHaveBeenCalledTimes(1);
 	});
 
-	it("redirects when the probe returns a 200 with an unusable role", async () => {
+	it("does not authenticate or redirect when the probe returns an unknown role", async () => {
 		sessionQuery.mockResolvedValue({ ...VALID_SESSION, role: "superadmin" });
+		const state = authStore.state;
 
 		await revalidateSession();
 
-		expect(redirectSpy).toHaveBeenCalledTimes(1);
+		expect(redirectSpy).not.toHaveBeenCalled();
+		expect(authStore.state).toBe(state);
 	});
 
 	it("skips re-probing within the cooldown after a confirmed session", async () => {

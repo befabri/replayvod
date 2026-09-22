@@ -2,11 +2,10 @@ package middleware
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/trpcgo"
 )
 
@@ -33,40 +32,18 @@ func getHTTPRequest(ctx context.Context) *http.Request {
 	return r
 }
 
-func TRPCAuth(sessionMgr *session.Manager, repo repository.Repository, tokenProvider *SessionTokenProvider, log *slog.Logger) trpcgo.Middleware {
-	return func(next trpcgo.HandlerFunc) trpcgo.HandlerFunc {
-		return func(ctx context.Context, input any) (any, error) {
-			r := getHTTPRequest(ctx)
-			if r == nil {
-				return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "missing request context")
-			}
-
-			sess, err := sessionMgr.Get(ctx, r)
-			if err != nil || sess == nil {
-				return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-			}
-
-			user, err := repo.GetUser(ctx, sess.UserID)
-			if err != nil {
-				log.Warn("session user not found", "user_id", sess.UserID)
-				return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-			}
-
-			tokens, err := sessionMgr.DecryptTokens(sess)
-			if err != nil {
-				log.Error("failed to decrypt tokens", "error", err)
-				return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-			}
-
-			sessionMgr.UpdateActivity(ctx, sess.HashedID)
-
-			ctx = tokenProvider.Bind(ctx, sess.HashedID, tokens)
-			ctx = context.WithValue(ctx, ctxKeyUser, user)
-			ctx = context.WithValue(ctx, ctxKeySession, sess)
-			ctx = context.WithValue(ctx, ctxKeyTokens, tokens)
-
-			return next(ctx, input)
+func (a *Authenticator) TRPC(next trpcgo.HandlerFunc) trpcgo.HandlerFunc {
+	return func(ctx context.Context, input any) (any, error) {
+		r := getHTTPRequest(ctx)
+		if r == nil {
+			return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "missing request context")
 		}
+		ctx, err := a.authenticate(ctx, r)
+		if err != nil {
+			return nil, apierr.Map(a.log, err, "authenticate",
+				apierr.On(errUnauthenticated, trpcgo.CodeUnauthorized))
+		}
+		return next(ctx, input)
 	}
 }
 

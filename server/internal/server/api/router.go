@@ -147,18 +147,18 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	}
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, webhookProcessor, log)
 	tokenProvider := middleware.NewSessionTokenProvider(sessionMgr, twitchClient, log)
-	sessionMw := middleware.Auth(sessionMgr, repo, tokenProvider, log)
+	authenticator := middleware.NewAuthenticator(sessionMgr, repo, tokenProvider, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.App.Health.Enabled {
 			r.Get("/health", healthHandler(repo, storageGate, log))
 		}
 		authHandler.SetupRoutes(r)
-		videoStream.SetupRoutes(r, sessionMw)
+		videoStream.SetupRoutes(r, authenticator.HTTP)
 		videoStream.SetupSignedRoutes(r)
 		webhookHandler.SetupRoutes(r)
 	})
 
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, recordings, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, authenticator, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, recordings, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range trustedBrowserOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -169,7 +169,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		trpc.WithPublicOrigins(trustedBrowserOrigins...),
 	)
 	wsHandler := subscriptions.NewHandler(trpcRouter, trustedBrowserOrigins)
-	r.With(sessionMw).Get("/trpc/ws", wsHandler.ServeHTTP)
+	r.With(authenticator.HTTP).Get("/trpc/ws", wsHandler.ServeHTTP)
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
 		// Register methods explicitly so CORS discovers them and chi rejects others with 405.
@@ -227,7 +227,7 @@ func routedMethods(routes chi.Routes) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, recordings *RecordingServices, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, authenticator *middleware.Authenticator, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, recordings *RecordingServices, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
@@ -264,11 +264,10 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 
 	tr := trpcgo.NewRouter(opts...)
 
-	authMw := middleware.TRPCAuth(sessionMgr, repo, tokenProvider, log)
 	adminMw := middleware.TRPCRequireRole(middleware.RoleAdmin)
 	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
 
-	authed := trpcgo.Procedure().Use(authMw)
+	authed := trpcgo.Procedure().Use(authenticator.TRPC)
 	viewer := authed
 	admin := authed.Use(adminMw)
 	owner := authed.Use(ownerMw)
