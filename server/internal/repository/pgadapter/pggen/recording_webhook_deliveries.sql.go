@@ -259,8 +259,8 @@ ORDER BY created_at DESC, id DESC
 LIMIT $1::int
 `
 
-func (q *Queries) ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int32) ([]RecordingWebhookDelivery, error) {
-	rows, err := q.db.Query(ctx, listRecordingWebhookDeliveries, rowLimit)
+func (q *Queries) ListRecordingWebhookDeliveries(ctx context.Context, limit int32) ([]RecordingWebhookDelivery, error) {
+	rows, err := q.db.Query(ctx, listRecordingWebhookDeliveries, limit)
 	if err != nil {
 		return nil, err
 	}

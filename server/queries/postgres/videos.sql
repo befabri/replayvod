@@ -96,7 +96,7 @@ ORDER BY
   -- keep the two dialects observably identical.
   CASE WHEN @sort_key::text LIKE '%-asc' THEN id END ASC,
   id DESC
-LIMIT @row_limit OFFSET @row_offset;
+LIMIT sqlc.arg('limit') OFFSET @row_offset;
 
 -- name: ListVideosByBroadcasterPage :many
 SELECT v.* FROM videos v
@@ -108,7 +108,7 @@ WHERE v.broadcaster_id = @broadcaster_id::text
     OR (v.start_download_at = sqlc.narg('cursor_start_download_at')::timestamptz AND v.id < @cursor_id::bigint)
   )
 ORDER BY v.start_download_at DESC, v.id DESC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: ListVideosByCategoryPage :many
 SELECT v.* FROM videos v
@@ -121,7 +121,7 @@ WHERE vc.category_id = @category_id::text
     OR (v.start_download_at = sqlc.narg('cursor_start_download_at')::timestamptz AND v.id < @cursor_id::bigint)
   )
 ORDER BY v.start_download_at DESC, v.id DESC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: SearchVideos :many
 WITH q AS (
@@ -230,7 +230,7 @@ WHERE id = @id AND (deleted_at IS NULL OR deletion_kind = 'missing');
 -- delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
 -- keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 -- agree on "exactly at the deadline is still retained".
-SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
+SELECT id AS video_id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
 WHERE videos.id > sqlc.arg(after_id) AND deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND downloaded_at IS NOT NULL
@@ -304,7 +304,7 @@ WHERE broadcaster_id = $1 AND status = 'DONE' AND deleted_at IS NULL;
 
 -- name: ListVideosForStorageScan :many
 -- Bounded keyset page of terminal recordings safe to reconcile.
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND next_retry_at IS NULL
@@ -318,10 +318,10 @@ ORDER BY videos.id ASC LIMIT sqlc.arg('limit')::int;
 -- name: ListVideosForStorageWitness :many
 -- Before initializing markerless storage, account for media even when a retry,
 -- running capture, deletion request or reversible tombstone excludes scanning.
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
   AND (status = 'DONE' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
-ORDER BY videos.id ASC LIMIT @page_size::int;
+ORDER BY videos.id ASC LIMIT sqlc.arg('limit')::int;
 
 -- name: TombstoneMissingVideo :execrows
 -- Preserve objects and their metadata. A concurrent deletion request or state
@@ -429,7 +429,7 @@ WHERE id = $1
 
 -- name: ListMissingTombstones :many
 -- Bounded keyset page of reversible tombstones for the scan's restore phase.
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NOT NULL
   AND deletion_kind = 'missing'
   AND delete_requested_at IS NULL

@@ -54,7 +54,7 @@ func testListRetentionCandidates(t *testing.T, h Harness) {
 	}
 	candidates := func(at time.Time) []string {
 		t.Helper()
-		rows, err := repo.ListRetentionCandidates(ctx, at, 0, 100)
+		rows, err := repo.ListRetentionCandidates(ctx, at, batchPage(t, 0, 100))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +112,7 @@ func testListRetentionCandidates(t *testing.T, h Harness) {
 	assertStringSlice(t, candidates(now.Add(time.Second)), []string{"due", "boundary", "failed-partial", "failed-cancelled", "test-delivery"})
 	assertStringSlice(t, candidates(now.Add(-2*time.Hour)), nil)
 
-	rows, err := repo.ListRetentionCandidates(ctx, now, 0, 1)
+	rows, err := repo.ListRetentionCandidates(ctx, now, batchPage(t, 0, 1))
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("first candidate = %+v, %v", rows, err)
 	}
@@ -136,7 +136,7 @@ func testListRetentionCandidates(t *testing.T, h Harness) {
 	var paged []repository.RetentionVideo
 	var cursor int64
 	for {
-		page, err := repo.ListRetentionCandidates(ctx, now, cursor, 2)
+		page, err := repo.ListRetentionCandidates(ctx, now, batchPage(t, cursor, 2))
 		if err != nil {
 			t.Fatal(err)
 		}

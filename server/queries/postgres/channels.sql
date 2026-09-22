@@ -61,7 +61,7 @@ WHERE (
     OR (lower(c.broadcaster_name) = lower(sqlc.narg('cursor_name')::text) AND c.broadcaster_id > @cursor_id::text)
   )
 ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: ListChannelsPageDesc :many
 SELECT c.* FROM channels c
@@ -96,7 +96,7 @@ WHERE (
     OR (lower(c.broadcaster_name) = lower(sqlc.narg('cursor_name')::text) AND c.broadcaster_id < @cursor_id::text)
   )
 ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: SearchChannels :many
 -- Case-insensitive substring match on login + display name. Ranks exact

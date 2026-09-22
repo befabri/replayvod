@@ -110,7 +110,7 @@ WHERE EXISTS (
     OR (lower(c.name) = lower(sqlc.narg('cursor_name')::text) AND c.id > @cursor_id::text)
   )
 ORDER BY lower(c.name) ASC, c.id ASC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: ListCategoriesWithVideosPageLatestDesc :many
 WITH category_stats AS (
@@ -140,7 +140,7 @@ WHERE (
     )
 )
 ORDER BY category_stats.latest_video_at DESC, lower(c.name) ASC, c.id ASC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: ListCategoriesWithVideosPageVideoCountDesc :many
 WITH category_stats AS (
@@ -170,7 +170,7 @@ WHERE (
     )
 )
 ORDER BY category_stats.video_count DESC, lower(c.name) ASC, c.id ASC
-LIMIT @row_limit;
+LIMIT sqlc.arg('limit');
 
 -- name: ListCategoriesByIDs :many
 SELECT * FROM categories WHERE id = ANY(@ids::text[]);

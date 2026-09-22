@@ -13,16 +13,21 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 )
 
+// normalize applies normalizeFuncSrc under the renderer's config.
+func (r renderer) normalize(src string) (string, error) {
+	return normalizeFuncSrc(src, r.cfg.Equivalents)
+}
+
 // normalizeFuncSrc parses a single func declaration and renders it in a
 // canonical form so that two functions compare equal exactly when they differ
 // only in spelling: comments are dropped, positions are cleared so line
 // breaks and grouping do not matter, every local identifier (receiver,
 // parameters, variables) is renamed by order of first use, and helper calls
 // that are definitionally the same as a literal are rewritten to the literal
-// (see rewriteEquivalents). Package-level names, selectors, composite literal
-// keys and literals are kept, so a swapped argument, a different error
-// message or an extra statement still differs.
-func normalizeFuncSrc(src string) (string, error) {
+// (see rewriteEquivalents and the config's equivalents). Package-level names,
+// selectors, composite literal keys and literals are kept, so a swapped
+// argument, a different error message or an extra statement still differs.
+func normalizeFuncSrc(src string, eqs []equivalent) (string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x.go", "package x\n"+src, 0)
 	if err != nil {
@@ -35,7 +40,7 @@ func normalizeFuncSrc(src string) (string, error) {
 		}
 		fd.Doc = nil
 		splitGroupedFields(fd.Type.Params)
-		rewriteEquivalents(fd)
+		rewriteEquivalents(fd, eqs)
 		sortKeyedLiterals(fd)
 		renameLocals(fd)
 		clearPositions(fd)
@@ -68,10 +73,14 @@ func splitGroupedFields(fl *ast.FieldList) {
 }
 
 // rewriteEquivalents replaces calls whose result is, by the helper's
-// definition, a fixed literal of their argument: toNullString(&x) and
-// toNullInt64(&x) always build a valid sql.Null* value, so they are rewritten
-// to that literal, which is the form the generator emits.
-func rewriteEquivalents(fd *ast.FuncDecl) {
+// definition, a fixed literal of their argument, as the config's equivalents
+// declare: toNullString(&x) always builds a valid sql.NullString, so it is
+// rewritten to that literal, which is the form the generator emits.
+func rewriteEquivalents(fd *ast.FuncDecl, eqs []equivalent) {
+	literals := make(map[string]string, len(eqs))
+	for _, e := range eqs {
+		literals[e.Helper] = e.Literal
+	}
 	astutil.Apply(fd, nil, func(c *astutil.Cursor) bool {
 		call, ok := c.Node().(*ast.CallExpr)
 		if !ok || len(call.Args) != 1 {
@@ -85,24 +94,31 @@ func rewriteEquivalents(fd *ast.FuncDecl) {
 		if !ok || addr.Op != token.AND {
 			return true
 		}
-		var typ, field string
-		switch fn.Name {
-		case "toNullString":
-			typ, field = "NullString", "String"
-		case "toNullInt64":
-			typ, field = "NullInt64", "Int64"
-		default:
+		literal, ok := literals[fn.Name]
+		if !ok {
 			return true
 		}
-		c.Replace(&ast.CompositeLit{
-			Type: &ast.SelectorExpr{X: ast.NewIdent("sql"), Sel: ast.NewIdent(typ)},
-			Elts: []ast.Expr{
-				&ast.KeyValueExpr{Key: ast.NewIdent(field), Value: addr.X},
-				&ast.KeyValueExpr{Key: ast.NewIdent("Valid"), Value: ast.NewIdent("true")},
-			},
-		})
+		c.Replace(equivalentLiteral(literal, addr.X))
 		return true
 	})
+}
+
+// equivalentArg is the placeholder an equivalent's literal is parsed with.
+const equivalentArg = "equivalentArg"
+
+// equivalentLiteral instantiates literal with arg standing for %s. The
+// template was parsed once when the config loaded.
+func equivalentLiteral(literal string, arg ast.Expr) ast.Expr {
+	expr, err := parser.ParseExpr(fmt.Sprintf(literal, equivalentArg))
+	if err != nil {
+		panic(err)
+	}
+	return astutil.Apply(expr, nil, func(c *astutil.Cursor) bool {
+		if id, ok := c.Node().(*ast.Ident); ok && id.Name == equivalentArg {
+			c.Replace(arg)
+		}
+		return true
+	}).(ast.Expr)
 }
 
 // sortKeyedLiterals orders the elements of fully keyed composite literals by

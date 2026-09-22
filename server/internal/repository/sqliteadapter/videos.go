@@ -181,7 +181,7 @@ func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVide
 	rows, err := a.queries.ListVideos(ctx, sqlitegen.ListVideosParams{
 		StatusFilter: opts.Status,
 		SortKey:      opts.SortKey(),
-		RowLimit:     int64(opts.Limit),
+		Limit:        int64(opts.Limit),
 		RowOffset:    int64(opts.Offset),
 	})
 	if err != nil {
@@ -211,7 +211,7 @@ func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcaster
 		BroadcasterID:         broadcasterID,
 		CursorStartDownloadAt: sqliteCursorStartDownloadAt(cursor),
 		CursorID:              sqliteCursorID(cursor),
-		RowLimit:              int64(limit + 1),
+		Limit:                 int64(limit + 1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos by broadcaster: %w", err)
@@ -225,41 +225,13 @@ func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID str
 		CategoryID:            categoryID,
 		CursorStartDownloadAt: sqliteCursorStartDownloadAt(cursor),
 		CursorID:              sqliteCursorID(cursor),
-		RowLimit:              int64(limit + 1),
+		Limit:                 int64(limit + 1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos by category: %w", err)
 	}
 	items := sqliteVideosToDomain(rows)
 	return repository.ToVideoPage(items, limit), nil
-}
-
-func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]repository.Video, error) {
-	if limit <= 0 {
-		return []repository.Video{}, nil
-	}
-	rows, err := a.queries.ListVideosPendingManualDelete(ctx, sqlitegen.ListVideosPendingManualDeleteParams{AfterID: afterID, Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
-	rows, err := a.queries.ListRetentionCandidates(ctx, sqlitegen.ListRetentionCandidatesParams{Now: sqliteTimePtr(&now), AfterID: afterID, Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list finished videos for retention: %w", err)
-	}
-	out := make([]repository.RetentionVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.RetentionVideo{
-			VideoID:              r.ID,
-			BroadcasterID:        r.BroadcasterID,
-			DownloadedAt:         timePtrFromSQLite(r.DownloadedAt),
-			RetentionWindowHours: fromNullInt64(r.RetentionWindowHours),
-		}
-	}
-	return out, nil
 }
 
 func (a *SQLiteAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
@@ -275,18 +247,6 @@ func (a *SQLiteAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind 
 		}
 		return nil
 	})
-}
-
-func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {
-	rows, err := a.queries.StatisticsByStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats by status: %w", err)
-	}
-	out := make([]repository.VideoStatsByStatus, len(rows))
-	for i, r := range rows {
-		out[i] = repository.VideoStatsByStatus{Status: r.Status, Count: r.Count}
-	}
-	return out, nil
 }
 
 func (a *SQLiteAdapter) VideoStatsHistory(ctx context.Context) ([]repository.VideoStatsHistoryBucket, error) {
@@ -467,43 +427,16 @@ func sqliteCursorID(cursor *repository.VideoPageCursor) int64 {
 	return cursor.ID
 }
 
-// ListVideosForStorageScan bounds each query even if a caller passes an invalid limit.
-func (a *SQLiteAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
-	if afterID < 0 || limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid storage scan page")
-	}
-	rows, err := a.queries.ListVideosForStorageScan(ctx, sqlitegen.ListVideosForStorageScanParams{AfterID: afterID, Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list videos for storage scan: %w", err)
-	}
-	out := make([]repository.StorageScanVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
-	}
-	return out, nil
-}
-
-func (a *SQLiteAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]repository.Video, error) {
-	if len(twitchVideoIDs) == 0 {
-		return []repository.Video{}, nil
-	}
-	ids := make([]sql.NullString, len(twitchVideoIDs))
-	for i, id := range twitchVideoIDs {
-		ids[i] = sql.NullString{String: id, Valid: true}
-	}
-	rows, err := a.queries.ListOpenVideosByTwitchVideoIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list open videos by twitch video ids: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
 // GetVideoForStorageScan reuses the eligibility query, without treating zero as a wildcard.
 func (a *SQLiteAdapter) GetVideoForStorageScan(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
 	if id <= 0 {
 		return nil, repository.ErrNotFound
 	}
-	rows, err := a.ListVideosForStorageScan(ctx, id-1, 1)
+	page, err := repository.NewBatchPage(id-1, 1)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.ListVideosForStorageScan(ctx, page)
 	if err != nil {
 		return nil, err
 	}
@@ -535,41 +468,15 @@ func (a *SQLiteAdapter) RestoreMissingVideo(ctx context.Context, id int64) error
 	return nil
 }
 
-func (a *SQLiteAdapter) ListMissingTombstones(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
-	if afterID < 0 || limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid storage scan page")
-	}
-	rows, err := a.queries.ListMissingTombstones(ctx, sqlitegen.ListMissingTombstonesParams{AfterID: afterID, Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list missing tombstones: %w", err)
-	}
-	out := make([]repository.StorageScanVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
-	}
-	return out, nil
-}
-
-func (a *SQLiteAdapter) ListVideosForStorageWitness(ctx context.Context, limit int) ([]repository.StorageScanVideo, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid storage witness sample")
-	}
-	rows, err := a.queries.ListVideosForStorageWitness(ctx, int64(limit))
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list storage witnesses: %w", err)
-	}
-	out := make([]repository.StorageScanVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
-	}
-	return out, nil
-}
-
 func (a *SQLiteAdapter) GetMissingTombstone(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
 	if id <= 0 {
 		return nil, repository.ErrNotFound
 	}
-	rows, err := a.ListMissingTombstones(ctx, id-1, 1)
+	page, err := repository.NewBatchPage(id-1, 1)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.ListMissingTombstones(ctx, page)
 	if err != nil {
 		return nil, err
 	}
@@ -577,30 +484,4 @@ func (a *SQLiteAdapter) GetMissingTombstone(ctx context.Context, id int64) (*rep
 		return nil, repository.ErrNotFound
 	}
 	return &rows[0], nil
-}
-
-func (a *SQLiteAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []string) ([]repository.Video, error) {
-	if len(streamIDs) == 0 {
-		return []repository.Video{}, nil
-	}
-	ids := make([]sql.NullString, len(streamIDs))
-	for i, id := range streamIDs {
-		ids[i] = sql.NullString{String: id, Valid: true}
-	}
-	rows, err := a.queries.ListOpenVideosByStreamIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list open videos by stream ids: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]repository.Video, error) {
-	if afterID < 0 || limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid poster page")
-	}
-	rows, err := a.queries.ListArchivesMissingPoster(ctx, sqlitegen.ListArchivesMissingPosterParams{Since: sqliteTime(since), AfterID: afterID, Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list archives missing poster: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
 }

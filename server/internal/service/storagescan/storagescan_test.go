@@ -654,16 +654,16 @@ type pageTrackingRepo struct {
 	cancel   context.CancelFunc
 }
 
-func (r *pageTrackingRepo) ListVideosForStorageScan(ctx context.Context, after int64, limit int) ([]repository.StorageScanVideo, error) {
-	if limit > scanPageSize {
+func (r *pageTrackingRepo) ListVideosForStorageScan(ctx context.Context, page repository.BatchPage) ([]repository.StorageScanVideo, error) {
+	if page.Limit() > scanPageSize {
 		return nil, errors.New("unbounded scan")
 	}
-	r.pages = append(r.pages, after)
+	r.pages = append(r.pages, page.AfterID())
 	if len(r.pages) == r.cancelOn && r.cancel != nil {
 		r.cancel()
 		return nil, ctx.Err()
 	}
-	return r.Repository.ListVideosForStorageScan(ctx, after, limit)
+	return r.Repository.ListVideosForStorageScan(ctx, page)
 }
 
 func (r *pageTrackingRepo) ListVideoParts(ctx context.Context, id int64) ([]repository.VideoPart, error) {
@@ -927,7 +927,7 @@ type cancelOnMissingListRepo struct {
 	cancel context.CancelFunc
 }
 
-func (r *cancelOnMissingListRepo) ListMissingTombstones(ctx context.Context, after int64, limit int) ([]repository.StorageScanVideo, error) {
+func (r *cancelOnMissingListRepo) ListMissingTombstones(ctx context.Context, page repository.BatchPage) ([]repository.StorageScanVideo, error) {
 	r.cancel()
 	return nil, ctx.Err()
 }

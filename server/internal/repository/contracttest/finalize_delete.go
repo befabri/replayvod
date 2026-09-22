@@ -97,7 +97,7 @@ func testFinalizeDelete(t *testing.T, h Harness) {
 	if got := reload(queued); got.DeletedAt == nil || kindOf(got) != repository.DeletionKindManual || got.DeleteRequestedAt != nil || parts(queued.ID) != 0 {
 		t.Fatalf("queued manual delete finalized as %+v, %d parts; want the manual kind", got, parts(queued.ID))
 	}
-	if pending, err := repo.ListVideosPendingManualDelete(ctx, 0, 10); err != nil || len(pending) != 0 {
+	if pending, err := repo.ListVideosPendingManualDelete(ctx, batchPage(t, 0, 10)); err != nil || len(pending) != 0 {
 		t.Fatalf("finalized video still queued: %v, %v", videoJobIDs(pending), err)
 	}
 

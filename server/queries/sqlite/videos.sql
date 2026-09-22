@@ -62,7 +62,7 @@ UPDATE videos SET thumbnail = ? WHERE id = ?;
 WITH params AS (
     SELECT CAST(@status_filter AS text) AS status_filter,
            CAST(@sort_key AS text) AS sort_key,
-           CAST(@row_limit AS integer) AS row_limit,
+           CAST(@limit AS integer) AS row_limit,
            CAST(@row_offset AS integer) AS row_offset
 )
 SELECT v.* FROM videos v
@@ -89,7 +89,7 @@ WITH params AS (
     SELECT CAST(@broadcaster_id AS text) AS broadcaster_id,
            CAST(sqlc.narg('cursor_start_download_at') AS text) AS cursor_start_download_at,
            CAST(@cursor_id AS integer) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT v.* FROM videos v
 CROSS JOIN params
@@ -108,7 +108,7 @@ WITH params AS (
     SELECT CAST(@category_id AS text) AS category_id,
            CAST(sqlc.narg('cursor_start_download_at') AS text) AS cursor_start_download_at,
            CAST(@cursor_id AS integer) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT v.* FROM videos v
 CROSS JOIN params
@@ -237,7 +237,7 @@ WHERE id = @id AND (deleted_at IS NULL OR deletion_kind = 'missing');
 -- delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
 -- keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 -- agree on "exactly at the deadline is still retained".
-SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
+SELECT id AS video_id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
 WHERE videos.id > sqlc.arg(after_id) AND deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND downloaded_at IS NOT NULL
@@ -310,7 +310,7 @@ WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL
 
 -- name: ListVideosForStorageScan :many
 -- Bounded keyset page of terminal recordings safe to reconcile.
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND next_retry_at IS NULL
@@ -324,10 +324,10 @@ ORDER BY videos.id ASC LIMIT CAST(@limit AS INTEGER);
 -- name: ListVideosForStorageWitness :many
 -- Before initializing markerless storage, account for media even when a retry,
 -- running capture, deletion request or reversible tombstone excludes scanning.
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
   AND (status = 'DONE' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
-ORDER BY videos.id ASC LIMIT CAST(@page_size AS INTEGER);
+ORDER BY videos.id ASC LIMIT CAST(@limit AS INTEGER);
 
 -- name: TombstoneMissingVideo :execrows
 -- Preserve objects and their metadata. A concurrent deletion request or state
@@ -444,7 +444,7 @@ WHERE id = ?
 
 -- name: ListMissingTombstones :many
 -- See postgres/videos.sql ListMissingTombstones.
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NOT NULL
   AND deletion_kind = 'missing'
   AND delete_requested_at IS NULL

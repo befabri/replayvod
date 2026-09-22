@@ -44,7 +44,7 @@ func (a *PGAdapter) SearchEventLogs(ctx context.Context, query string, limit, of
 
 	rows, err := a.queries.SearchEventLogs(ctx, pggen.SearchEventLogsParams{
 		Query:     query,
-		RowLimit:  int32(limit),
+		Limit:     int32(limit),
 		RowOffset: int32(offset),
 	})
 	if err != nil {

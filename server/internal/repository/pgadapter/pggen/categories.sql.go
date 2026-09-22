@@ -362,7 +362,7 @@ type ListCategoriesWithVideosPageLatestDescParams struct {
 	CursorLatestVideoAt *time.Time `json:"cursor_latest_video_at"`
 	CursorName          *string    `json:"cursor_name"`
 	CursorID            string     `json:"cursor_id"`
-	RowLimit            int32      `json:"row_limit"`
+	Limit               int32      `json:"limit"`
 }
 
 type ListCategoriesWithVideosPageLatestDescRow struct {
@@ -384,7 +384,7 @@ func (q *Queries) ListCategoriesWithVideosPageLatestDesc(ctx context.Context, ar
 		arg.CursorLatestVideoAt,
 		arg.CursorName,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -437,14 +437,14 @@ LIMIT $3
 type ListCategoriesWithVideosPageNameAscParams struct {
 	CursorName *string `json:"cursor_name"`
 	CursorID   string  `json:"cursor_id"`
-	RowLimit   int32   `json:"row_limit"`
+	Limit      int32   `json:"limit"`
 }
 
 // Cursor-paginated browse list for the default category order. This mirrors
 // ListCategoriesWithVideos' visibility predicate while over-fetching at the
 // adapter layer to discover the next cursor.
 func (q *Queries) ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg ListCategoriesWithVideosPageNameAscParams) ([]Category, error) {
-	rows, err := q.db.Query(ctx, listCategoriesWithVideosPageNameAsc, arg.CursorName, arg.CursorID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listCategoriesWithVideosPageNameAsc, arg.CursorName, arg.CursorID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +508,7 @@ type ListCategoriesWithVideosPageVideoCountDescParams struct {
 	CursorName       *string `json:"cursor_name"`
 	CursorVideoCount int64   `json:"cursor_video_count"`
 	CursorID         string  `json:"cursor_id"`
-	RowLimit         int32   `json:"row_limit"`
+	Limit            int32   `json:"limit"`
 }
 
 type ListCategoriesWithVideosPageVideoCountDescRow struct {
@@ -530,7 +530,7 @@ func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context
 		arg.CursorName,
 		arg.CursorVideoCount,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

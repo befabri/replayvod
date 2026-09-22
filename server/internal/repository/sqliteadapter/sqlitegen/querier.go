@@ -255,7 +255,7 @@ type Querier interface {
 	ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error)
 	ListRecordingIntentJobs(ctx context.Context, arg ListRecordingIntentJobsParams) ([]Job, error)
 	ListRecordingPublications(ctx context.Context, arg ListRecordingPublicationsParams) ([]MediaPublication, error)
-	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
+	ListRecordingWebhookDeliveries(ctx context.Context, limit int64) ([]RecordingWebhookDelivery, error)
 	ListRecoverableRecordingIntents(ctx context.Context, arg ListRecoverableRecordingIntentsParams) ([]RecordingIntent, error)
 	ListRecoveryJobs(ctx context.Context, arg ListRecoveryJobsParams) ([]Job, error)
 	ListRelatedRecordings(ctx context.Context, videoID int64) ([]ListRelatedRecordingsRow, error)
@@ -315,7 +315,7 @@ type Querier interface {
 	ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error)
 	// Before initializing markerless storage, account for media even when a retry,
 	// running capture, deletion request or reversible tombstone excludes scanning.
-	ListVideosForStorageWitness(ctx context.Context, pageSize int64) ([]ListVideosForStorageWitnessRow, error)
+	ListVideosForStorageWitness(ctx context.Context, limit int64) ([]ListVideosForStorageWitnessRow, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete

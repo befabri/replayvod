@@ -112,6 +112,14 @@ func toNullString(s *string) sql.NullString {
 	return sql.NullString{String: *s, Valid: true}
 }
 
+func toNullStrings(xs []string) []sql.NullString {
+	out := make([]sql.NullString, len(xs))
+	for i, x := range xs {
+		out[i] = sql.NullString{String: x, Valid: true}
+	}
+	return out
+}
+
 func fromNullFloat64(f sql.NullFloat64) *float64 {
 	if !f.Valid {
 		return nil
@@ -191,85 +199,4 @@ func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session
 	return nil
 }
 
-func (a *SQLiteAdapter) GetSession(ctx context.Context, hashedID string) (*repository.Session, error) {
-	row, err := a.queries.GetSession(ctx, hashedID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite get session: %w", mapErr(err))
-	}
-	return &repository.Session{
-		HashedID:        row.HashedID,
-		UserID:          row.UserID,
-		EncryptedTokens: row.EncryptedTokens,
-		ExpiresAt:       row.ExpiresAt.Time,
-		LastActiveAt:    row.LastActiveAt.Time,
-		UserAgent:       fromNullString(row.UserAgent),
-		IPAddress:       fromNullString(row.IpAddress),
-		CreatedAt:       row.CreatedAt.Time,
-	}, nil
-}
-
-func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
-	rows, err := a.queries.ListUserSessions(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list user sessions: %w", err)
-	}
-	sessions := make([]repository.SessionInfo, len(rows))
-	for i, row := range rows {
-		sessions[i] = repository.SessionInfo{
-			HashedID:     row.HashedID,
-			UserID:       row.UserID,
-			ExpiresAt:    row.ExpiresAt.Time,
-			LastActiveAt: row.LastActiveAt.Time,
-			UserAgent:    fromNullString(row.UserAgent),
-			IPAddress:    fromNullString(row.IpAddress),
-			CreatedAt:    row.CreatedAt.Time,
-		}
-	}
-	return sessions, nil
-}
-
-func (a *SQLiteAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
-	row, err := a.queries.GetLatestAppToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite get latest app token: %w", mapErr(err))
-	}
-	return &repository.AppAccessToken{
-		ID:        row.ID,
-		Token:     row.Token,
-		ExpiresAt: row.ExpiresAt.Time,
-		CreatedAt: row.CreatedAt.Time,
-	}, nil
-}
-
-func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
-	row, err := a.queries.CreateAppToken(ctx, sqlitegen.CreateAppTokenParams{
-		Token:     token,
-		ExpiresAt: sqliteTime(expiresAt),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite create app token: %w", err)
-	}
-	return &repository.AppAccessToken{
-		ID:        row.ID,
-		Token:     row.Token,
-		ExpiresAt: row.ExpiresAt.Time,
-		CreatedAt: row.CreatedAt.Time,
-	}, nil
-}
-
 // Whitelist
-
-func (a *SQLiteAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
-	rows, err := a.queries.ListWhitelist(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list whitelist: %w", err)
-	}
-	entries := make([]repository.WhitelistEntry, len(rows))
-	for i, row := range rows {
-		entries[i] = repository.WhitelistEntry{
-			TwitchUserID: row.TwitchUserID,
-			AddedAt:      row.AddedAt.Time,
-		}
-	}
-	return entries, nil
-}

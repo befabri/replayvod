@@ -540,7 +540,7 @@ func testManualDeleteQueueWaitsForWebhookFrozenParts(t *testing.T, h Harness) {
 		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
 	}
 
-	rows, err := repo.ListVideosPendingManualDelete(ctx, 0, 10)
+	rows, err := repo.ListVideosPendingManualDelete(ctx, batchPage(t, 0, 10))
 	if err != nil {
 		t.Fatalf("ListVideosPendingManualDelete before freeze: %v", err)
 	}
@@ -559,7 +559,7 @@ func testManualDeleteQueueWaitsForWebhookFrozenParts(t *testing.T, h Harness) {
 	if err := repo.SetRecordingWebhookDeliveryFrozenParts(ctx, delivery.ID, "[]"); err != nil {
 		t.Fatalf("SetRecordingWebhookDeliveryFrozenParts: %v", err)
 	}
-	rows, err = repo.ListVideosPendingManualDelete(ctx, 0, 10)
+	rows, err = repo.ListVideosPendingManualDelete(ctx, batchPage(t, 0, 10))
 	if err != nil {
 		t.Fatalf("ListVideosPendingManualDelete after freeze: %v", err)
 	}

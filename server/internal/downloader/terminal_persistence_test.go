@@ -60,9 +60,9 @@ type queuedFailurePumpRepo struct {
 	picks int
 }
 
-func (r *queuedFailurePumpRepo) ListQueuedArchiveJobs(ctx context.Context, after time.Time, afterID int64, limit int) ([]repository.ArchiveQueueCandidate, error) {
+func (r *queuedFailurePumpRepo) ListQueuedArchiveJobs(ctx context.Context, after time.Time, page repository.BatchPage) ([]repository.ArchiveQueueCandidate, error) {
 	r.picks++
-	return r.Repository.ListQueuedArchiveJobs(ctx, after, afterID, limit)
+	return r.Repository.ListQueuedArchiveJobs(ctx, after, page)
 }
 
 func TestArchivePumpDefersAfterStartFailureCannotBePersisted(t *testing.T) {

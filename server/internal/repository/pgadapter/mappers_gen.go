@@ -7,6 +7,191 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
+func pgArchiveQueueCandidateToDomain(src pggen.ListQueuedArchiveJobsRow) *repository.ArchiveQueueCandidate {
+	return &repository.ArchiveQueueCandidate{
+		JobID:    src.JobID,
+		QueuedAt: src.QueuedAt,
+		VideoID:  src.VideoID,
+	}
+}
+
+func pgArchiveQueueCandidatesToDomain(rows []pggen.ListQueuedArchiveJobsRow) []repository.ArchiveQueueCandidate {
+	out := make([]repository.ArchiveQueueCandidate, len(rows))
+	for i, r := range rows {
+		out[i] = *pgArchiveQueueCandidateToDomain(r)
+	}
+	return out
+}
+
+func pgRetentionVideoToDomain(src pggen.ListRetentionCandidatesRow) *repository.RetentionVideo {
+	return &repository.RetentionVideo{
+		BroadcasterID:        src.BroadcasterID,
+		DownloadedAt:         src.DownloadedAt,
+		RetentionWindowHours: int32PtrToInt64Ptr(src.RetentionWindowHours),
+		VideoID:              src.VideoID,
+	}
+}
+
+func pgRetentionVideosToDomain(rows []pggen.ListRetentionCandidatesRow) []repository.RetentionVideo {
+	out := make([]repository.RetentionVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *pgRetentionVideoToDomain(r)
+	}
+	return out
+}
+
+func pgStorageScanVideoToDomain(src pggen.ListVideosForStorageScanRow) *repository.StorageScanVideo {
+	return &repository.StorageScanVideo{
+		Filename: src.Filename,
+		Status:   src.Status,
+		VideoID:  src.VideoID,
+	}
+}
+
+func pgStorageScanVideosToDomain(rows []pggen.ListVideosForStorageScanRow) []repository.StorageScanVideo {
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *pgStorageScanVideoToDomain(r)
+	}
+	return out
+}
+
+func pgMissingTombstoneToDomain(src pggen.ListMissingTombstonesRow) *repository.StorageScanVideo {
+	return &repository.StorageScanVideo{
+		Filename: src.Filename,
+		Status:   src.Status,
+		VideoID:  src.VideoID,
+	}
+}
+
+func pgMissingTombstonesToDomain(rows []pggen.ListMissingTombstonesRow) []repository.StorageScanVideo {
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *pgMissingTombstoneToDomain(r)
+	}
+	return out
+}
+
+func pgStorageWitnessToDomain(src pggen.ListVideosForStorageWitnessRow) *repository.StorageScanVideo {
+	return &repository.StorageScanVideo{
+		Filename: src.Filename,
+		Status:   src.Status,
+		VideoID:  src.VideoID,
+	}
+}
+
+func pgStorageWitnessesToDomain(rows []pggen.ListVideosForStorageWitnessRow) []repository.StorageScanVideo {
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *pgStorageWitnessToDomain(r)
+	}
+	return out
+}
+
+func pgSessionToDomain(src pggen.Session) *repository.Session {
+	return &repository.Session{
+		CreatedAt:       src.CreatedAt,
+		EncryptedTokens: src.EncryptedTokens,
+		ExpiresAt:       src.ExpiresAt,
+		HashedID:        src.HashedID,
+		IPAddress:       src.IpAddress,
+		LastActiveAt:    src.LastActiveAt,
+		UserAgent:       src.UserAgent,
+		UserID:          src.UserID,
+	}
+}
+
+func pgSessionInfoToDomain(src pggen.ListUserSessionsRow) *repository.SessionInfo {
+	return &repository.SessionInfo{
+		CreatedAt:    src.CreatedAt,
+		ExpiresAt:    src.ExpiresAt,
+		HashedID:     src.HashedID,
+		IPAddress:    src.IpAddress,
+		LastActiveAt: src.LastActiveAt,
+		UserAgent:    src.UserAgent,
+		UserID:       src.UserID,
+	}
+}
+
+func pgSessionInfosToDomain(rows []pggen.ListUserSessionsRow) []repository.SessionInfo {
+	out := make([]repository.SessionInfo, len(rows))
+	for i, r := range rows {
+		out[i] = *pgSessionInfoToDomain(r)
+	}
+	return out
+}
+
+func pgAppAccessTokenToDomain(src pggen.AppAccessToken) *repository.AppAccessToken {
+	return &repository.AppAccessToken{
+		CreatedAt: src.CreatedAt,
+		ExpiresAt: src.ExpiresAt,
+		ID:        src.ID,
+		Token:     src.Token,
+	}
+}
+
+func pgTwitchPlaybackSessionToDomain(src pggen.TwitchPlaybackSession) *repository.TwitchPlaybackSession {
+	return &repository.TwitchPlaybackSession{
+		CheckedAt:      src.CheckedAt,
+		EncryptedToken: src.EncryptedToken,
+		ExpiresAt:      src.ExpiresAt,
+		NeedsReconnect: src.NeedsReconnect,
+		TwitchLogin:    src.TwitchLogin,
+		TwitchUserID:   src.TwitchUserID,
+	}
+}
+
+func pgWhitelistEntryToDomain(src pggen.Whitelist) *repository.WhitelistEntry {
+	return &repository.WhitelistEntry{
+		AddedAt:      src.AddedAt,
+		TwitchUserID: src.TwitchUserID,
+	}
+}
+
+func pgWhitelistEntriesToDomain(rows []pggen.Whitelist) []repository.WhitelistEntry {
+	out := make([]repository.WhitelistEntry, len(rows))
+	for i, r := range rows {
+		out[i] = *pgWhitelistEntryToDomain(r)
+	}
+	return out
+}
+
+func pgRelatedRecordingToDomain(src pggen.ListRelatedRecordingsRow) *repository.RelatedRecording {
+	return &repository.RelatedRecording{
+		CompletionKind:  src.CompletionKind,
+		DeletedAt:       src.DeletedAt,
+		ID:              src.ID,
+		JobID:           src.JobID,
+		Position:        src.Position,
+		StartDownloadAt: src.StartDownloadAt,
+		Status:          src.Status,
+		Title:           src.Title,
+	}
+}
+
+func pgRelatedRecordingsToDomain(rows []pggen.ListRelatedRecordingsRow) []repository.RelatedRecording {
+	out := make([]repository.RelatedRecording, len(rows))
+	for i, r := range rows {
+		out[i] = *pgRelatedRecordingToDomain(r)
+	}
+	return out
+}
+
+func pgVideoStatsByStatusToDomain(src pggen.StatisticsByStatusRow) *repository.VideoStatsByStatus {
+	return &repository.VideoStatsByStatus{
+		Count:  src.Count,
+		Status: src.Status,
+	}
+}
+
+func pgVideoStatsByStatusesToDomain(rows []pggen.StatisticsByStatusRow) []repository.VideoStatsByStatus {
+	out := make([]repository.VideoStatsByStatus, len(rows))
+	for i, r := range rows {
+		out[i] = *pgVideoStatsByStatusToDomain(r)
+	}
+	return out
+}
+
 func pgTitleToDomain(src pggen.Title) *repository.Title {
 	return &repository.Title{
 		CreatedAt: src.CreatedAt,

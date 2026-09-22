@@ -43,7 +43,7 @@ type Repository interface {
 	CheckpointAttempt(ctx context.Context, jobID, executionID string, state json.RawMessage) error
 	ListRecoveryJobs(ctx context.Context, afterID string, limit int) ([]Job, error)
 	ListStoppedJobs(ctx context.Context, afterID string, limit int) ([]Job, error)
-	ListQueuedArchiveJobs(ctx context.Context, after time.Time, afterID int64, limit int) ([]ArchiveQueueCandidate, error)
+	ListQueuedArchiveJobs(ctx context.Context, after time.Time, page BatchPage) ([]ArchiveQueueCandidate, error)
 	ClaimTask(ctx context.Context, name, executionID string) error
 	SettleTask(ctx context.Context, name, executionID, status string, durationMs int64, message string) error
 	ResetTaskAvailability(ctx context.Context) error
@@ -253,9 +253,10 @@ type Repository interface {
 	// ClearArchiveRetry cancels a scheduled retry; ErrNotFound when none is
 	// scheduled.
 	ClearArchiveRetry(ctx context.Context, id int64) error
-	// ListArchivesMissingPoster returns at most limit archives queued since since
-	// without posters, in ID order after afterID.
-	ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]Video, error)
+	// ListArchivesMissingPoster returns a bounded page of archives without
+	// posters, queued since the given time and ordered by ID.
+	// The repository rejects uninitialized pages before querying.
+	ListArchivesMissingPoster(ctx context.Context, since time.Time, page BatchPage) ([]Video, error)
 	// DeleteQueuedArchiveVideo hard-deletes a PENDING archive and its job;
 	// ErrNotFound when the row is missing, already started, or not an archive.
 	DeleteQueuedArchiveVideo(ctx context.Context, id int64) error
@@ -275,20 +276,23 @@ type Repository interface {
 	// recording. The background deletion task performs the object purge and
 	// tombstone finalization.
 	RequestVideoDelete(ctx context.Context, id int64) (*Video, error)
-	// ListVideosPendingManualDelete returns queued manual deletes that are safe
+	// ListVideosPendingManualDelete pages queued manual deletes that are safe
 	// to purge now, including the recording-webhook frozen-parts guard.
-	ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]Video, error)
+	ListVideosPendingManualDelete(ctx context.Context, page BatchPage) ([]Video, error)
 	// SoftDeleteVideo tombstones a video, recording why via kind
 	// (DeletionKindRetention | DeletionKindManual).
 	SoftDeleteVideo(ctx context.Context, id int64, kind string) error
 	// ListRetentionCandidates returns the terminal, not-yet-tombstoned
 	// recordings that own a snapshotted retention policy, can have reclaimable
 	// objects, and are already due at now.
-	ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]RetentionVideo, error)
-	ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
+	ListRetentionCandidates(ctx context.Context, now time.Time, page BatchPage) ([]RetentionVideo, error)
+	// ListVideosForStorageScan pages terminal recordings safe to reconcile.
+	// The repository rejects uninitialized pages before querying.
+	ListVideosForStorageScan(ctx context.Context, page BatchPage) ([]StorageScanVideo, error)
 	// ListVideosForStorageWitness samples rows that may still own media,
 	// including active attempts and reversible tombstones excluded from scans.
-	ListVideosForStorageWitness(ctx context.Context, limit int) ([]StorageScanVideo, error)
+	// The repository rejects uninitialized batch sizes before querying.
+	ListVideosForStorageWitness(ctx context.Context, size BatchSize) ([]StorageScanVideo, error)
 	GetVideoForStorageScan(ctx context.Context, id int64) (*StorageScanVideo, error)
 	// TombstoneMissingVideo conditionally reconciles a terminal row. It retains
 	// its poster, parts and asset metadata and never authorizes object deletion.
@@ -299,7 +303,8 @@ type Repository interface {
 	RestoreMissingVideo(ctx context.Context, id int64) error
 	// ListMissingTombstones pages the reversible tombstones, oldest id first, for
 	// the scan's restore phase; GetMissingTombstone is the exact lookup.
-	ListMissingTombstones(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
+	// The repository rejects uninitialized pages before querying.
+	ListMissingTombstones(ctx context.Context, page BatchPage) ([]StorageScanVideo, error)
 	GetMissingTombstone(ctx context.Context, id int64) (*StorageScanVideo, error)
 	// FinalizeDelete is the DB commit marker after object purge: tombstone the
 	// video (recording why via kind) and remove its parts in one transaction so

@@ -31,6 +31,7 @@ const (
 	ManualDeletionIntervalSeconds int64 = 60
 
 	manualDeleteBatchSize = 25
+	retentionBatchSize    = 100
 )
 
 // ErrManualDeletionUnavailable means no worker can drain the manual delete queue;
@@ -84,7 +85,11 @@ func (s *Service) Sweep(ctx context.Context, now time.Time) (int, error) {
 	var deleted int
 	var errs []error
 	for after := int64(0); ; {
-		videos, err := s.repo.ListRetentionCandidates(ctx, now, after, 100)
+		page, err := repository.NewBatchPage(after, retentionBatchSize)
+		if err != nil {
+			return deleted, errors.Join(append(errs, err)...)
+		}
+		videos, err := s.repo.ListRetentionCandidates(ctx, now, page)
 		if err != nil {
 			return deleted, errors.Join(append(errs, err)...)
 		}
@@ -195,7 +200,11 @@ func (s *Service) ensureManualDeletionWorker(ctx context.Context) error {
 func (s *Service) ProcessManualDeletes(ctx context.Context) (int, error) {
 	s.manualMu.Lock()
 	defer s.manualMu.Unlock()
-	videos, err := s.repo.ListVideosPendingManualDelete(ctx, s.manualAfter, manualDeleteBatchSize)
+	page, err := repository.NewBatchPage(s.manualAfter, manualDeleteBatchSize)
+	if err != nil {
+		return 0, fmt.Errorf("list manual deletes: %w", err)
+	}
+	videos, err := s.repo.ListVideosPendingManualDelete(ctx, page)
 	if err != nil {
 		return 0, fmt.Errorf("list manual deletes: %w", err)
 	}

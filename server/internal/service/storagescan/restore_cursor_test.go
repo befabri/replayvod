@@ -18,13 +18,13 @@ type interruptedRestoreRepo struct {
 	cancel context.CancelFunc
 }
 
-func (r *interruptedRestoreRepo) ListMissingTombstones(ctx context.Context, after int64, limit int) ([]repository.StorageScanVideo, error) {
-	r.pages = append(r.pages, after)
+func (r *interruptedRestoreRepo) ListMissingTombstones(ctx context.Context, page repository.BatchPage) ([]repository.StorageScanVideo, error) {
+	r.pages = append(r.pages, page.AfterID())
 	if r.cancel != nil && len(r.pages) == 2 {
 		r.cancel()
 		return nil, ctx.Err()
 	}
-	return r.Repository.ListMissingTombstones(ctx, after, limit)
+	return r.Repository.ListMissingTombstones(ctx, page)
 }
 
 func TestSweepResumesRestorePastMissingPrefixAfterRestart(t *testing.T) {

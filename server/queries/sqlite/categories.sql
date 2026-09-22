@@ -77,7 +77,7 @@ ORDER BY c.name;
 WITH params AS (
     SELECT CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT c.* FROM categories c
 CROSS JOIN params
@@ -101,7 +101,7 @@ WITH params AS (
     SELECT CAST(sqlc.narg('cursor_latest_video_at') AS text) AS cursor_latest_video_at,
            CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 ),
 category_stats AS (
     SELECT
@@ -138,7 +138,7 @@ WITH params AS (
     SELECT CAST(@cursor_video_count AS integer) AS cursor_video_count,
            CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 ),
 category_stats AS (
     SELECT

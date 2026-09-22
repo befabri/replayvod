@@ -500,7 +500,7 @@ func (q *Queries) ListArchivesMissingPoster(ctx context.Context, arg ListArchive
 }
 
 const listMissingTombstones = `-- name: ListMissingTombstones :many
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NOT NULL
   AND deletion_kind = 'missing'
   AND delete_requested_at IS NULL
@@ -514,7 +514,7 @@ type ListMissingTombstonesParams struct {
 }
 
 type ListMissingTombstonesRow struct {
-	ID       int64  `json:"id"`
+	VideoID  int64  `json:"video_id"`
 	Filename string `json:"filename"`
 	Status   string `json:"status"`
 }
@@ -529,7 +529,7 @@ func (q *Queries) ListMissingTombstones(ctx context.Context, arg ListMissingTomb
 	items := []ListMissingTombstonesRow{}
 	for rows.Next() {
 		var i ListMissingTombstonesRow
-		if err := rows.Scan(&i.ID, &i.Filename, &i.Status); err != nil {
+		if err := rows.Scan(&i.VideoID, &i.Filename, &i.Status); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -760,7 +760,7 @@ func (q *Queries) ListRecentArchiveFailures(ctx context.Context, arg ListRecentA
 }
 
 const listRetentionCandidates = `-- name: ListRetentionCandidates :many
-SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
+SELECT id AS video_id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
 WHERE videos.id > ?1 AND deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND downloaded_at IS NOT NULL
@@ -787,7 +787,7 @@ type ListRetentionCandidatesParams struct {
 }
 
 type ListRetentionCandidatesRow struct {
-	ID                   int64            `json:"id"`
+	VideoID              int64            `json:"video_id"`
 	BroadcasterID        string           `json:"broadcaster_id"`
 	DownloadedAt         *sqlitetype.Time `json:"downloaded_at"`
 	RetentionWindowHours sql.NullInt64    `json:"retention_window_hours"`
@@ -812,7 +812,7 @@ func (q *Queries) ListRetentionCandidates(ctx context.Context, arg ListRetention
 	for rows.Next() {
 		var i ListRetentionCandidatesRow
 		if err := rows.Scan(
-			&i.ID,
+			&i.VideoID,
 			&i.BroadcasterID,
 			&i.DownloadedAt,
 			&i.RetentionWindowHours,
@@ -860,7 +860,7 @@ LIMIT (SELECT row_limit FROM params) OFFSET (SELECT row_offset FROM params)
 type ListVideosParams struct {
 	StatusFilter string `json:"status_filter"`
 	SortKey      string `json:"sort_key"`
-	RowLimit     int64  `json:"row_limit"`
+	Limit        int64  `json:"limit"`
 	RowOffset    int64  `json:"row_offset"`
 }
 
@@ -871,7 +871,7 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 	rows, err := q.db.QueryContext(ctx, listVideos,
 		arg.StatusFilter,
 		arg.SortKey,
-		arg.RowLimit,
+		arg.Limit,
 		arg.RowOffset,
 	)
 	if err != nil {
@@ -953,7 +953,7 @@ type ListVideosByBroadcasterPageParams struct {
 	BroadcasterID         string         `json:"broadcaster_id"`
 	CursorStartDownloadAt sql.NullString `json:"cursor_start_download_at"`
 	CursorID              int64          `json:"cursor_id"`
-	RowLimit              int64          `json:"row_limit"`
+	Limit                 int64          `json:"limit"`
 }
 
 func (q *Queries) ListVideosByBroadcasterPage(ctx context.Context, arg ListVideosByBroadcasterPageParams) ([]Video, error) {
@@ -961,7 +961,7 @@ func (q *Queries) ListVideosByBroadcasterPage(ctx context.Context, arg ListVideo
 		arg.BroadcasterID,
 		arg.CursorStartDownloadAt,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -1043,7 +1043,7 @@ type ListVideosByCategoryPageParams struct {
 	CategoryID            string         `json:"category_id"`
 	CursorStartDownloadAt sql.NullString `json:"cursor_start_download_at"`
 	CursorID              int64          `json:"cursor_id"`
-	RowLimit              int64          `json:"row_limit"`
+	Limit                 int64          `json:"limit"`
 }
 
 func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error) {
@@ -1051,7 +1051,7 @@ func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosBy
 		arg.CategoryID,
 		arg.CursorStartDownloadAt,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -1180,7 +1180,7 @@ func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Vi
 }
 
 const listVideosForStorageScan = `-- name: ListVideosForStorageScan :many
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND next_retry_at IS NULL
@@ -1198,7 +1198,7 @@ type ListVideosForStorageScanParams struct {
 }
 
 type ListVideosForStorageScanRow struct {
-	ID       int64  `json:"id"`
+	VideoID  int64  `json:"video_id"`
 	Filename string `json:"filename"`
 	Status   string `json:"status"`
 }
@@ -1213,7 +1213,7 @@ func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosFo
 	items := []ListVideosForStorageScanRow{}
 	for rows.Next() {
 		var i ListVideosForStorageScanRow
-		if err := rows.Scan(&i.ID, &i.Filename, &i.Status); err != nil {
+		if err := rows.Scan(&i.VideoID, &i.Filename, &i.Status); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1228,22 +1228,22 @@ func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosFo
 }
 
 const listVideosForStorageWitness = `-- name: ListVideosForStorageWitness :many
-SELECT videos.id, videos.filename, videos.status FROM videos
+SELECT videos.id AS video_id, videos.filename, videos.status FROM videos
 WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
   AND (status = 'DONE' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
 ORDER BY videos.id ASC LIMIT CAST(?1 AS INTEGER)
 `
 
 type ListVideosForStorageWitnessRow struct {
-	ID       int64  `json:"id"`
+	VideoID  int64  `json:"video_id"`
 	Filename string `json:"filename"`
 	Status   string `json:"status"`
 }
 
 // Before initializing markerless storage, account for media even when a retry,
 // running capture, deletion request or reversible tombstone excludes scanning.
-func (q *Queries) ListVideosForStorageWitness(ctx context.Context, pageSize int64) ([]ListVideosForStorageWitnessRow, error) {
-	rows, err := q.db.QueryContext(ctx, listVideosForStorageWitness, pageSize)
+func (q *Queries) ListVideosForStorageWitness(ctx context.Context, limit int64) ([]ListVideosForStorageWitnessRow, error) {
+	rows, err := q.db.QueryContext(ctx, listVideosForStorageWitness, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1251,7 +1251,7 @@ func (q *Queries) ListVideosForStorageWitness(ctx context.Context, pageSize int6
 	items := []ListVideosForStorageWitnessRow{}
 	for rows.Next() {
 		var i ListVideosForStorageWitnessRow
-		if err := rows.Scan(&i.ID, &i.Filename, &i.Status); err != nil {
+		if err := rows.Scan(&i.VideoID, &i.Filename, &i.Status); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -125,7 +125,7 @@ RETURNING *;
 -- name: ListRecordingWebhookDeliveries :many
 SELECT * FROM recording_webhook_deliveries
 ORDER BY created_at DESC, id DESC
-LIMIT @row_limit::int;
+LIMIT sqlc.arg('limit')::int;
 
 -- name: DeleteOldRecordingWebhookDeliveries :exec
 -- Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose

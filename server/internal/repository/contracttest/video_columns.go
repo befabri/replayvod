@@ -104,7 +104,7 @@ func testVideoRetentionRefsOutliveSchedule(t *testing.T, h Harness) {
 	if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := repo.ListRetentionCandidates(ctx, time.Now().UTC().Add(48*time.Hour), 0, 100)
+	rows, err := repo.ListRetentionCandidates(ctx, time.Now().UTC().Add(48*time.Hour), batchPage(t, 0, 100))
 	if err != nil || len(rows) != 1 || rows[0].VideoID != v.ID {
 		t.Fatalf("candidates after schedule delete = %+v, %v; the captured window must still govern", rows, err)
 	}

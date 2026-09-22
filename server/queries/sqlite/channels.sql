@@ -36,7 +36,7 @@ WITH params AS (
            CAST(@user_id AS text) AS user_id,
            CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT c.* FROM channels c
 CROSS JOIN params
@@ -81,7 +81,7 @@ WITH params AS (
            CAST(@user_id AS text) AS user_id,
            CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
-           CAST(@row_limit AS integer) AS row_limit
+           CAST(@limit AS integer) AS row_limit
 )
 SELECT c.* FROM channels c
 CROSS JOIN params

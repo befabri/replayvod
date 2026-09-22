@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -104,85 +103,4 @@ func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) er
 		return fmt.Errorf("pg create session: %w", err)
 	}
 	return nil
-}
-
-func (a *PGAdapter) GetSession(ctx context.Context, hashedID string) (*repository.Session, error) {
-	row, err := a.queries.GetSession(ctx, hashedID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return &repository.Session{
-		HashedID:        row.HashedID,
-		UserID:          row.UserID,
-		EncryptedTokens: row.EncryptedTokens,
-		ExpiresAt:       row.ExpiresAt,
-		LastActiveAt:    row.LastActiveAt,
-		UserAgent:       row.UserAgent,
-		IPAddress:       row.IpAddress,
-		CreatedAt:       row.CreatedAt,
-	}, nil
-}
-
-func (a *PGAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
-	rows, err := a.queries.ListUserSessions(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list user sessions: %w", err)
-	}
-	sessions := make([]repository.SessionInfo, len(rows))
-	for i, row := range rows {
-		sessions[i] = repository.SessionInfo{
-			HashedID:     row.HashedID,
-			UserID:       row.UserID,
-			ExpiresAt:    row.ExpiresAt,
-			LastActiveAt: row.LastActiveAt,
-			UserAgent:    row.UserAgent,
-			IPAddress:    row.IpAddress,
-			CreatedAt:    row.CreatedAt,
-		}
-	}
-	return sessions, nil
-}
-
-func (a *PGAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
-	row, err := a.queries.GetLatestAppToken(ctx)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return &repository.AppAccessToken{
-		ID:        row.ID,
-		Token:     row.Token,
-		ExpiresAt: row.ExpiresAt,
-		CreatedAt: row.CreatedAt,
-	}, nil
-}
-
-func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
-	row, err := a.queries.CreateAppToken(ctx, pggen.CreateAppTokenParams{
-		Token:     token,
-		ExpiresAt: expiresAt,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg create app token: %w", err)
-	}
-	return &repository.AppAccessToken{
-		ID:        row.ID,
-		Token:     row.Token,
-		ExpiresAt: row.ExpiresAt,
-		CreatedAt: row.CreatedAt,
-	}, nil
-}
-
-func (a *PGAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
-	rows, err := a.queries.ListWhitelist(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list whitelist: %w", err)
-	}
-	entries := make([]repository.WhitelistEntry, len(rows))
-	for i, row := range rows {
-		entries[i] = repository.WhitelistEntry{
-			TwitchUserID: row.TwitchUserID,
-			AddedAt:      row.AddedAt,
-		}
-	}
-	return entries, nil
 }

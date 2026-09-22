@@ -224,7 +224,7 @@ func testArchiveStreamMatchAndMissingPoster(t *testing.T, h Harness) {
 	}
 	fresh := seedArchive(t, ctx, repo, "job-fresh", "905", "bc-1")
 
-	missing, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), 0, 10)
+	missing, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), batchPage(t, 0, 10))
 	if err != nil {
 		t.Fatalf("ListArchivesMissingPoster: %v", err)
 	}
@@ -237,7 +237,7 @@ func testArchiveStreamMatchAndMissingPoster(t *testing.T, h Harness) {
 			t.Fatalf("unexpected row %d in missing posters", row.ID)
 		}
 	}
-	if limited, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), 0, 1); err != nil || len(limited) != 1 {
+	if limited, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), batchPage(t, 0, 1)); err != nil || len(limited) != 1 {
 		t.Fatalf("limit ignored: %v, %v", limited, err)
 	}
 
@@ -246,7 +246,7 @@ func testArchiveStreamMatchAndMissingPoster(t *testing.T, h Harness) {
 	var paged []int64
 	var after int64
 	for {
-		page, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), after, 1)
+		page, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), batchPage(t, after, 1))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -262,9 +262,13 @@ func testArchiveStreamMatchAndMissingPoster(t *testing.T, h Harness) {
 	if len(paged) != 2 || paged[0] != archive.ID || paged[1] != fresh.ID {
 		t.Fatalf("paged ids = %v, want [%d %d]", paged, archive.ID, fresh.ID)
 	}
-	for _, limit := range []int{0, -1, 1001} {
-		if _, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC(), 0, limit); err == nil {
-			t.Fatalf("accepted limit %d", limit)
+	if _, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC(), repository.BatchPage{}); err == nil {
+		t.Fatal("accepted uninitialized poster page")
+	}
+	for _, limit := range []int{1, repository.MaxBatchSize} {
+		got, err := repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), batchPage(t, 0, limit))
+		if err != nil || len(got) != min(limit, len(missing)) {
+			t.Fatalf("poster page limit %d = %+v, %v", limit, got, err)
 		}
 	}
 
@@ -281,7 +285,7 @@ func testArchiveStreamMatchAndMissingPoster(t *testing.T, h Harness) {
 	if err := repo.MarkVideoFailed(ctx, salvaged.ID, "boom", repository.CompletionKindPartial, false); err != nil {
 		t.Fatal(err)
 	}
-	missing, err = repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), 0, 10)
+	missing, err = repo.ListArchivesMissingPoster(ctx, time.Now().UTC().Add(-24*time.Hour), batchPage(t, 0, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +399,7 @@ func testArchiveRetryYieldsToQueuedDelete(t *testing.T, h Harness) {
 	if !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("requeue with a delete queued err = %v, want ErrNotFound", err)
 	}
-	pending, err := repo.ListVideosPendingManualDelete(ctx, 0, 10)
+	pending, err := repo.ListVideosPendingManualDelete(ctx, batchPage(t, 0, 10))
 	if err != nil || len(pending) != 1 || pending[0].ID != v.ID {
 		t.Fatalf("pending manual deletes = %+v, %v; want the archive", pending, err)
 	}

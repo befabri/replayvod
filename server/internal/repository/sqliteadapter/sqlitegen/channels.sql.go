@@ -209,7 +209,7 @@ type ListChannelsPageAscParams struct {
 	UserID         string         `json:"user_id"`
 	CursorName     sql.NullString `json:"cursor_name"`
 	CursorID       string         `json:"cursor_id"`
-	RowLimit       int64          `json:"row_limit"`
+	Limit          int64          `json:"limit"`
 }
 
 func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error) {
@@ -220,7 +220,7 @@ func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageA
 		arg.UserID,
 		arg.CursorName,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -308,7 +308,7 @@ type ListChannelsPageDescParams struct {
 	UserID         string         `json:"user_id"`
 	CursorName     sql.NullString `json:"cursor_name"`
 	CursorID       string         `json:"cursor_id"`
-	RowLimit       int64          `json:"row_limit"`
+	Limit          int64          `json:"limit"`
 }
 
 func (q *Queries) ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error) {
@@ -319,7 +319,7 @@ func (q *Queries) ListChannelsPageDesc(ctx context.Context, arg ListChannelsPage
 		arg.UserID,
 		arg.CursorName,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

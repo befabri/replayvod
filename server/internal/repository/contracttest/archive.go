@@ -307,7 +307,11 @@ func testVideoStreamLinkRequiresKnownStream(t *testing.T, h Harness) {
 }
 
 func nextArchiveFixture(ctx context.Context, repo repository.Repository) (*repository.Job, error) {
-	rows, err := repo.ListQueuedArchiveJobs(ctx, time.Time{}, 0, 1)
+	page, err := repository.NewBatchPage(0, 1)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := repo.ListQueuedArchiveJobs(ctx, time.Time{}, page)
 	if err != nil {
 		return nil, err
 	}

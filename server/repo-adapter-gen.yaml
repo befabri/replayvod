@@ -1,0 +1,179 @@
+# repo-adapter-gen: this project's description of its repository layout and
+# adapter conventions. The generator's engine (shapes, harvest, normalization,
+# ratchet) reads nothing project-specific from anywhere else, so every name,
+# helper and type conversion it emits is decided here.
+
+domain:
+  # Qualifier and import path of the domain package in adapter code.
+  package: repository
+  import: github.com/befabri/replayvod/server/internal/repository
+  models: internal/repository/models.go
+  interface_file: internal/repository/repository.go
+  interface: Repository
+  # Validated value objects (private fields, a value-receiver Validate and
+  # scalar accessors named after SQL parameters) are discovered here.
+  value_objects: internal/repository
+
+# Hand-written interface methods per adapter package; the count may only fall.
+baseline: tools/repo-adapter-gen/handwritten_baseline.txt
+
+# The dialect whose SQL is the source of truth for row-locking intent. SQLite
+# emulates the same queries with a no-op UPDATE ... RETURNING, so the set of
+# transaction-guarded queries applies to every dialect.
+locking_dialect: pg
+
+dialects:
+  - name: pg
+    dir: internal/repository/pgadapter
+    gen_package: pggen
+    gen_import: github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen
+    adapter: PGAdapter
+  - name: sqlite
+    dir: internal/repository/sqliteadapter
+    gen_package: sqlitegen
+    gen_import: github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen
+    adapter: SQLiteAdapter
+
+# Identifiers generated bodies use; every adapter package defines them.
+conventions:
+  queries_field: queries            # the sqlc Queries value, a.queries
+  error_mapper: mapErr              # driver error to domain sentinel
+  not_found: repository.ErrNotFound
+  transaction_check: inTransaction  # a.inTransaction() guards row-locking queries
+  no_transaction: repository.ErrNoTransaction
+  affected: executionAffected       # rows affected to execution-ownership error
+  mapper_suffix: ToDomain           # pg<Type>ToDomain
+  # {dialect} is the dialect name; {action} is the method name as words,
+  # optionally followed by a verb for the first argument.
+  error_format: "{dialect} {action}: %w"
+
+# Domain types with a generated mapper from a sqlc row. A type is listed only
+# when every domain field maps to a row field through a conversion below;
+# others stay hand-written. row and domain default to name, plural to name
+# plus s. A row may be a table model or a per-query projection.
+types:
+  - {name: ArchiveQueueCandidate, row: ListQueuedArchiveJobsRow, slice: true}
+  - {name: RetentionVideo, row: ListRetentionCandidatesRow, slice: true}
+  - {name: StorageScanVideo, row: ListVideosForStorageScanRow, slice: true}
+  - {name: MissingTombstone, domain: StorageScanVideo, row: ListMissingTombstonesRow, slice: true}
+  - {name: StorageWitness, domain: StorageScanVideo, row: ListVideosForStorageWitnessRow, slice: true, plural: StorageWitnesses}
+  - {name: Session}
+  - {name: SessionInfo, row: ListUserSessionsRow, slice: true}
+  - {name: AppAccessToken}
+  - {name: TwitchPlaybackSession}
+  - {name: WhitelistEntry, row: Whitelist, slice: true, plural: WhitelistEntries}
+  - {name: RelatedRecording, row: ListRelatedRecordingsRow, slice: true}
+  - {name: VideoStatsByStatus, row: StatisticsByStatusRow, slice: true, plural: VideoStatsByStatuses}
+  - {name: Title}
+  - {name: Tag, slice: true}
+  - {name: Category, slice: true, plural: Categories}
+  - {name: Channel, slice: true}
+  - {name: ChannelUserState}
+  - {name: EventLog, slice: true}
+  - {name: Job}
+  - {name: MediaPublication, slice: true}
+  - {name: RecordingIntent, slice: true}
+  - {name: RecordingWebhookDelivery}
+  - {name: Stream, slice: true}
+  - {name: Subscription, slice: true}
+  - {name: Task, slice: true}
+  - {name: User, slice: true}
+  - {name: VideoPart, slice: true}
+  - {name: VideoPlaybackAsset}
+  - {name: VideoUserState}
+  - {name: WebhookEvent, slice: true}
+  - {name: ServerSettings, row: ServerSetting}
+  - {name: Settings, row: Setting}
+  - {name: Snapshot, domain: EventSubSnapshot, row: EventsubSnapshot, slice: true}
+
+# Interface methods whose sqlc query has a different name. Kept short: a broad
+# rename manifest would let a method be generated against a query whose
+# parameters merely share its types.
+aliases:
+  CreateEventSubSnapshot: CreateSnapshot
+  GetLatestEventSubSnapshot: GetLatestSnapshot
+  ListEventSubSnapshots: ListSnapshots
+  DeleteOldEventSubSnapshots: DeleteOldSnapshots
+  VideoStatsByStatus: StatisticsByStatus
+
+# Methods never harvested, with the reason.
+deny:
+  WithTx: owns a transaction and passes a scoped repository to a callback; sqlc's unrelated WithTx only binds a query object
+
+# sqlc row field type to domain field type; %s is the row selector.
+conversions:
+  # identity (same type both sides)
+  - {from: "int64", to: "int64", expr: "%s"}
+  - {from: "string", to: "string", expr: "%s"}
+  - {from: "bool", to: "bool", expr: "%s"}
+  - {from: "*string", to: "*string", expr: "%s"}
+  - {from: "*int64", to: "*int64", expr: "%s"}
+  - {from: "time.Time", to: "time.Time", expr: "%s"}
+  - {from: "*time.Time", to: "*time.Time", expr: "%s"}
+  - {from: "json.RawMessage", to: "json.RawMessage", expr: "%s"}
+  - {from: "[]byte", to: "[]byte", expr: "%s"}
+  # SQLite glue
+  - {from: "sqlitetype.Time", to: "time.Time", expr: "%s.Time"}
+  - {from: "*sqlitetype.Time", to: "*time.Time", expr: "timePtrFromSQLite(%s)"}
+  - {from: "*sqlitetype.PreciseTime", to: "*time.Time", expr: "timePtrFromSQLitePrecise(%s)"}
+  - {from: "int64", to: "bool", expr: "%s != 0"}
+  - {from: "sql.NullInt64", to: "*int64", expr: "fromNullInt64(%s)"}
+  # numeric width/alias conversions (PG int4 -> int32, SQLite INTEGER -> int64)
+  - {from: "int", to: "int", expr: "%s"}
+  - {from: "int32", to: "int32", expr: "%s"}
+  - {from: "int32", to: "int", expr: "int(%s)"}
+  - {from: "int64", to: "int", expr: "int(%s)"}
+  - {from: "int32", to: "int64", expr: "int64(%s)"}
+  - {from: "int64", to: "int32", expr: "int32(%s)"}
+  - {from: "float64", to: "float64", expr: "%s"}
+  # PG nullable identity (sqlc.yaml overrides nullable cols to pointers)
+  - {from: "*bool", to: "*bool", expr: "%s"}
+  - {from: "*float64", to: "*float64", expr: "%s"}
+  - {from: "*int32", to: "*int32", expr: "%s"}
+  - {from: "*int32", to: "*int64", expr: "int32PtrToInt64Ptr(%s)"}
+  # SQLite nullable scalars via the adapter's existing helpers
+  - {from: "sql.NullString", to: "*string", expr: "fromNullString(%s)"}
+  - {from: "sql.NullInt64", to: "*bool", expr: "nullInt64ToBool(%s)"}
+  - {from: "sql.NullFloat64", to: "*float64", expr: "fromNullFloat64(%s)"}
+  - {from: "sql.NullString", to: "json.RawMessage", expr: "rawMessageFromSQLite(%s)"}
+  - {from: "string", to: "json.RawMessage", expr: "json.RawMessage(%s)"}
+
+# Interface argument type to sqlc parameter type; %s is the argument.
+arguments:
+  # numeric width (repository int -> PG int32 / SQLite int64)
+  - {from: "int", to: "int32", expr: "int32(%s)"}
+  - {from: "int", to: "int64", expr: "int64(%s)"}
+  - {from: "int64", to: "int32", expr: "int32(%s)"}
+  - {from: "int32", to: "int64", expr: "int64(%s)"}
+  # PG nullable columns take pointers to the caller's value
+  - {from: "string", to: "*string", expr: "&%s"}
+  - {from: "time.Time", to: "*time.Time", expr: "&%s"}
+  # SQLite glue
+  - {from: "bool", to: "int64", expr: "boolToInt64(%s)"}
+  - {from: "json.RawMessage", to: "string", expr: "string(%s)"}
+  - {from: "time.Time", to: "sqlitetype.Time", expr: "sqliteTime(%s)"}
+  - {from: "time.Time", to: "*sqlitetype.Time", expr: "sqliteTimePtr(&%s)"}
+  - {from: "*time.Time", to: "*sqlitetype.Time", expr: "sqliteTimePtr(%s)"}
+  - {from: "time.Time", to: "*sqlitetype.PreciseTime", expr: "sqlitePreciseTimePtr(&%s)"}
+  - {from: "*time.Time", to: "*sqlitetype.PreciseTime", expr: "sqlitePreciseTimePtr(%s)"}
+  - {from: "string", to: "sql.NullString", expr: "sql.NullString{String: %s, Valid: true}"}
+  - {from: "*string", to: "sql.NullString", expr: "toNullString(%s)"}
+  - {from: "[]string", to: "[]sql.NullString", expr: "toNullStrings(%s)"}
+  - {from: "int64", to: "sql.NullInt64", expr: "sql.NullInt64{Int64: %s, Valid: true}"}
+  - {from: "*int64", to: "sql.NullInt64", expr: "toNullInt64(%s)"}
+  - {from: "float64", to: "sql.NullFloat64", expr: "sql.NullFloat64{Float64: %s, Valid: true}"}
+  - {from: "*float64", to: "sql.NullFloat64", expr: "nullFloat64(%s)"}
+
+# sqlc scalar result type to interface result type; %s is the result.
+results:
+  - {from: "int64", to: "bool", expr: "%s != 0"}
+  - {from: "int32", to: "int", expr: "int(%s)"}
+  - {from: "int64", to: "int", expr: "int(%s)"}
+  - {from: "int32", to: "int64", expr: "int64(%s)"}
+  - {from: "int64", to: "int32", expr: "int32(%s)"}
+
+# Helpers whose call on &x is by definition the literal with x; normalization
+# rewrites the call so both spellings compare equal.
+equivalents:
+  - {helper: toNullString, literal: "sql.NullString{String: %s, Valid: true}"}
+  - {helper: toNullInt64, literal: "sql.NullInt64{Int64: %s, Valid: true}"}

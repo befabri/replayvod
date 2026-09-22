@@ -38,7 +38,7 @@ SELECT
 FROM event_logs
 WHERE search_vector @@ websearch_to_tsquery('simple', @query::text)
 ORDER BY rank DESC, created_at DESC
-LIMIT @row_limit OFFSET @row_offset;
+LIMIT sqlc.arg('limit') OFFSET @row_offset;
 
 -- name: DeleteOldEventLogs :exec
 -- Retention task path: debug/info rows older than the retention window

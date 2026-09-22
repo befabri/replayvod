@@ -7,7 +7,8 @@ import (
 
 func namesRenderer() renderer {
 	return renderer{
-		d: dialect{name: "pg", genPkg: "pggen", adapterType: "PGAdapter"},
+		cfg: testConfig(),
+		d:   dialect{name: "pg", genPkg: "pggen", adapterType: "PGAdapter"},
 		gen: map[string]map[string]string{
 			"ListThingsParams":    {"AfterID": "string", "Limit": "int32"},
 			"RecordThingParams":   {"ID": "int64", "UserID": "string", "ProgressAtMs": "int64"},

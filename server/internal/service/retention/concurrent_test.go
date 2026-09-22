@@ -19,9 +19,9 @@ type countedManualPages struct {
 	pages atomic.Int32
 }
 
-func (r *countedManualPages) ListVideosPendingManualDelete(ctx context.Context, after int64, limit int) ([]repository.Video, error) {
+func (r *countedManualPages) ListVideosPendingManualDelete(ctx context.Context, page repository.BatchPage) ([]repository.Video, error) {
 	r.pages.Add(1)
-	return r.Repository.ListVideosPendingManualDelete(ctx, after, limit)
+	return r.Repository.ListVideosPendingManualDelete(ctx, page)
 }
 
 type heldManualDelete struct {

@@ -138,7 +138,7 @@ func (a *SQLiteAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit 
 			CursorLatestVideoAt: sqliteCategoryCursorLatestVideoAt(cursor),
 			CursorName:          sqliteCategoryCursorName(cursor),
 			CursorID:            sqliteCategoryCursorID(cursor),
-			RowLimit:            rowLimit,
+			Limit:               rowLimit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("sqlite list category page by latest video: %w", err)
@@ -157,7 +157,7 @@ func (a *SQLiteAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit 
 			CursorVideoCount: sqliteCategoryCursorVideoCount(cursor),
 			CursorName:       sqliteCategoryCursorName(cursor),
 			CursorID:         sqliteCategoryCursorID(cursor),
-			RowLimit:         rowLimit,
+			Limit:            rowLimit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("sqlite list category page by video count: %w", err)
@@ -175,7 +175,7 @@ func (a *SQLiteAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit 
 		rows, err := a.queries.ListCategoriesWithVideosPageNameAsc(ctx, sqlitegen.ListCategoriesWithVideosPageNameAscParams{
 			CursorName: sqliteCategoryCursorName(cursor),
 			CursorID:   sqliteCategoryCursorID(cursor),
-			RowLimit:   rowLimit,
+			Limit:      rowLimit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("sqlite list category page by name: %w", err)

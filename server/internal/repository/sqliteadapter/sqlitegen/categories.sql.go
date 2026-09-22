@@ -396,7 +396,7 @@ type ListCategoriesWithVideosPageLatestDescParams struct {
 	CursorLatestVideoAt sql.NullString `json:"cursor_latest_video_at"`
 	CursorName          sql.NullString `json:"cursor_name"`
 	CursorID            string         `json:"cursor_id"`
-	RowLimit            int64          `json:"row_limit"`
+	Limit               int64          `json:"limit"`
 }
 
 type ListCategoriesWithVideosPageLatestDescRow struct {
@@ -418,7 +418,7 @@ func (q *Queries) ListCategoriesWithVideosPageLatestDesc(ctx context.Context, ar
 		arg.CursorLatestVideoAt,
 		arg.CursorName,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -480,14 +480,14 @@ LIMIT (SELECT row_limit FROM params)
 type ListCategoriesWithVideosPageNameAscParams struct {
 	CursorName sql.NullString `json:"cursor_name"`
 	CursorID   string         `json:"cursor_id"`
-	RowLimit   int64          `json:"row_limit"`
+	Limit      int64          `json:"limit"`
 }
 
 // Cursor-paginated browse list for the default category order. This mirrors
 // ListCategoriesWithVideos' visibility predicate while over-fetching at the
 // adapter layer to discover the next cursor.
 func (q *Queries) ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg ListCategoriesWithVideosPageNameAscParams) ([]Category, error) {
-	rows, err := q.db.QueryContext(ctx, listCategoriesWithVideosPageNameAsc, arg.CursorName, arg.CursorID, arg.RowLimit)
+	rows, err := q.db.QueryContext(ctx, listCategoriesWithVideosPageNameAsc, arg.CursorName, arg.CursorID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +561,7 @@ type ListCategoriesWithVideosPageVideoCountDescParams struct {
 	CursorVideoCount int64          `json:"cursor_video_count"`
 	CursorName       sql.NullString `json:"cursor_name"`
 	CursorID         string         `json:"cursor_id"`
-	RowLimit         int64          `json:"row_limit"`
+	Limit            int64          `json:"limit"`
 }
 
 type ListCategoriesWithVideosPageVideoCountDescRow struct {
@@ -583,7 +583,7 @@ func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context
 		arg.CursorVideoCount,
 		arg.CursorName,
 		arg.CursorID,
-		arg.RowLimit,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

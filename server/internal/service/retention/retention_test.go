@@ -274,7 +274,11 @@ func TestRetentionQueries(t *testing.T) {
 		t.Fatalf("mark not-due video done: %v", err)
 	}
 
-	videos, err := repo.ListRetentionCandidates(ctx, time.Now().Add(2*time.Hour), 0, 100)
+	page, err := repository.NewBatchPage(0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	videos, err := repo.ListRetentionCandidates(ctx, time.Now().Add(2*time.Hour), page)
 	if err != nil {
 		t.Fatalf("ListRetentionCandidates: %v", err)
 	}

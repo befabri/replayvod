@@ -72,7 +72,7 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
 	}
 
-	rows, err := repo.ListVideosForStorageScan(ctx, 0, 100)
+	rows, err := repo.ListVideosForStorageScan(ctx, batchPage(t, 0, 100))
 	if err != nil {
 		t.Fatalf("ListVideosForStorageScan: %v", err)
 	}
@@ -115,7 +115,7 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 	if err := repo.MarkArchiveFailedForRetry(ctx, retrying.ID, "upload blipped", repository.CompletionKindComplete, false, time.Now().UTC().Add(time.Minute)); err != nil {
 		t.Fatalf("MarkArchiveFailedForRetry: %v", err)
 	}
-	if rows, err := repo.ListVideosForStorageScan(ctx, 0, 100); err != nil || slices.Contains(scanFilenames(rows), "scan-retrying") {
+	if rows, err := repo.ListVideosForStorageScan(ctx, batchPage(t, 0, 100)); err != nil || slices.Contains(scanFilenames(rows), "scan-retrying") {
 		t.Fatalf("scan candidates = %v, %v; want the retrying archive excluded", scanFilenames(rows), err)
 	}
 	if _, err := repo.GetVideoForStorageScan(ctx, retrying.ID); !errors.Is(err, repository.ErrNotFound) {
@@ -125,7 +125,7 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 		t.Fatalf("tombstone of a retrying archive = %v, %v; want refused", changed, err)
 	}
 	// Attachment must see media owners that the reconciliation query excludes.
-	witnesses, err := repo.ListVideosForStorageWitness(ctx, 100)
+	witnesses, err := repo.ListVideosForStorageWitness(ctx, batchSize(t, 100))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,16 +136,24 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 	if err := repo.SoftDeleteVideo(ctx, gone.ID, repository.DeletionKindManual); err != nil {
 		t.Fatal(err)
 	}
-	witnesses, err = repo.ListVideosForStorageWitness(ctx, 100)
+	witnesses, err = repo.ListVideosForStorageWitness(ctx, batchSize(t, 100))
 	if err != nil || slices.Contains(scanFilenames(witnesses), "scan-gone") {
 		t.Fatalf("permanently removed media still blocks attachment: %+v, %v", witnesses, err)
 	}
-	if witnesses, err := repo.ListVideosForStorageWitness(ctx, 1); err != nil || len(witnesses) != 1 || witnesses[0].VideoID != doneParts.ID {
+	if witnesses, err := repo.ListVideosForStorageWitness(ctx, batchSize(t, 1)); err != nil || len(witnesses) != 1 || witnesses[0].VideoID != doneParts.ID {
 		t.Fatalf("bounded witness sample = %+v, %v", witnesses, err)
 	}
-	for _, limit := range []int{0, -1, 1001} {
-		if _, err := repo.ListVideosForStorageWitness(ctx, limit); err == nil {
-			t.Fatalf("invalid witness sample limit %d accepted", limit)
+	if _, err := repo.ListVideosForStorageWitness(ctx, repository.BatchSize{}); err == nil {
+		t.Fatal("accepted uninitialized witness size")
+	}
+	if _, err := repo.ListVideosForStorageScan(ctx, repository.BatchPage{}); err == nil {
+		t.Fatal("accepted uninitialized scan page")
+	}
+	// Valid value objects preserve bounded SQL pagination.
+	for _, limit := range []int{1, repository.MaxBatchSize} {
+		got, err := repo.ListVideosForStorageWitness(ctx, batchSize(t, limit))
+		if err != nil || len(got) != min(limit, len(witnesses)) {
+			t.Fatalf("witness sample limit %d = %+v, %v", limit, got, err)
 		}
 	}
 
@@ -162,7 +170,7 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 	var paged []repository.StorageScanVideo
 	var cursor int64
 	for {
-		page, err := repo.ListVideosForStorageScan(ctx, cursor, 1)
+		page, err := repo.ListVideosForStorageScan(ctx, batchPage(t, cursor, 1))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,9 +184,10 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 		cursor = page[0].VideoID
 	}
 	assertStringSlice(t, scanFilenames(paged), scanFilenames(rows))
-	for _, limit := range []int{0, -1, 1001} {
-		if _, err := repo.ListVideosForStorageScan(ctx, 0, limit); err == nil {
-			t.Fatalf("accepted limit %d", limit)
+	for _, limit := range []int{1, repository.MaxBatchSize} {
+		got, err := repo.ListVideosForStorageScan(ctx, batchPage(t, 0, limit))
+		if err != nil || len(got) != min(limit, len(rows)) {
+			t.Fatalf("scan page limit %d = %+v, %v", limit, got, err)
 		}
 	}
 
@@ -298,11 +307,20 @@ func testMissingTombstoneRestoreAndPermanentRemoval(t *testing.T, h Harness) {
 		}
 	}
 
-	rows, err := repo.ListMissingTombstones(ctx, 0, 100)
+	rows, err := repo.ListMissingTombstones(ctx, batchPage(t, 0, 100))
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertStringSlice(t, scanFilenames(rows), []string{"restore-missing", "restore-queued"})
+	if _, err := repo.ListMissingTombstones(ctx, repository.BatchPage{}); err == nil {
+		t.Fatal("accepted uninitialized tombstone page")
+	}
+	for _, limit := range []int{1, repository.MaxBatchSize} {
+		got, err := repo.ListMissingTombstones(ctx, batchPage(t, 0, limit))
+		if err != nil || len(got) != min(limit, len(rows)) {
+			t.Fatalf("tombstone page limit %d = %+v, %v", limit, got, err)
+		}
+	}
 	if row, err := repo.GetMissingTombstone(ctx, missing.ID); err != nil || row.VideoID != missing.ID || row.Status != repository.VideoStatusDone {
 		t.Fatalf("GetMissingTombstone = %+v, %v", row, err)
 	}
@@ -319,14 +337,14 @@ func testMissingTombstoneRestoreAndPermanentRemoval(t *testing.T, h Harness) {
 	if _, err := repo.RequestVideoDelete(ctx, queued.ID); err != nil {
 		t.Fatalf("RequestVideoDelete on a missing tombstone: %v", err)
 	}
-	pending, err := repo.ListVideosPendingManualDelete(ctx, 0, 10)
+	pending, err := repo.ListVideosPendingManualDelete(ctx, batchPage(t, 0, 10))
 	if err != nil || len(pending) != 1 || pending[0].ID != queued.ID {
 		t.Fatalf("pending manual deletes = %+v, %v; want the queued tombstone", pending, err)
 	}
 	if err := repo.RestoreMissingVideo(ctx, queued.ID); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("restore of a queued tombstone err = %v, want ErrNotFound", err)
 	}
-	rows, err = repo.ListMissingTombstones(ctx, 0, 100)
+	rows, err = repo.ListMissingTombstones(ctx, batchPage(t, 0, 100))
 	if err != nil {
 		t.Fatal(err)
 	}

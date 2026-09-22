@@ -9,7 +9,7 @@ import (
 
 func mustNormalize(t *testing.T, src string) string {
 	t.Helper()
-	n, err := normalizeFuncSrc(src)
+	n, err := normalizeFuncSrc(src, testConfig().Equivalents)
 	if err != nil {
 		t.Fatalf("normalize %q: %v", src, err)
 	}
@@ -111,7 +111,8 @@ func TestNormalizeRewritesNullHelpers(t *testing.T) {
 
 func testRenderer() renderer {
 	return renderer{
-		d: dialect{name: "pg", dir: "internal/repository/pgadapter", genPkg: "pggen", adapterType: "PGAdapter", rowLocks: map[string]bool{"LockThing": true}},
+		cfg: testConfig(),
+		d:   dialect{name: "pg", dir: "internal/repository/pgadapter", genPkg: "pggen", adapterType: "PGAdapter", rowLocks: map[string]bool{"LockThing": true}},
 		gen: map[string]map[string]string{
 			"UpdateThingParams": {"ID": "string", "Note": "*string"},
 		},
@@ -135,7 +136,7 @@ func ctxSig(results []string, params ...param) methodSig {
 // harvested reports the candidate a hand-written body would be replaced by.
 func harvested(t *testing.T, r renderer, name string, sig methodSig, hand string) *candidate {
 	t.Helper()
-	c, err := matchCandidate(mustNormalize(t, hand), r.candidates(name, sig), true)
+	c, err := r.matchCandidate(mustNormalize(t, hand), r.candidates(name, sig), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +310,7 @@ func TestRowLockGuardAndAlias(t *testing.T) {
 }
 
 func TestRatchet(t *testing.T) {
-	path := filepath.Join(t.TempDir(), baselineFile)
+	path := filepath.Join(t.TempDir(), "handwritten_baseline.txt")
 	if err := ratchet(path, map[string]int{"pgadapter": 10, "sqliteadapter": 12}, true); err == nil {
 		t.Error("check mode accepted a missing baseline")
 	}

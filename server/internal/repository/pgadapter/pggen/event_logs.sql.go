@@ -239,7 +239,7 @@ LIMIT $3 OFFSET $2
 type SearchEventLogsParams struct {
 	Query     string `json:"query"`
 	RowOffset int32  `json:"row_offset"`
-	RowLimit  int32  `json:"row_limit"`
+	Limit     int32  `json:"limit"`
 }
 
 type SearchEventLogsRow struct {
@@ -255,7 +255,7 @@ type SearchEventLogsRow struct {
 }
 
 func (q *Queries) SearchEventLogs(ctx context.Context, arg SearchEventLogsParams) ([]SearchEventLogsRow, error) {
-	rows, err := q.db.Query(ctx, searchEventLogs, arg.Query, arg.RowOffset, arg.RowLimit)
+	rows, err := q.db.Query(ctx, searchEventLogs, arg.Query, arg.RowOffset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

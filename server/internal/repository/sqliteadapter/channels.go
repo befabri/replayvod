@@ -37,7 +37,7 @@ func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort st
 		UserID:         userID,
 		CursorName:     sqliteChannelCursorName(cursor),
 		CursorID:       sqliteChannelCursorID(cursor),
-		RowLimit:       int64(limit + 1),
+		Limit:          int64(limit + 1),
 	}
 	var rows []sqlitegen.Channel
 	var err error
@@ -54,21 +54,6 @@ func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort st
 		items[i] = *sqliteChannelToDomain(row)
 	}
 	return repository.ToChannelPage(items, limit), nil
-}
-
-func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error) {
-	if len(ids) == 0 {
-		return []repository.Channel{}, nil
-	}
-	rows, err := a.queries.ListChannelsByIDs(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list channels by ids: %w", err)
-	}
-	channels := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		channels[i] = *sqliteChannelToDomain(row)
-	}
-	return channels, nil
 }
 
 // User follows

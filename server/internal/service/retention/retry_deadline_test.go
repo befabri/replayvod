@@ -18,8 +18,8 @@ type retriedRetentionCandidate struct {
 	afterDiscovery func() error
 }
 
-func (r *retriedRetentionCandidate) ListRetentionCandidates(ctx context.Context, now time.Time, after int64, limit int) ([]repository.RetentionVideo, error) {
-	rows, err := r.Repository.ListRetentionCandidates(ctx, now, after, limit)
+func (r *retriedRetentionCandidate) ListRetentionCandidates(ctx context.Context, now time.Time, page repository.BatchPage) ([]repository.RetentionVideo, error) {
+	rows, err := r.Repository.ListRetentionCandidates(ctx, now, page)
 	if err == nil && len(rows) > 0 && r.afterDiscovery != nil {
 		hook := r.afterDiscovery
 		r.afterDiscovery = nil

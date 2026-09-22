@@ -183,7 +183,11 @@ func (m *Monitor) witnessLibraryLocked(ctx context.Context) error {
 	if _, err := storage.ReadMarker(ctx, m.store); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	candidates, err := m.repo.ListVideosForStorageWitness(ctx, witnessSample)
+	size, err := repository.NewBatchSize(witnessSample)
+	if err != nil {
+		return fmt.Errorf("storage witness: %w", err)
+	}
+	candidates, err := m.repo.ListVideosForStorageWitness(ctx, size)
 	if err != nil {
 		return fmt.Errorf("list recordings for storage witness: %w", err)
 	}

@@ -180,7 +180,7 @@ func (a *PGAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOp
 		StatusFilter: opts.Status,
 		SortKey:      opts.SortKey(),
 		RowOffset:    int32(opts.Offset),
-		RowLimit:     int32(opts.Limit),
+		Limit:        int32(opts.Limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos: %w", err)
@@ -209,7 +209,7 @@ func (a *PGAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID s
 		BroadcasterID:         broadcasterID,
 		CursorStartDownloadAt: pgCursorStartDownloadAt(cursor),
 		CursorID:              pgCursorID(cursor),
-		RowLimit:              int32(limit + 1),
+		Limit:                 int32(limit + 1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos by broadcaster: %w", err)
@@ -223,41 +223,13 @@ func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string,
 		CategoryID:            categoryID,
 		CursorStartDownloadAt: pgCursorStartDownloadAt(cursor),
 		CursorID:              pgCursorID(cursor),
-		RowLimit:              int32(limit + 1),
+		Limit:                 int32(limit + 1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos by category: %w", err)
 	}
 	items := pgVideosToDomain(rows)
 	return repository.ToVideoPage(items, limit), nil
-}
-
-func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]repository.Video, error) {
-	if limit <= 0 {
-		return []repository.Video{}, nil
-	}
-	rows, err := a.queries.ListVideosPendingManualDelete(ctx, pggen.ListVideosPendingManualDeleteParams{AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list videos pending manual delete: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
-	rows, err := a.queries.ListRetentionCandidates(ctx, pggen.ListRetentionCandidatesParams{Now: now, AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list finished videos for retention: %w", err)
-	}
-	out := make([]repository.RetentionVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.RetentionVideo{
-			VideoID:              r.ID,
-			BroadcasterID:        r.BroadcasterID,
-			DownloadedAt:         r.DownloadedAt,
-			RetentionWindowHours: int32PtrToInt64Ptr(r.RetentionWindowHours),
-		}
-	}
-	return out, nil
 }
 
 func (a *PGAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
@@ -270,18 +242,6 @@ func (a *PGAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind stri
 		}
 		return nil
 	})
-}
-
-func (a *PGAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {
-	rows, err := a.queries.StatisticsByStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg video stats by status: %w", err)
-	}
-	out := make([]repository.VideoStatsByStatus, len(rows))
-	for i, r := range rows {
-		out[i] = repository.VideoStatsByStatus{Status: r.Status, Count: r.Count}
-	}
-	return out, nil
 }
 
 func (a *PGAdapter) VideoStatsHistory(ctx context.Context) ([]repository.VideoStatsHistoryBucket, error) {
@@ -442,39 +402,16 @@ func pgCursorID(cursor *repository.VideoPageCursor) int64 {
 	return cursor.ID
 }
 
-// ListVideosForStorageScan bounds each query even if a caller passes an invalid limit.
-func (a *PGAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
-	if afterID < 0 || limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid storage scan page")
-	}
-	rows, err := a.queries.ListVideosForStorageScan(ctx, pggen.ListVideosForStorageScanParams{AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list videos for storage scan: %w", err)
-	}
-	out := make([]repository.StorageScanVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
-	}
-	return out, nil
-}
-
-func (a *PGAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]repository.Video, error) {
-	if len(twitchVideoIDs) == 0 {
-		return []repository.Video{}, nil
-	}
-	rows, err := a.queries.ListOpenVideosByTwitchVideoIDs(ctx, twitchVideoIDs)
-	if err != nil {
-		return nil, fmt.Errorf("pg list open videos by twitch video ids: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
-}
-
 // GetVideoForStorageScan reuses the eligibility query, without treating zero as a wildcard.
 func (a *PGAdapter) GetVideoForStorageScan(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
 	if id <= 0 {
 		return nil, repository.ErrNotFound
 	}
-	rows, err := a.ListVideosForStorageScan(ctx, id-1, 1)
+	page, err := repository.NewBatchPage(id-1, 1)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.ListVideosForStorageScan(ctx, page)
 	if err != nil {
 		return nil, err
 	}
@@ -506,41 +443,15 @@ func (a *PGAdapter) RestoreMissingVideo(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (a *PGAdapter) ListMissingTombstones(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
-	if afterID < 0 || limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid storage scan page")
-	}
-	rows, err := a.queries.ListMissingTombstones(ctx, pggen.ListMissingTombstonesParams{AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list missing tombstones: %w", err)
-	}
-	out := make([]repository.StorageScanVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
-	}
-	return out, nil
-}
-
-func (a *PGAdapter) ListVideosForStorageWitness(ctx context.Context, limit int) ([]repository.StorageScanVideo, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid storage witness sample")
-	}
-	rows, err := a.queries.ListVideosForStorageWitness(ctx, int32(limit))
-	if err != nil {
-		return nil, fmt.Errorf("pg list storage witnesses: %w", err)
-	}
-	out := make([]repository.StorageScanVideo, len(rows))
-	for i, r := range rows {
-		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
-	}
-	return out, nil
-}
-
 func (a *PGAdapter) GetMissingTombstone(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
 	if id <= 0 {
 		return nil, repository.ErrNotFound
 	}
-	rows, err := a.ListMissingTombstones(ctx, id-1, 1)
+	page, err := repository.NewBatchPage(id-1, 1)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.ListMissingTombstones(ctx, page)
 	if err != nil {
 		return nil, err
 	}
@@ -548,26 +459,4 @@ func (a *PGAdapter) GetMissingTombstone(ctx context.Context, id int64) (*reposit
 		return nil, repository.ErrNotFound
 	}
 	return &rows[0], nil
-}
-
-func (a *PGAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []string) ([]repository.Video, error) {
-	if len(streamIDs) == 0 {
-		return []repository.Video{}, nil
-	}
-	rows, err := a.queries.ListOpenVideosByStreamIDs(ctx, streamIDs)
-	if err != nil {
-		return nil, fmt.Errorf("pg list open videos by stream ids: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]repository.Video, error) {
-	if afterID < 0 || limit < 1 || limit > 1000 {
-		return nil, fmt.Errorf("invalid poster page")
-	}
-	rows, err := a.queries.ListArchivesMissingPoster(ctx, pggen.ListArchivesMissingPosterParams{Since: since, AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list archives missing poster: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
 }

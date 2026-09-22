@@ -112,7 +112,11 @@ func (s *Service) Sweep(ctx context.Context) (report Report, sweepErr error) {
 	var errs []error
 	// Resume restoration directly so repeated scan deadlines cannot starve returned media.
 	for restoreAfter == nil {
-		candidates, err := s.repo.ListVideosForStorageScan(ctx, after, scanPageSize)
+		page, err := repository.NewBatchPage(after, scanPageSize)
+		if err != nil {
+			return report, errors.Join(append(errs, err)...)
+		}
+		candidates, err := s.repo.ListVideosForStorageScan(ctx, page)
 		if err != nil {
 			if ctx.Err() != nil {
 				return s.stopped(ctx, report, errs)
@@ -226,7 +230,11 @@ func (s *Service) restoreReturned(ctx context.Context, report *Report, after int
 		if ctx.Err() != nil {
 			return false, errs
 		}
-		candidates, err := s.repo.ListMissingTombstones(ctx, after, scanPageSize)
+		page, err := repository.NewBatchPage(after, scanPageSize)
+		if err != nil {
+			return false, append(errs, err)
+		}
+		candidates, err := s.repo.ListMissingTombstones(ctx, page)
 		if err != nil {
 			if ctx.Err() == nil {
 				errs = append(errs, err)

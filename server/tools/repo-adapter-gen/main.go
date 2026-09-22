@@ -6,9 +6,11 @@
 //	go run ./tools/repo-adapter-gen
 //	go run ./tools/repo-adapter-gen -check
 //
-// handwritten_baseline.txt records how many Repository methods each adapter
-// still implements by hand; a run lowers the numbers and -check fails when
-// they rise.
+// repo-adapter-gen.yaml in the project root describes the repository layout,
+// the adapter conventions and the type conversions (see config.go); the
+// engine carries no project names. The baseline file it names records how
+// many interface methods each adapter still implements by hand; a run lowers
+// the numbers and -check fails when they rise.
 package main
 
 import (
@@ -29,17 +31,18 @@ import (
 )
 
 // genSpec names one generated mapper. name is the function suffix
-// (pg<name>ToDomain). domain/row override the domain struct and sqlc row struct
-// names when they differ from name (e.g. domain EventSubSnapshot from sqlc row
-// EventsubSnapshot, exposed as Snapshot). Empty domain/row default to name.
+// (<dialect><name><mapper suffix>). domain/row override the domain struct and
+// sqlc row struct names when they differ from name (e.g. domain
+// EventSubSnapshot from sqlc row EventsubSnapshot, exposed as Snapshot). Empty
+// domain/row default to name.
 type genSpec struct {
 	name   string
 	domain string
 	row    string
-	// slice also emits pg<plural>ToDomain([]row) []domain, which calls the
-	// single-row mapper. plural defaults to name+"s"; it only makes sense when
-	// the row type is the plain singular row, which holds for every allowlisted
-	// type because the list queries select whole table rows.
+	// slice also emits <dialect><plural>ToDomain([]row) []domain, which calls
+	// the single-row mapper. plural defaults to name+"s". A row may be a
+	// whole-table model or a per-query projection; each domain/row pair has
+	// its own mapper.
 	slice  bool
 	plural string
 }
@@ -65,155 +68,27 @@ func (s genSpec) pluralName() string {
 	return s.name + "s"
 }
 
-// genTypes is the allowlist of types whose mappers are generated. A type belongs
-// here only if every one of its domain fields maps to a row field with a known
-// conversion (see convRules). Complex/non-1:1 types stay hand-written.
-var genTypes = []genSpec{
-	{name: "Title"},
-	{name: "Tag", slice: true},
-	{name: "Category", slice: true, plural: "Categories"},
-	{name: "Channel", slice: true},
-	{name: "ChannelUserState"},
-	{name: "EventLog", slice: true},
-	{name: "Job"},
-	{name: "MediaPublication", slice: true},
-	{name: "RecordingIntent", slice: true},
-	{name: "RecordingWebhookDelivery"},
-	{name: "Stream", slice: true},
-	{name: "Subscription", slice: true},
-	{name: "Task", slice: true},
-	{name: "User", slice: true},
-	{name: "VideoPart", slice: true},
-	{name: "VideoPlaybackAsset"},
-	{name: "VideoUserState"},
-	{name: "WebhookEvent", slice: true},
-	{name: "ServerSettings", row: "ServerSetting"},
-	{name: "Settings", row: "Setting"},
-	{name: "Snapshot", domain: "EventSubSnapshot", row: "EventsubSnapshot", slice: true},
-}
-
-// mapperSpec returns the genTypes entry whose domain type is domain, if any.
-func mapperSpec(domain string) (genSpec, bool) {
-	for _, s := range genTypes {
-		if s.domainType() == domain {
-			return s, true
-		}
-	}
-	return genSpec{}, false
-}
-
-// convRules maps {sqlcRowFieldType, domainFieldType} to a Go expression template
-// where %s is the source selector (e.g. "src.CreatedAt"). PG rows are overridden
-// in sqlc.yaml to already match the domain types, so most PG conversions are
-// identity; SQLite carries the type glue.
-var convRules = map[[2]string]string{
-	// identity (same type both sides)
-	{"int64", "int64"}:                     "%s",
-	{"string", "string"}:                   "%s",
-	{"bool", "bool"}:                       "%s",
-	{"*string", "*string"}:                 "%s",
-	{"*int64", "*int64"}:                   "%s",
-	{"time.Time", "time.Time"}:             "%s",
-	{"*time.Time", "*time.Time"}:           "%s",
-	{"json.RawMessage", "json.RawMessage"}: "%s",
-	// SQLite glue
-	{"sqlitetype.Time", "time.Time"}:          "%s.Time",
-	{"*sqlitetype.Time", "*time.Time"}:        "timePtrFromSQLite(%s)",
-	{"*sqlitetype.PreciseTime", "*time.Time"}: "timePtrFromSQLitePrecise(%s)",
-	{"int64", "bool"}:                         "%s != 0",
-	{"sql.NullInt64", "*int64"}:               "fromNullInt64(%s)",
-	// numeric width/alias conversions (PG int4 -> int32, SQLite INTEGER -> int64)
-	{"int", "int"}:         "%s",
-	{"int32", "int32"}:     "%s",
-	{"int32", "int"}:       "int(%s)",
-	{"int64", "int"}:       "int(%s)",
-	{"int32", "int64"}:     "int64(%s)",
-	{"int64", "int32"}:     "int32(%s)",
-	{"float64", "float64"}: "%s",
-	// PG nullable identity (sqlc.yaml overrides nullable cols to pointers)
-	{"*bool", "*bool"}:       "%s",
-	{"*float64", "*float64"}: "%s",
-	{"*int32", "*int32"}:     "%s",
-	// SQLite nullable scalars via the adapter's existing helpers
-	{"sql.NullString", "*string"}:         "fromNullString(%s)",
-	{"sql.NullInt64", "*bool"}:            "nullInt64ToBool(%s)",
-	{"sql.NullFloat64", "*float64"}:       "fromNullFloat64(%s)",
-	{"sql.NullString", "json.RawMessage"}: "rawMessageFromSQLite(%s)",
-	{"string", "json.RawMessage"}:         "json.RawMessage(%s)",
-}
-
-// argRules is the argument-side mirror of convRules: it maps
-// {repositoryParamType, sqlcParamType} to the expression that passes a
-// repository argument to a sqlc query, with %s standing for the argument.
-// Identical types need no entry. Every SQLite helper named here is defined in
-// the sqliteadapter package.
-var argRules = map[[2]string]string{
-	// numeric width (repository int -> PG int32 / SQLite int64)
-	{"int", "int32"}:   "int32(%s)",
-	{"int", "int64"}:   "int64(%s)",
-	{"int64", "int32"}: "int32(%s)",
-	{"int32", "int64"}: "int64(%s)",
-	// PG nullable columns take pointers to the caller's value
-	{"string", "*string"}:       "&%s",
-	{"time.Time", "*time.Time"}: "&%s",
-	// SQLite glue
-	{"bool", "int64"}:                         "boolToInt64(%s)",
-	{"json.RawMessage", "string"}:             "string(%s)",
-	{"time.Time", "sqlitetype.Time"}:          "sqliteTime(%s)",
-	{"time.Time", "*sqlitetype.Time"}:         "sqliteTimePtr(&%s)",
-	{"*time.Time", "*sqlitetype.Time"}:        "sqliteTimePtr(%s)",
-	{"time.Time", "*sqlitetype.PreciseTime"}:  "sqlitePreciseTimePtr(&%s)",
-	{"*time.Time", "*sqlitetype.PreciseTime"}: "sqlitePreciseTimePtr(%s)",
-	{"string", "sql.NullString"}:              "sql.NullString{String: %s, Valid: true}",
-	{"*string", "sql.NullString"}:             "toNullString(%s)",
-	{"int64", "sql.NullInt64"}:                "sql.NullInt64{Int64: %s, Valid: true}",
-	{"*int64", "sql.NullInt64"}:               "toNullInt64(%s)",
-	{"float64", "sql.NullFloat64"}:            "sql.NullFloat64{Float64: %s, Valid: true}",
-	{"*float64", "sql.NullFloat64"}:           "nullFloat64(%s)",
-}
-
-// convertArg renders a repository argument of type from as the sqlc parameter
-// type to, or reports that no rule exists.
-func convertArg(from, to, expr string) (string, bool) {
-	if from == to {
-		return expr, true
-	}
-	tmpl, ok := argRules[[2]string{from, to}]
-	if !ok {
-		return "", false
-	}
-	return fmt.Sprintf(tmpl, expr), true
-}
-
-// queryAliases maps repository methods to the sqlc query they call when the
-// two names differ. The list is deliberately short: a broad rename manifest
-// would let a method be generated against a query whose parameters happen to
-// share types with its own, which the name-equality guard otherwise prevents.
-var queryAliases = map[string]string{
-	"CreateEventSubSnapshot":     "CreateSnapshot",
-	"GetLatestEventSubSnapshot":  "GetLatestSnapshot",
-	"ListEventSubSnapshots":      "ListSnapshots",
-	"DeleteOldEventSubSnapshots": "DeleteOldSnapshots",
-}
-
+// dialect is one adapter package and the sqlc output it wraps, resolved from
+// the config's dialects.
 type dialect struct {
-	name        string // "pg" / "sqlite"
+	name        string // prefixes mapper names and error messages
 	dir         string // adapter package dir
-	genPkg      string // "pggen" / "sqlitegen"
+	genPkg      string // sqlc package name
 	genAlias    string // import path of the gen package
-	adapterType string // "PGAdapter" / "SQLiteAdapter"
-	// rowLocks names the queries whose Postgres text carries a row-locking
-	// clause. Their generated methods refuse to run outside WithTx on every
-	// dialect, because a lock taken on an autocommit connection is released
-	// before it is used.
+	adapterType string // receiver type of the adapter methods
+	// rowLocks names the sqlc queries that lock rows for the caller's
+	// transaction; their generated bodies guard against running outside one.
 	rowLocks map[string]bool
 }
 
-// Method generation is auto-discovered: there is no allowlist. Every
-// repository.Repository method is tried against the sqlc query of the same
-// name (or its queryAliases entry) and rendered in every supported shape: exec,
-// rows-affected exec, one row, slice, direct scalar and rows-affected bool,
-// each with the error-handling styles the adapters use (see shapes.go).
+// Method generation is auto-discovered: there is no allowlist. Every interface
+// method is tried against the sqlc query of the same name (or its alias in
+// the config) and rendered in every supported shape: exec, rows-affected
+// exec, discarded-row exec, one row, slice (optionally short-circuiting an
+// empty slice argument), direct scalar and rows-affected bool, each with the
+// error-handling styles the adapters use (see shapes.go). Validated value
+// objects expand through their scalar accessors and retain a Validate call
+// before querying (see values.go); ordinary structs stay manual.
 // A method is emitted into methods_gen.go only when one of:
 //
 //   - it is already present in methods_gen.go (harvested on a prior run), in
@@ -228,37 +103,34 @@ type dialect struct {
 // brand-new method that fits a shape but has no implementation yet is NOT
 // guessed; write it by hand first and the next run harvests it if it matches.
 //
-// denyMethods force-excludes names that would otherwise be harvested but must
-// stay hand-written (e.g. a trivial-looking method expected to grow logic).
-var denyMethods = map[string]bool{
-	// Repository.WithTx owns a transaction and passes a scoped repository
-	// to a callback; sqlc's unrelated WithTx only binds a query object.
-	"WithTx": true,
-}
-
+// The config's deny list force-excludes names that would otherwise be
+// harvested but must stay hand-written (e.g. a trivial-looking method
+// expected to grow logic).
 func main() {
-	root := flag.String("root", ".", "server module root")
+	root := flag.String("root", ".", "project root; config paths are relative to it")
+	cfgPath := flag.String("config", "repo-adapter-gen.yaml", "config file, relative to root")
 	check := flag.Bool("check", false, "verify generated files are up to date instead of writing")
 	flag.Parse()
 
-	domain, err := structFields(filepath.Join(*root, "internal/repository/models.go"))
+	cfg, err := loadConfig(filepath.Join(*root, *cfgPath))
 	if err != nil {
 		fail(err)
 	}
-	methods, err := interfaceMethods(filepath.Join(*root, "internal/repository/repository.go"), "Repository")
+	domain, err := structFields(filepath.Join(*root, cfg.Domain.Models))
 	if err != nil {
 		fail(err)
 	}
-
-	rowLocks, err := rowLockQueries(filepath.Join(*root, "internal/repository/pgadapter/pggen"))
+	methods, err := interfaceMethods(filepath.Join(*root, cfg.Domain.InterfaceFile), cfg.Domain.Interface)
 	if err != nil {
 		fail(err)
 	}
-	dialects := []dialect{
-		{name: "pg", dir: "internal/repository/pgadapter", genPkg: "pggen", adapterType: "PGAdapter",
-			genAlias: "github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen", rowLocks: rowLocks},
-		{name: "sqlite", dir: "internal/repository/sqliteadapter", genPkg: "sqlitegen", adapterType: "SQLiteAdapter",
-			genAlias: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen", rowLocks: rowLocks},
+	values, err := valueObjects(filepath.Join(*root, cfg.Domain.ValueObjects))
+	if err != nil {
+		fail(err)
+	}
+	dialects, err := cfg.dialects(*root)
+	if err != nil {
+		fail(err)
 	}
 
 	handCounts := map[string]int{}
@@ -273,11 +145,12 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		mapperSrc, err := generate(d, domain, gen)
+		r := renderer{cfg: cfg, d: d, domain: domain, gen: gen, queries: queries, values: values}
+		mapperSrc, err := r.generateMappers()
 		if err != nil {
 			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		methodSrc, harvest, handCount, err := generateMethods(d, methods, gen, queries, *root)
+		methodSrc, harvest, handCount, err := r.generateMethods(methods, *root)
 		if err != nil {
 			fail(fmt.Errorf("%s methods: %w", d.name, err))
 		}
@@ -287,7 +160,7 @@ func main() {
 			src  []byte
 			note string
 		}{
-			{filepath.Join(*root, d.dir, "mappers_gen.go"), mapperSrc, fmt.Sprintf("%d types", len(genTypes))},
+			{filepath.Join(*root, d.dir, "mappers_gen.go"), mapperSrc, fmt.Sprintf("%d types", len(cfg.types))},
 			{filepath.Join(*root, d.dir, "methods_gen.go"), methodSrc, fmt.Sprintf("%d methods", strings.Count(string(methodSrc), "\nfunc (a *"))},
 		}
 		for _, o := range outputs {
@@ -310,67 +183,37 @@ func main() {
 			}
 		}
 	}
-	if err := ratchet(filepath.Join(*root, "tools/repo-adapter-gen", baselineFile), handCounts, *check); err != nil {
+	if err := ratchet(filepath.Join(*root, cfg.Baseline), handCounts, *check); err != nil {
 		fail(err)
 	}
 }
 
-// generate renders the mappers_gen.go body for one dialect.
-func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, error) {
-	pkgName := filepath.Base(d.dir)
+// generateMappers renders the mappers_gen.go body for the renderer's dialect.
+func (r renderer) generateMappers() ([]byte, error) {
+	pkgName := filepath.Base(r.d.dir)
 	var body strings.Builder
 
-	for _, spec := range genTypes {
-		typ := spec.name
-		domFields, ok := domain[spec.domainType()]
-		if !ok {
-			return nil, fmt.Errorf("domain type %q not found", spec.domainType())
+	for _, spec := range r.cfg.types {
+		literal, err := r.mapperLiteral(spec, "src")
+		if err != nil {
+			return nil, err
 		}
-		rowFields, ok := rows[spec.rowType()]
-		if !ok {
-			return nil, fmt.Errorf("%s row type %q not found", d.genPkg, spec.rowType())
-		}
-		fmt.Fprintf(&body, "\nfunc %s%sToDomain(src %s.%s) *repository.%s {\n\treturn &repository.%s{\n",
-			d.name, spec.name, d.genPkg, spec.rowType(), spec.domainType(), spec.domainType())
-		// sqlc and domain structs differ in initialism casing, such as BoxArtUrl/BoxArtURL.
-		rowByNorm := make(map[string]string, len(rowFields))
-		for rf := range rowFields {
-			rowByNorm[strings.ToLower(rf)] = rf
-		}
-		names := make([]string, 0, len(domFields))
-		for f := range domFields {
-			names = append(names, f)
-		}
-		sort.Strings(names)
-		for _, f := range names {
-			domType := domFields[f]
-			rowName, ok := rowByNorm[strings.ToLower(f)]
-			if !ok {
-				return nil, fmt.Errorf("type %s: domain field %q has no row field (not a 1:1 table — hand-write it)", typ, f)
-			}
-			rowType := rowFields[rowName]
-			tmpl, ok := convRules[[2]string{rowType, domType}]
-			if !ok {
-				return nil, fmt.Errorf("type %s field %q: no conversion rule for row %q -> domain %q", typ, f, rowType, domType)
-			}
-			expr := fmt.Sprintf(tmpl, "src."+rowName)
-			fmt.Fprintf(&body, "\t\t%s: %s,\n", f, expr)
-		}
-		body.WriteString("\t}\n}\n")
+		fmt.Fprintf(&body, "\nfunc %s(src %s.%s) *%s {\n\treturn &%s\n}\n",
+			r.mapperName(spec.name), r.d.genPkg, spec.rowType(), r.domainType(spec.domainType()), literal)
 
 		if spec.slice {
-			body.WriteString(sliceMapperSrc(d, spec))
+			body.WriteString(r.sliceMapperSrc(spec))
 		}
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "// Code generated by repo-adapter-gen. DO NOT EDIT.\n\npackage %s\n\n", pkgName)
 	b.WriteString("import (\n")
-	fmt.Fprintf(&b, "\t%q\n", "github.com/befabri/replayvod/server/internal/repository")
+	fmt.Fprintf(&b, "\t%q\n", r.cfg.Domain.Import)
 	if strings.Contains(body.String(), "json.") {
 		fmt.Fprintf(&b, "\t%q\n", "encoding/json")
 	}
-	fmt.Fprintf(&b, "\t%q\n", d.genAlias)
+	fmt.Fprintf(&b, "\t%q\n", r.d.genAlias)
 	b.WriteString(")\n")
 	b.WriteString(body.String())
 
@@ -381,22 +224,60 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 	return formatted, nil
 }
 
+// mapperLiteral is shared by mapper generation and matching inline row
+// literals during harvest. Fields match by name, allowing only initialism
+// casing differences; SQL projections must alias other differences explicitly.
+func (r renderer) mapperLiteral(spec genSpec, src string) (string, error) {
+	domFields, ok := r.domain[spec.domainType()]
+	if !ok {
+		return "", fmt.Errorf("domain type %q not found", spec.domainType())
+	}
+	rowFields, ok := r.gen[spec.rowType()]
+	if !ok {
+		return "", fmt.Errorf("row type %q not found", spec.rowType())
+	}
+	rowByNorm := make(map[string]string, len(rowFields))
+	for rf := range rowFields {
+		rowByNorm[strings.ToLower(rf)] = rf
+	}
+	names := make([]string, 0, len(domFields))
+	for f := range domFields {
+		names = append(names, f)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s{\n", r.domainType(spec.domainType()))
+	for _, f := range names {
+		rowName, ok := rowByNorm[strings.ToLower(f)]
+		if !ok {
+			return "", fmt.Errorf("type %s: domain field %q has no row field; alias the SQL column or hand-write the mapper", spec.name, f)
+		}
+		rowType, domType := rowFields[rowName], domFields[f]
+		tmpl, ok := r.cfg.conversion(rowType, domType)
+		if !ok {
+			return "", fmt.Errorf("type %s field %q: no conversion rule for row %q -> domain %q", spec.name, f, rowType, domType)
+		}
+		fmt.Fprintf(&b, "%s: %s,\n", f, fmt.Sprintf(tmpl, src+"."+rowName))
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
 // sliceMapperSrc renders the generated slice mapper for spec. Its body is the
 // make-and-loop form, so an adapter method that spells the loop inline is
-// structurally the same as one that calls the mapper (see inlineLoopSrc).
-func sliceMapperSrc(d dialect, spec genSpec) string {
+// structurally the same as one that calls the mapper (see sliceCandidates).
+func (r renderer) sliceMapperSrc(spec genSpec) string {
+	elem := r.domainType(spec.domainType())
 	var b strings.Builder
-	fmt.Fprintf(&b, "\nfunc %s%sToDomain(rows []%s.%s) []repository.%s {\n",
-		d.name, spec.pluralName(), d.genPkg, spec.rowType(), spec.domainType())
-	fmt.Fprintf(&b, "\tout := make([]repository.%s, len(rows))\n", spec.domainType())
-	fmt.Fprintf(&b, "\tfor i, r := range rows {\n\t\tout[i] = *%s%sToDomain(r)\n\t}\n\treturn out\n}\n",
-		d.name, spec.name)
+	fmt.Fprintf(&b, "\nfunc %s(rows []%s.%s) []%s {\n", r.mapperName(spec.pluralName()), r.d.genPkg, spec.rowType(), elem)
+	fmt.Fprintf(&b, "\tout := make([]%s, len(rows))\n", elem)
+	fmt.Fprintf(&b, "\tfor i, r := range rows {\n\t\tout[i] = *%s(r)\n\t}\n\treturn out\n}\n", r.mapperName(spec.name))
 	return b.String()
 }
 
 // structFieldsDir parses every .go file in dir and merges their struct
 // definitions. Used for the sqlc gen package, where row structs live in
-// models.go and query param structs live in the per-query .sql.go files.
+// models.go and query row/parameter structs live in the per-query .sql.go files.
 func structFieldsDir(dir string) (map[string]map[string]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

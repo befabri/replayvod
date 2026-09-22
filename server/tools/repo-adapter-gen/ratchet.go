@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-// baselineFile records, per adapter package, how many Repository methods are
-// still hand-written. It sits next to the generator and may only go down.
-const baselineFile = "handwritten_baseline.txt"
-
 const baselineHeader = `# Hand-written Repository methods per adapter package.
 # repo-adapter-gen lowers a count when it harvests a method and -check fails
 # when a count rises. Raising a count by hand is a deliberate, reviewable

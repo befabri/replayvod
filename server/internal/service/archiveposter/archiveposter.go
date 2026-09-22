@@ -240,7 +240,11 @@ func (s *Service) Backfill(ctx context.Context) (Report, error) {
 			s.log.Debug("poster backfill waiting for writable storage", "error", err)
 			return report, nil
 		}
-		rows, err := s.repo.ListArchivesMissingPoster(ctx, since, after, s.pageSize)
+		page, err := repository.NewBatchPage(after, s.pageSize)
+		if err != nil {
+			return report, fmt.Errorf("poster backfill: %w", err)
+		}
+		rows, err := s.repo.ListArchivesMissingPoster(ctx, since, page)
 		if err != nil {
 			if ctx.Err() != nil {
 				return s.stopped(ctx, report, after, attempted)

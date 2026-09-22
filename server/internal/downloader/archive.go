@@ -205,7 +205,12 @@ func (s *Service) PumpArchiveQueue(ctx context.Context) {
 	after := time.Time{}
 	afterID := int64(0)
 	for {
-		jobs, err := s.repo.ListQueuedArchiveJobs(ctx, after, afterID, archiveRetryBatch)
+		page, err := repository.NewBatchPage(afterID, archiveRetryBatch)
+		if err != nil {
+			s.log.Warn("archive discovery failed", "error", err)
+			return
+		}
+		jobs, err := s.repo.ListQueuedArchiveJobs(ctx, after, page)
 		if err != nil {
 			s.log.Warn("archive discovery failed", "error", err)
 			return

@@ -20,24 +20,24 @@ type harvestTarget struct {
 	start, end int
 }
 
-// generateMethods renders methods_gen.go for one dialect by auto-discovery and
-// returns the hand-written methods to harvest and the number of Repository
-// methods that stay hand-written after the harvest. See denyMethods for the
-// policy. It fails when a query's parameters are not named after the
-// repository signature (see misnamedParams), in every mode, so a renamed
-// field cannot quietly leave a method hand-written.
-func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map[string]string, queries map[string]querySig, root string) ([]byte, []harvestTarget, int, error) {
-	pkgName := filepath.Base(d.dir)
-	dir := filepath.Join(root, d.dir)
-	existing, err := genFileMethods(filepath.Join(dir, "methods_gen.go"), d.adapterType)
+// generateMethods renders methods_gen.go for the renderer's dialect by
+// auto-discovery and returns the hand-written methods to harvest and the
+// number of interface methods that stay hand-written after the harvest. See
+// the config's deny list for the policy. It fails when a query's parameters
+// are not named after the interface signature (see misnamedParams), in every
+// mode, so a renamed field cannot quietly leave a method hand-written.
+func (r renderer) generateMethods(methods map[string]methodSig, root string) ([]byte, []harvestTarget, int, error) {
+	pkgName := filepath.Base(r.d.dir)
+	dir := filepath.Join(root, r.d.dir)
+	existing, err := r.genFileMethods(filepath.Join(dir, "methods_gen.go"))
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	hand, pkgFuncs, err := handWrittenMethods(dir, d.adapterType)
+	hand, pkgFuncs, err := r.handWrittenMethods(dir)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	r := renderer{d: d, gen: gen, queries: queries, pkgFuncs: pkgFuncs}
+	r.pkgFuncs = pkgFuncs
 
 	names := make([]string, 0, len(methods))
 	for name := range methods {
@@ -49,7 +49,7 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 	// cause rather than as the generated method that stopped fitting.
 	var misnamed []string
 	for _, name := range names {
-		if !denyMethods[name] {
+		if !r.cfg.denied(name) {
 			misnamed = append(misnamed, r.misnamedParams(name, methods[name])...)
 		}
 	}
@@ -65,9 +65,9 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 		hm, hasHand := hand[name]
 		genNorm, isGen := existing[name]
 		switch {
-		case denyMethods[name]:
+		case r.cfg.denied(name):
 			if isGen {
-				return nil, nil, 0, fmt.Errorf("method %q is in denyMethods but still present in methods_gen.go; remove it there and hand-write it", name)
+				return nil, nil, 0, fmt.Errorf("method %q is denied in the config but still present in methods_gen.go; remove it there and hand-write it", name)
 			}
 			if hasHand {
 				handCount++
@@ -80,7 +80,7 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 				return nil, nil, 0, fmt.Errorf("method %q is both generated and hand-written (%s); delete the hand-written copy", name, hm.file)
 			}
 			// The shape a method was harvested in is the one it keeps.
-			c, err := matchCandidate(genNorm, cands, false)
+			c, err := r.matchCandidate(genNorm, cands, false)
 			if err != nil {
 				return nil, nil, 0, fmt.Errorf("method %q: %w", name, err)
 			}
@@ -90,7 +90,7 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 			body.WriteString("\n")
 			body.WriteString(c.emit)
 		case hasHand:
-			c, err := matchCandidate(hm.norm, cands, true)
+			c, err := r.matchCandidate(hm.norm, cands, true)
 			if err != nil {
 				return nil, nil, 0, fmt.Errorf("method %q: %w", name, err)
 			}
@@ -118,14 +118,14 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 // matchCandidate returns the candidate whose normalized form equals norm, or
 // nil. With alternates set, a candidate's accepted hand-written spellings are
 // compared as well as the form it emits.
-func matchCandidate(norm string, cands []candidate, alternates bool) (*candidate, error) {
+func (r renderer) matchCandidate(norm string, cands []candidate, alternates bool) (*candidate, error) {
 	for i := range cands {
 		forms := []string{cands[i].emit}
 		if alternates {
 			forms = append(forms, cands[i].match...)
 		}
 		for _, form := range forms {
-			n, err := normalizeFuncSrc(form)
+			n, err := r.normalize(form)
 			if err != nil {
 				return nil, fmt.Errorf("normalize candidate: %w\n%s", err, form)
 			}
@@ -148,7 +148,7 @@ type handMethod struct {
 // handWrittenMethods returns every method with the given adapter receiver
 // across the package's hand-written files (excluding _test.go and *_gen.go),
 // plus the set of package-level function names those files define.
-func handWrittenMethods(dir, adapterType string) (map[string]handMethod, map[string]bool, error) {
+func (r renderer) handWrittenMethods(dir string) (map[string]handMethod, map[string]bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, nil, err
@@ -179,7 +179,7 @@ func handWrittenMethods(dir, adapterType string) (map[string]handMethod, map[str
 				funcs[fd.Name.Name] = true
 				continue
 			}
-			if recvTypeName(fd.Recv) != adapterType {
+			if recvTypeName(fd.Recv) != r.d.adapterType {
 				continue
 			}
 			pos := fset.Position(fd.Pos()).Offset
@@ -188,7 +188,7 @@ func handWrittenMethods(dir, adapterType string) (map[string]handMethod, map[str
 			if fd.Doc != nil {
 				start = fset.Position(fd.Doc.Pos()).Offset
 			}
-			norm, err := normalizeFuncSrc(string(src[pos:end]))
+			norm, err := r.normalize(string(src[pos:end]))
 			if err != nil {
 				return nil, nil, fmt.Errorf("normalize %s.%s: %w", path, fd.Name.Name, err)
 			}
@@ -201,7 +201,7 @@ func handWrittenMethods(dir, adapterType string) (map[string]handMethod, map[str
 // genFileMethods returns the adapter methods already present in
 // methods_gen.go by name with their normalized source (empty if the file does
 // not exist yet).
-func genFileMethods(path, adapterType string) (map[string]string, error) {
+func (r renderer) genFileMethods(path string) (map[string]string, error) {
 	src, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return map[string]string{}, nil
@@ -217,12 +217,12 @@ func genFileMethods(path, adapterType string) (map[string]string, error) {
 	out := map[string]string{}
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || recvTypeName(fd.Recv) != adapterType {
+		if !ok || recvTypeName(fd.Recv) != r.d.adapterType {
 			continue
 		}
 		pos := fset.Position(fd.Pos()).Offset
 		end := fset.Position(fd.End()).Offset
-		norm, err := normalizeFuncSrc(string(src[pos:end]))
+		norm, err := r.normalize(string(src[pos:end]))
 		if err != nil {
 			return nil, fmt.Errorf("normalize %s.%s: %w", path, fd.Name.Name, err)
 		}

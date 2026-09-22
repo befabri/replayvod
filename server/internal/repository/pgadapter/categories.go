@@ -131,7 +131,7 @@ func (a *PGAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int,
 			CursorLatestVideoAt: pgCategoryCursorLatestVideoAt(cursor),
 			CursorName:          pgCategoryCursorName(cursor),
 			CursorID:            pgCategoryCursorID(cursor),
-			RowLimit:            rowLimit,
+			Limit:               rowLimit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("pg list category page by latest video: %w", err)
@@ -150,7 +150,7 @@ func (a *PGAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int,
 			CursorName:       pgCategoryCursorName(cursor),
 			CursorVideoCount: pgCategoryCursorVideoCount(cursor),
 			CursorID:         pgCategoryCursorID(cursor),
-			RowLimit:         rowLimit,
+			Limit:            rowLimit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("pg list category page by video count: %w", err)
@@ -168,7 +168,7 @@ func (a *PGAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int,
 		rows, err := a.queries.ListCategoriesWithVideosPageNameAsc(ctx, pggen.ListCategoriesWithVideosPageNameAscParams{
 			CursorName: pgCategoryCursorName(cursor),
 			CursorID:   pgCategoryCursorID(cursor),
-			RowLimit:   rowLimit,
+			Limit:      rowLimit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("pg list category page by name: %w", err)

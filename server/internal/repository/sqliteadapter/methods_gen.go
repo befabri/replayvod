@@ -92,6 +92,14 @@ func (a *SQLiteAdapter) CountWebhookEventsByType(ctx context.Context, eventType 
 	return a.queries.CountWebhookEventsByType(ctx, sql.NullString{String: eventType, Valid: true})
 }
 
+func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
+	row, err := a.queries.CreateAppToken(ctx, sqlitegen.CreateAppTokenParams{Token: token, ExpiresAt: sqliteTime(expiresAt)})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite create app token: %w", err)
+	}
+	return sqliteAppAccessTokenToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) CreateEventSubSnapshot(ctx context.Context, total, totalCost, maxTotalCost int64) (*repository.EventSubSnapshot, error) {
 	row, err := a.queries.CreateSnapshot(ctx, sqlitegen.CreateSnapshotParams{Total: total, TotalCost: totalCost, MaxTotalCost: maxTotalCost})
 	if err != nil {
@@ -326,6 +334,14 @@ func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID str
 	return sqliteStreamToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
+	row, err := a.queries.GetLatestAppToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite get latest app token: %w", mapErr(err))
+	}
+	return sqliteAppAccessTokenToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) GetLatestEventSubSnapshot(ctx context.Context) (*repository.EventSubSnapshot, error) {
 	row, err := a.queries.GetLatestSnapshot(ctx)
 	if err != nil {
@@ -398,6 +414,14 @@ func (a *SQLiteAdapter) GetServerSettings(ctx context.Context) (*repository.Serv
 	return sqliteServerSettingsToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) GetSession(ctx context.Context, hashedID string) (*repository.Session, error) {
+	row, err := a.queries.GetSession(ctx, hashedID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite get session: %w", mapErr(err))
+	}
+	return sqliteSessionToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) GetSettings(ctx context.Context, userID string) (*repository.Settings, error) {
 	row, err := a.queries.GetSettings(ctx, userID)
 	if err != nil {
@@ -444,6 +468,14 @@ func (a *SQLiteAdapter) GetTask(ctx context.Context, name string) (*repository.T
 		return nil, mapErr(err)
 	}
 	return sqliteTaskToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetTwitchPlaybackSession(ctx context.Context) (*repository.TwitchPlaybackSession, error) {
+	row, err := a.queries.GetTwitchPlaybackSession(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteTwitchPlaybackSessionToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
@@ -637,6 +669,17 @@ func (a *SQLiteAdapter) ListArchivesDueForRetry(ctx context.Context, now, after 
 	return sqliteVideosToDomain(rows), nil
 }
 
+func (a *SQLiteAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, page repository.BatchPage) ([]repository.Video, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListArchivesMissingPoster(ctx, sqlitegen.ListArchivesMissingPosterParams{Since: sqliteTime(since), AfterID: page.AfterID(), Limit: int64(page.Limit())})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list archives missing poster: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
+}
+
 func (a *SQLiteAdapter) ListCategories(ctx context.Context) ([]repository.Category, error) {
 	rows, err := a.queries.ListCategories(ctx)
 	if err != nil {
@@ -673,6 +716,17 @@ func (a *SQLiteAdapter) ListChannels(ctx context.Context) ([]repository.Channel,
 	rows, err := a.queries.ListChannels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list channels: %w", err)
+	}
+	return sqliteChannelsToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error) {
+	if len(ids) == 0 {
+		return []repository.Channel{}, nil
+	}
+	rows, err := a.queries.ListChannelsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list channels by ids: %w", err)
 	}
 	return sqliteChannelsToDomain(rows), nil
 }
@@ -753,6 +807,50 @@ func (a *SQLiteAdapter) ListMediaPublications(ctx context.Context, after string,
 	return sqliteMediaPublicationsToDomain(rows), nil
 }
 
+func (a *SQLiteAdapter) ListMissingTombstones(ctx context.Context, page repository.BatchPage) ([]repository.StorageScanVideo, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListMissingTombstones(ctx, sqlitegen.ListMissingTombstonesParams{AfterID: page.AfterID(), Limit: int64(page.Limit())})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list missing tombstones: %w", err)
+	}
+	return sqliteMissingTombstonesToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []string) ([]repository.Video, error) {
+	if len(streamIDs) == 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListOpenVideosByStreamIDs(ctx, toNullStrings(streamIDs))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list open videos by stream ids: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]repository.Video, error) {
+	if len(twitchVideoIDs) == 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListOpenVideosByTwitchVideoIDs(ctx, toNullStrings(twitchVideoIDs))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list open videos by twitch video ids: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListQueuedArchiveJobs(ctx context.Context, after time.Time, page repository.BatchPage) ([]repository.ArchiveQueueCandidate, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListQueuedArchiveJobs(ctx, sqlitegen.ListQueuedArchiveJobsParams{After: sqliteTime(after), AfterID: page.AfterID(), Limit: int64(page.Limit())})
+	if err != nil {
+		return nil, err
+	}
+	return sqliteArchiveQueueCandidatesToDomain(rows), nil
+}
+
 func (a *SQLiteAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]repository.Video, error) {
 	rows, err := a.queries.ListRecentArchiveFailures(ctx, sqlitegen.ListRecentArchiveFailuresParams{Since: sqliteTimePtr(&since), Limit: int64(limit)})
 	if err != nil {
@@ -799,6 +897,25 @@ func (a *SQLiteAdapter) ListRecoveryJobs(ctx context.Context, afterID string, li
 		out[i] = *sqliteJobToDomain(r)
 	}
 	return out, nil
+}
+
+func (a *SQLiteAdapter) ListRelatedRecordings(ctx context.Context, videoID int64) ([]repository.RelatedRecording, error) {
+	rows, err := a.queries.ListRelatedRecordings(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+	return sqliteRelatedRecordingsToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, page repository.BatchPage) ([]repository.RetentionVideo, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListRetentionCandidates(ctx, sqlitegen.ListRetentionCandidatesParams{Now: sqliteTimePtr(&now), AfterID: page.AfterID(), Limit: int64(page.Limit())})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list retention candidates: %w", err)
+	}
+	return sqliteRetentionVideosToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {
@@ -925,6 +1042,14 @@ func (a *SQLiteAdapter) ListUserFollows(ctx context.Context, userID string) ([]r
 	return sqliteChannelsToDomain(rows), nil
 }
 
+func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
+	rows, err := a.queries.ListUserSessions(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list user sessions: %w", err)
+	}
+	return sqliteSessionInfosToDomain(rows), nil
+}
+
 func (a *SQLiteAdapter) ListUsers(ctx context.Context) ([]repository.User, error) {
 	rows, err := a.queries.ListUsers(ctx)
 	if err != nil {
@@ -941,10 +1066,43 @@ func (a *SQLiteAdapter) ListVideoParts(ctx context.Context, videoID int64) ([]re
 	return sqliteVideoPartsToDomain(rows), nil
 }
 
+func (a *SQLiteAdapter) ListVideosForStorageScan(ctx context.Context, page repository.BatchPage) ([]repository.StorageScanVideo, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListVideosForStorageScan(ctx, sqlitegen.ListVideosForStorageScanParams{AfterID: page.AfterID(), Limit: int64(page.Limit())})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos for storage scan: %w", err)
+	}
+	return sqliteStorageScanVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListVideosForStorageWitness(ctx context.Context, size repository.BatchSize) ([]repository.StorageScanVideo, error) {
+	if err := size.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListVideosForStorageWitness(ctx, int64(size.Limit()))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos for storage witness: %w", err)
+	}
+	return sqliteStorageWitnessesToDomain(rows), nil
+}
+
 func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
 	rows, err := a.queries.ListVideosMissingThumbnail(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos missing thumbnail: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, page repository.BatchPage) ([]repository.Video, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, sqlitegen.ListVideosPendingManualDeleteParams{AfterID: page.AfterID(), Limit: int64(page.Limit())})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
 }
@@ -971,6 +1129,14 @@ func (a *SQLiteAdapter) ListWebhookEventsByType(ctx context.Context, eventType s
 		return nil, fmt.Errorf("sqlite list webhook events by type: %w", err)
 	}
 	return sqliteWebhookEventsToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
+	rows, err := a.queries.ListWhitelist(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list whitelist: %w", err)
+	}
+	return sqliteWhitelistEntriesToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) LockRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
@@ -1114,6 +1280,11 @@ func (a *SQLiteAdapter) RotateInviteToken(ctx context.Context, id int64, tokenHa
 	return sqliteInviteToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {
+	_, err := a.queries.ScheduleTaskIfEnabled(ctx, name)
+	return mapErr(err)
+}
+
 func (a *SQLiteAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
 	rows, err := a.queries.SearchCategories(ctx, sqlitegen.SearchCategoriesParams{Query: query, Limit: int64(limit)})
 	if err != nil {
@@ -1201,6 +1372,11 @@ func (a *SQLiteAdapter) SetTaskEnabled(ctx context.Context, name string, enabled
 		return nil, mapErr(err)
 	}
 	return sqliteTaskToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) SetTaskNextRun(ctx context.Context, name string) error {
+	_, err := a.queries.SetTaskNextRun(ctx, name)
+	return mapErr(err)
 }
 
 func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
@@ -1352,4 +1528,12 @@ func (a *SQLiteAdapter) UpsertTitle(ctx context.Context, name string) (*reposito
 		return nil, fmt.Errorf("sqlite upsert title: %w", err)
 	}
 	return sqliteTitleToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {
+	rows, err := a.queries.StatisticsByStatus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats by status: %w", err)
+	}
+	return sqliteVideoStatsByStatusesToDomain(rows), nil
 }

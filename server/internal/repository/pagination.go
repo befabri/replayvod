@@ -1,6 +1,63 @@
 package repository
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// MaxBatchSize bounds the rows returned by background scan and sample queries.
+// It is a workload policy, not a database limit or a default batch size.
+const MaxBatchSize = 1000
+
+// BatchSize is an immutable, bounded row count. Construct it with NewBatchSize;
+// its zero value is invalid and repositories reject it before querying.
+type BatchSize struct {
+	limit int
+}
+
+func NewBatchSize(limit int) (BatchSize, error) {
+	size := BatchSize{limit: limit}
+	if err := size.Validate(); err != nil {
+		return BatchSize{}, err
+	}
+	return size, nil
+}
+
+func (s BatchSize) Limit() int { return s.limit }
+
+func (s BatchSize) Validate() error {
+	if s.limit < 1 || s.limit > MaxBatchSize {
+		return fmt.Errorf("invalid batch size %d: require between 1 and %d", s.limit, MaxBatchSize)
+	}
+	return nil
+}
+
+// BatchPage is an immutable keyset page for background scans. AfterID zero
+// starts at the beginning. Construct it with NewBatchPage; the zero value is
+// invalid. Repository methods validate it even when a constructor error was
+// ignored, so an uninitialized page can never reach SQL.
+type BatchPage struct {
+	afterID int64
+	size    BatchSize
+}
+
+func NewBatchPage(afterID int64, limit int) (BatchPage, error) {
+	page := BatchPage{afterID: afterID, size: BatchSize{limit: limit}}
+	if err := page.Validate(); err != nil {
+		return BatchPage{}, err
+	}
+	return page, nil
+}
+
+func (p BatchPage) AfterID() int64 { return p.afterID }
+func (p BatchPage) Limit() int     { return p.size.Limit() }
+
+func (p BatchPage) Validate() error {
+	if p.afterID < 0 {
+		return fmt.Errorf("invalid batch cursor %d: require a non-negative ID", p.afterID)
+	}
+	return p.size.Validate()
+}
 
 // ToChannelPage trims an over-fetched channel slice to limit and derives the
 // next cursor from the last kept row. limit <= 0 yields an empty page.

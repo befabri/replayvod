@@ -29,15 +29,3 @@ func (a *SQLiteAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID
 	}
 	return repository.ErrStaleExecution
 }
-
-func (a *SQLiteAdapter) ListRelatedRecordings(ctx context.Context, videoID int64) ([]repository.RelatedRecording, error) {
-	rows, err := a.queries.ListRelatedRecordings(ctx, videoID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]repository.RelatedRecording, len(rows))
-	for i, row := range rows {
-		out[i] = repository.RelatedRecording{ID: row.ID, JobID: row.JobID, Title: row.Title, Status: row.Status, CompletionKind: row.CompletionKind, DeletedAt: timePtrFromSQLite(row.DeletedAt), StartDownloadAt: row.StartDownloadAt.Time, Position: row.Position}
-	}
-	return out, nil
-}

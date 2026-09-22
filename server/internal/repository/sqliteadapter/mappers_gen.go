@@ -8,6 +8,191 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
+func sqliteArchiveQueueCandidateToDomain(src sqlitegen.ListQueuedArchiveJobsRow) *repository.ArchiveQueueCandidate {
+	return &repository.ArchiveQueueCandidate{
+		JobID:    src.JobID,
+		QueuedAt: src.QueuedAt.Time,
+		VideoID:  src.VideoID,
+	}
+}
+
+func sqliteArchiveQueueCandidatesToDomain(rows []sqlitegen.ListQueuedArchiveJobsRow) []repository.ArchiveQueueCandidate {
+	out := make([]repository.ArchiveQueueCandidate, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteArchiveQueueCandidateToDomain(r)
+	}
+	return out
+}
+
+func sqliteRetentionVideoToDomain(src sqlitegen.ListRetentionCandidatesRow) *repository.RetentionVideo {
+	return &repository.RetentionVideo{
+		BroadcasterID:        src.BroadcasterID,
+		DownloadedAt:         timePtrFromSQLite(src.DownloadedAt),
+		RetentionWindowHours: fromNullInt64(src.RetentionWindowHours),
+		VideoID:              src.VideoID,
+	}
+}
+
+func sqliteRetentionVideosToDomain(rows []sqlitegen.ListRetentionCandidatesRow) []repository.RetentionVideo {
+	out := make([]repository.RetentionVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteRetentionVideoToDomain(r)
+	}
+	return out
+}
+
+func sqliteStorageScanVideoToDomain(src sqlitegen.ListVideosForStorageScanRow) *repository.StorageScanVideo {
+	return &repository.StorageScanVideo{
+		Filename: src.Filename,
+		Status:   src.Status,
+		VideoID:  src.VideoID,
+	}
+}
+
+func sqliteStorageScanVideosToDomain(rows []sqlitegen.ListVideosForStorageScanRow) []repository.StorageScanVideo {
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteStorageScanVideoToDomain(r)
+	}
+	return out
+}
+
+func sqliteMissingTombstoneToDomain(src sqlitegen.ListMissingTombstonesRow) *repository.StorageScanVideo {
+	return &repository.StorageScanVideo{
+		Filename: src.Filename,
+		Status:   src.Status,
+		VideoID:  src.VideoID,
+	}
+}
+
+func sqliteMissingTombstonesToDomain(rows []sqlitegen.ListMissingTombstonesRow) []repository.StorageScanVideo {
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteMissingTombstoneToDomain(r)
+	}
+	return out
+}
+
+func sqliteStorageWitnessToDomain(src sqlitegen.ListVideosForStorageWitnessRow) *repository.StorageScanVideo {
+	return &repository.StorageScanVideo{
+		Filename: src.Filename,
+		Status:   src.Status,
+		VideoID:  src.VideoID,
+	}
+}
+
+func sqliteStorageWitnessesToDomain(rows []sqlitegen.ListVideosForStorageWitnessRow) []repository.StorageScanVideo {
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteStorageWitnessToDomain(r)
+	}
+	return out
+}
+
+func sqliteSessionToDomain(src sqlitegen.Session) *repository.Session {
+	return &repository.Session{
+		CreatedAt:       src.CreatedAt.Time,
+		EncryptedTokens: src.EncryptedTokens,
+		ExpiresAt:       src.ExpiresAt.Time,
+		HashedID:        src.HashedID,
+		IPAddress:       fromNullString(src.IpAddress),
+		LastActiveAt:    src.LastActiveAt.Time,
+		UserAgent:       fromNullString(src.UserAgent),
+		UserID:          src.UserID,
+	}
+}
+
+func sqliteSessionInfoToDomain(src sqlitegen.ListUserSessionsRow) *repository.SessionInfo {
+	return &repository.SessionInfo{
+		CreatedAt:    src.CreatedAt.Time,
+		ExpiresAt:    src.ExpiresAt.Time,
+		HashedID:     src.HashedID,
+		IPAddress:    fromNullString(src.IpAddress),
+		LastActiveAt: src.LastActiveAt.Time,
+		UserAgent:    fromNullString(src.UserAgent),
+		UserID:       src.UserID,
+	}
+}
+
+func sqliteSessionInfosToDomain(rows []sqlitegen.ListUserSessionsRow) []repository.SessionInfo {
+	out := make([]repository.SessionInfo, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteSessionInfoToDomain(r)
+	}
+	return out
+}
+
+func sqliteAppAccessTokenToDomain(src sqlitegen.AppAccessToken) *repository.AppAccessToken {
+	return &repository.AppAccessToken{
+		CreatedAt: src.CreatedAt.Time,
+		ExpiresAt: src.ExpiresAt.Time,
+		ID:        src.ID,
+		Token:     src.Token,
+	}
+}
+
+func sqliteTwitchPlaybackSessionToDomain(src sqlitegen.TwitchPlaybackSession) *repository.TwitchPlaybackSession {
+	return &repository.TwitchPlaybackSession{
+		CheckedAt:      src.CheckedAt,
+		EncryptedToken: src.EncryptedToken,
+		ExpiresAt:      src.ExpiresAt,
+		NeedsReconnect: src.NeedsReconnect != 0,
+		TwitchLogin:    src.TwitchLogin,
+		TwitchUserID:   src.TwitchUserID,
+	}
+}
+
+func sqliteWhitelistEntryToDomain(src sqlitegen.Whitelist) *repository.WhitelistEntry {
+	return &repository.WhitelistEntry{
+		AddedAt:      src.AddedAt.Time,
+		TwitchUserID: src.TwitchUserID,
+	}
+}
+
+func sqliteWhitelistEntriesToDomain(rows []sqlitegen.Whitelist) []repository.WhitelistEntry {
+	out := make([]repository.WhitelistEntry, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteWhitelistEntryToDomain(r)
+	}
+	return out
+}
+
+func sqliteRelatedRecordingToDomain(src sqlitegen.ListRelatedRecordingsRow) *repository.RelatedRecording {
+	return &repository.RelatedRecording{
+		CompletionKind:  src.CompletionKind,
+		DeletedAt:       timePtrFromSQLite(src.DeletedAt),
+		ID:              src.ID,
+		JobID:           src.JobID,
+		Position:        src.Position,
+		StartDownloadAt: src.StartDownloadAt.Time,
+		Status:          src.Status,
+		Title:           src.Title,
+	}
+}
+
+func sqliteRelatedRecordingsToDomain(rows []sqlitegen.ListRelatedRecordingsRow) []repository.RelatedRecording {
+	out := make([]repository.RelatedRecording, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteRelatedRecordingToDomain(r)
+	}
+	return out
+}
+
+func sqliteVideoStatsByStatusToDomain(src sqlitegen.StatisticsByStatusRow) *repository.VideoStatsByStatus {
+	return &repository.VideoStatsByStatus{
+		Count:  src.Count,
+		Status: src.Status,
+	}
+}
+
+func sqliteVideoStatsByStatusesToDomain(rows []sqlitegen.StatisticsByStatusRow) []repository.VideoStatsByStatus {
+	out := make([]repository.VideoStatsByStatus, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteVideoStatsByStatusToDomain(r)
+	}
+	return out
+}
+
 func sqliteTitleToDomain(src sqlitegen.Title) *repository.Title {
 	return &repository.Title{
 		CreatedAt: src.CreatedAt.Time,
