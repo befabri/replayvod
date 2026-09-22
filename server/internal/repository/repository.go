@@ -518,6 +518,8 @@ type Repository interface {
 	GetServerHMACSecret(ctx context.Context) (string, error)
 	EnsureServerHMACSecret(ctx context.Context, secret string) error
 
+	// CreateWebhookEvent records an event once. ErrNotFound reports one already
+	// recorded: the insert does nothing on conflict and so returns no row.
 	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
 	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (*WebhookEvent, error)

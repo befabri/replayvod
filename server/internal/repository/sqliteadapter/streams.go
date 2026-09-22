@@ -6,25 +6,7 @@ import (
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
-
-func (a *SQLiteAdapter) UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error) {
-	row, err := a.queries.UpsertStream(ctx, sqlitegen.UpsertStreamParams{
-		ID:            s.ID,
-		BroadcasterID: s.BroadcasterID,
-		Type:          s.Type,
-		Language:      s.Language,
-		ThumbnailUrl:  toNullString(s.ThumbnailURL),
-		ViewerCount:   s.ViewerCount,
-		IsMature:      boolToNullInt64(s.IsMature),
-		StartedAt:     sqliteTime(s.StartedAt),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert stream %s: %w", s.ID, err)
-	}
-	return sqliteStreamToDomain(row), nil
-}
 
 func (a *SQLiteAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {
 	rows, err := a.queries.ListLatestLivePerChannel(ctx, int64(limit))

@@ -90,8 +90,11 @@ func (r renderer) candidates(name string, sig methodSig) []candidate {
 	}
 	declParams := append([]param(nil), sig.params...)
 	for i, p := range declParams {
-		if _, ok := r.values[p.typ]; ok {
-			declParams[i].typ = r.domainType(p.typ)
+		base := strings.TrimLeft(p.typ, "*[]")
+		_, value := r.values[base]
+		_, domain := r.domain[base]
+		if value || domain {
+			declParams[i].typ = strings.TrimSuffix(p.typ, base) + r.domainType(base)
 		}
 	}
 	head := fmt.Sprintf("func (a *%s) %s(%s)", r.d.adapterType, name, groupedDecls(declParams, names))
@@ -148,25 +151,28 @@ func isDomainType(t string) bool {
 	return t != "" && !strings.ContainsAny(t, ".*[]") && strings.ToUpper(t[:1]) == t[:1]
 }
 
-// callArgs renders scalar arguments and value-object accessors for a sqlc
-// query. Params fields match by name. Scalar-only query arguments retain their
-// positional convention; expanded value objects also require names to match
-// when more than one positional argument exists, so accessor ordering can
-// never swap two same-typed query arguments.
+// callArgs renders scalar arguments, value-object accessors and domain struct
+// fields for a sqlc query. Params fields match by name; the query decides
+// which struct fields it uses, while every scalar and accessor must be used.
+// Scalar-only query arguments retain their positional convention; expanded
+// arguments require names to match when more than one positional argument
+// exists, so ordering can never swap two same-typed query arguments.
 func (r renderer) callArgs(qname string, sig methodSig, names []string, q querySig) (string, bool) {
 	args := []string{names[0]}
 	inputs := r.queryArgs(sig, names)
 	seen := map[string]bool{}
+	expanded := false
 	for _, input := range inputs {
 		key := strings.ToLower(input.name)
 		if seen[key] {
 			return "", false
 		}
 		seen[key] = true
+		expanded = expanded || input.expr != input.name
 	}
 	if len(q.params) == 1 && q.params[0].typ == qname+"Params" {
 		pf, ok := r.gen[qname+"Params"]
-		if !ok || len(inputs) != len(pf) {
+		if !ok {
 			return "", false
 		}
 		fieldByNorm := make(map[string]string, len(pf))
@@ -177,6 +183,9 @@ func (r renderer) callArgs(qname string, sig methodSig, names []string, q queryS
 		for _, input := range inputs {
 			field, ok := fieldByNorm[strings.ToLower(input.name)]
 			if !ok {
+				if input.optional {
+					continue
+				}
 				return "", false
 			}
 			val, ok := r.cfg.convertArg(input.typ, pf[field], input.expr)
@@ -185,26 +194,35 @@ func (r renderer) callArgs(qname string, sig methodSig, names []string, q queryS
 			}
 			assigns = append(assigns, field+": "+val)
 		}
+		if len(assigns) != len(pf) {
+			return "", false
+		}
 		args = append(args, fmt.Sprintf("%s.%sParams{%s}", r.d.genPkg, qname, strings.Join(assigns, ", ")))
 		return strings.Join(args, ", "), true
 	}
-	if len(q.params) != len(inputs) {
-		return "", false
-	}
-	if len(r.valueParams(sig)) > 0 && len(inputs) > 1 {
+	if expanded && len(inputs) > 1 {
 		byName := make(map[string]queryArg, len(inputs))
 		for _, input := range inputs {
 			byName[strings.ToLower(input.name)] = input
 		}
-		ordered := make([]queryArg, len(inputs))
+		ordered := make([]queryArg, len(q.params))
+		used := map[string]bool{}
 		for i, p := range q.params {
 			input, ok := byName[strings.ToLower(p.name)]
 			if !ok {
 				return "", false
 			}
 			ordered[i] = input
+			used[strings.ToLower(p.name)] = true
+		}
+		for _, input := range inputs {
+			if !input.optional && !used[strings.ToLower(input.name)] {
+				return "", false
+			}
 		}
 		inputs = ordered
+	} else if len(q.params) != len(inputs) {
+		return "", false
 	}
 	for j, input := range inputs {
 		val, ok := r.cfg.convertArg(input.typ, q.params[j].typ, input.expr)
@@ -219,7 +237,7 @@ func (r renderer) callArgs(qname string, sig methodSig, names []string, q queryS
 // errWraps lists the expressions of err the adapters return from a failed
 // query: bare, through the error mapper, or wrapped with a message in the
 // configured format naming the dialect and the action, optionally with the
-// first argument.
+// first argument or, when that is a domain struct, one of its fields.
 func (r renderer) errWraps(name, qname string, sig methodSig, names []string) []string {
 	phrases := actionPhrases(name)
 	if qname != name {
@@ -227,12 +245,21 @@ func (r renderer) errWraps(name, qname string, sig methodSig, names []string) []
 	}
 	type verbArg struct{ verb, arg string }
 	verbs := []verbArg{{}}
-	if len(sig.params) > 1 {
-		switch sig.params[1].typ {
+	verbsFor := func(typ, arg string) {
+		switch typ {
 		case "string":
-			verbs = append(verbs, verbArg{" %s", names[1]}, verbArg{" %q", names[1]})
+			verbs = append(verbs, verbArg{" %s", arg}, verbArg{" %q", arg})
 		case "int64", "int", "int32":
-			verbs = append(verbs, verbArg{" %d", names[1]})
+			verbs = append(verbs, verbArg{" %d", arg})
+		}
+	}
+	if len(sig.params) > 1 {
+		if fields, ok := r.structParam(sig.params[1].typ); ok {
+			for _, f := range fields {
+				verbsFor(f.typ, names[1]+"."+f.name)
+			}
+		} else {
+			verbsFor(sig.params[1].typ, names[1])
 		}
 	}
 	inners := []string{"err", r.mappedErr()}

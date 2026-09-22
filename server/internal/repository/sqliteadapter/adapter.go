@@ -83,21 +83,6 @@ func (a *SQLiteAdapter) inTx(ctx context.Context, fn func(q *sqlitegen.Queries, 
 	return nil
 }
 
-func (a *SQLiteAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
-	row, err := a.queries.UpsertUser(ctx, sqlitegen.UpsertUserParams{
-		ID:              u.ID,
-		Login:           u.Login,
-		DisplayName:     u.DisplayName,
-		Email:           toNullString(u.Email),
-		ProfileImageUrl: toNullString(u.ProfileImageURL),
-		Role:            u.Role,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert user %s: %w", u.ID, err)
-	}
-	return sqliteUserToDomain(row), nil
-}
-
 func fromNullString(s sql.NullString) *string {
 	if !s.Valid {
 		return nil
@@ -183,20 +168,6 @@ func anyToFloat64(v any) float64 {
 	default:
 		return 0
 	}
-}
-
-func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
-	if err := a.queries.CreateSession(ctx, sqlitegen.CreateSessionParams{
-		HashedID:        s.HashedID,
-		UserID:          s.UserID,
-		EncryptedTokens: s.EncryptedTokens,
-		ExpiresAt:       sqliteTime(s.ExpiresAt),
-		UserAgent:       toNullString(s.UserAgent),
-		IpAddress:       toNullString(s.IPAddress),
-	}); err != nil {
-		return fmt.Errorf("sqlite create session: %w", err)
-	}
-	return nil
 }
 
 // Whitelist

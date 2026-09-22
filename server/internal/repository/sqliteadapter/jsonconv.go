@@ -14,3 +14,11 @@ func rawMessageFromSQLite(v sql.NullString) json.RawMessage {
 	}
 	return json.RawMessage(v.String)
 }
+
+// rawMessageToSQLite stores JSON as TEXT; an empty message is NULL.
+func rawMessageToSQLite(m json.RawMessage) sql.NullString {
+	if len(m) == 0 {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(m), Valid: true}
+}

@@ -11,24 +11,6 @@ import (
 
 // Channels
 
-func (a *SQLiteAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
-	row, err := a.queries.UpsertChannel(ctx, sqlitegen.UpsertChannelParams{
-		BroadcasterID:       c.BroadcasterID,
-		BroadcasterLogin:    c.BroadcasterLogin,
-		BroadcasterName:     c.BroadcasterName,
-		BroadcasterLanguage: toNullString(c.BroadcasterLanguage),
-		ProfileImageUrl:     toNullString(c.ProfileImageURL),
-		OfflineImageUrl:     toNullString(c.OfflineImageURL),
-		Description:         toNullString(c.Description),
-		BroadcasterType:     toNullString(c.BroadcasterType),
-		ViewCount:           c.ViewCount,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert channel %s: %w", c.BroadcasterID, err)
-	}
-	return sqliteChannelToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	params := sqlitegen.ListChannelsPageAscParams{
 		LiveOnly:       boolToInt64(filter == repository.ChannelFilterLive),
@@ -57,19 +39,6 @@ func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort st
 }
 
 // User follows
-
-func (a *SQLiteAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {
-	followed := int64(0)
-	if f.Followed {
-		followed = 1
-	}
-	return a.queries.UpsertUserFollow(ctx, sqlitegen.UpsertUserFollowParams{
-		UserID:        f.UserID,
-		BroadcasterID: f.BroadcasterID,
-		FollowedAt:    sqliteTime(f.FollowedAt),
-		Followed:      followed,
-	})
-}
 
 func sqliteChannelCursorName(cursor *repository.ChannelPageCursor) sql.NullString {
 	if cursor == nil {

@@ -21,6 +21,14 @@ func (a *SQLiteAdapter) AddToWhitelist(ctx context.Context, twitchUserID string)
 	return a.queries.AddToWhitelist(ctx, twitchUserID)
 }
 
+func (a *SQLiteAdapter) BeginMediaPublication(ctx context.Context, input repository.MediaPublication) (*repository.MediaPublication, error) {
+	row, err := a.queries.BeginMediaPublication(ctx, sqlitegen.BeginMediaPublicationParams{Digest: input.Digest, Key: input.Key, SizeBytes: input.SizeBytes, VideoID: input.VideoID})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteMediaPublicationToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) CheckpointAttempt(ctx context.Context, jobID, executionID string, state json.RawMessage) error {
 	return executionAffected(a.queries.CheckpointAttempt(ctx, sqlitegen.CheckpointAttemptParams{JobID: jobID, ExecutionID: executionID, State: string(state)}))
 }
@@ -100,6 +108,14 @@ func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expire
 	return sqliteAppAccessTokenToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) CreateEventLog(ctx context.Context, input *repository.EventLogInput) (*repository.EventLog, error) {
+	row, err := a.queries.CreateEventLog(ctx, sqlitegen.CreateEventLogParams{ActorUserID: toNullString(input.ActorUserID), Data: rawMessageToSQLite(input.Data), Domain: input.Domain, EventType: input.EventType, Message: input.Message, Severity: input.Severity})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite create event log: %w", err)
+	}
+	return sqliteEventLogToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) CreateEventSubSnapshot(ctx context.Context, total, totalCost, maxTotalCost int64) (*repository.EventSubSnapshot, error) {
 	row, err := a.queries.CreateSnapshot(ctx, sqlitegen.CreateSnapshotParams{Total: total, TotalCost: totalCost, MaxTotalCost: maxTotalCost})
 	if err != nil {
@@ -108,12 +124,59 @@ func (a *SQLiteAdapter) CreateEventSubSnapshot(ctx context.Context, total, total
 	return sqliteSnapshotToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) CreateFetchLog(ctx context.Context, input *repository.FetchLogInput) error {
+	return a.queries.CreateFetchLog(ctx, sqlitegen.CreateFetchLogParams{BroadcasterID: toNullString(input.BroadcasterID), DurationMs: input.DurationMs, Error: toNullString(input.Error), FetchType: input.FetchType, Status: int64(input.Status), UserID: toNullString(input.UserID)})
+}
+
+func (a *SQLiteAdapter) CreateInvite(ctx context.Context, input *repository.InviteInput) (*repository.Invite, error) {
+	row, err := a.queries.CreateInvite(ctx, sqlitegen.CreateInviteParams{CreatedBy: input.CreatedBy, ExpiresAt: sqliteTime(input.ExpiresAt), Note: toNullString(input.Note), Role: input.Role, TokenHash: input.TokenHash})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite create invite: %w", err)
+	}
+	return sqliteInviteToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) CreateRecordingIntent(ctx context.Context, intent repository.RecordingIntent) error {
+	return mapErr(a.queries.CreateRecordingIntent(ctx, sqlitegen.CreateRecordingIntentParams{BroadcasterID: intent.BroadcasterID, CurrentJobID: intent.CurrentJobID, ID: intent.ID, LastStreamID: intent.LastStreamID, Params: string(intent.Params), WaitSeconds: intent.WaitSeconds}))
+}
+
 func (a *SQLiteAdapter) CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*repository.ScheduleRequest, error) {
 	row, err := a.queries.CreateScheduleRequest(ctx, sqlitegen.CreateScheduleRequestParams{BroadcasterID: broadcasterID, RequestedBy: requestedBy, Note: toNullString(note)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create schedule request: %w", mapErr(err))
 	}
 	return sqliteScheduleRequestToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
+	if err := a.queries.CreateSession(ctx, sqlitegen.CreateSessionParams{EncryptedTokens: s.EncryptedTokens, ExpiresAt: sqliteTime(s.ExpiresAt), HashedID: s.HashedID, IpAddress: toNullString(s.IPAddress), UserAgent: toNullString(s.UserAgent), UserID: s.UserID}); err != nil {
+		return fmt.Errorf("sqlite create session: %w", err)
+	}
+	return nil
+}
+
+func (a *SQLiteAdapter) CreateSubscription(ctx context.Context, input *repository.SubscriptionInput) (*repository.Subscription, error) {
+	row, err := a.queries.CreateSubscription(ctx, sqlitegen.CreateSubscriptionParams{BroadcasterID: toNullString(input.BroadcasterID), Condition: string(input.Condition), Cost: input.Cost, ID: input.ID, Status: input.Status, TransportCallback: input.TransportCallback, TransportMethod: input.TransportMethod, TwitchCreatedAt: sqliteTime(input.TwitchCreatedAt), Type: input.Type, Version: input.Version})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite create subscription: %w", err)
+	}
+	return sqliteSubscriptionToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) CreateVideoPart(ctx context.Context, input *repository.VideoPartInput) (*repository.VideoPart, error) {
+	row, err := a.queries.CreateVideoPart(ctx, sqlitegen.CreateVideoPartParams{Codec: input.Codec, Fps: nullFloat64(input.FPS), Filename: input.Filename, PartIndex: int64(input.PartIndex), Quality: input.Quality, SegmentFormat: input.SegmentFormat, StartMediaSeq: input.StartMediaSeq, VideoID: input.VideoID})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite create video part: %w", err)
+	}
+	return sqliteVideoPartToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) CreateWebhookEvent(ctx context.Context, input *repository.WebhookEventInput) (*repository.WebhookEvent, error) {
+	row, err := a.queries.CreateWebhookEvent(ctx, sqlitegen.CreateWebhookEventParams{BroadcasterID: toNullString(input.BroadcasterID), EventID: input.EventID, EventType: toNullString(input.EventType), MessageTimestamp: sqliteTime(input.MessageTimestamp), MessageType: input.MessageType, Payload: rawMessageToSQLite(input.Payload), SubscriptionID: toNullString(input.SubscriptionID)})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteWebhookEventToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) DecideScheduleRequest(ctx context.Context, id int64, status, decidedBy string, scheduleID *int64) (bool, error) {
@@ -244,6 +307,10 @@ func (a *SQLiteAdapter) EnsureServerHMACSecret(ctx context.Context, secret strin
 		return fmt.Errorf("sqlite ensure server hmac secret: %w", err)
 	}
 	return nil
+}
+
+func (a *SQLiteAdapter) FinalizeVideoPart(ctx context.Context, input *repository.VideoPartFinalize) error {
+	return a.queries.FinalizeVideoPart(ctx, sqlitegen.FinalizeVideoPartParams{DurationSeconds: input.DurationSeconds, EndMediaSeq: sql.NullInt64{Int64: input.EndMediaSeq, Valid: true}, ID: input.ID, SizeBytes: input.SizeBytes, Thumbnail: toNullString(input.Thumbnail)})
 }
 
 func (a *SQLiteAdapter) GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
@@ -1280,6 +1347,10 @@ func (a *SQLiteAdapter) RotateInviteToken(ctx context.Context, id int64, tokenHa
 	return sqliteInviteToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) SaveTwitchPlaybackSession(ctx context.Context, session *repository.TwitchPlaybackSession) error {
+	return mapErr(a.queries.SaveTwitchPlaybackSession(ctx, sqlitegen.SaveTwitchPlaybackSessionParams{CheckedAt: session.CheckedAt, EncryptedToken: session.EncryptedToken, ExpiresAt: session.ExpiresAt, TwitchLogin: session.TwitchLogin, TwitchUserID: session.TwitchUserID}))
+}
+
 func (a *SQLiteAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {
 	_, err := a.queries.ScheduleTaskIfEnabled(ctx, name)
 	return mapErr(err)
@@ -1463,6 +1534,14 @@ func (a *SQLiteAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxA
 	return nil
 }
 
+func (a *SQLiteAdapter) UpdatePlaybackSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
+	row, err := a.queries.UpdatePlaybackSettings(ctx, sqlitegen.UpdatePlaybackSettingsParams{ResumeEndMarginPercent: s.ResumeEndMarginPercent, ResumeEndMarginSeconds: s.ResumeEndMarginSeconds, ResumeMinSeconds: s.ResumeMinSeconds, UserID: s.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite update playback settings: %w", err)
+	}
+	return sqliteSettingsToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) error {
 	return a.queries.UpdateSessionActivity(ctx, hashedID)
 }
@@ -1479,6 +1558,10 @@ func (a *SQLiteAdapter) UpdateSubscriptionStatus(ctx context.Context, id, status
 	return a.queries.UpdateSubscriptionStatus(ctx, sqlitegen.UpdateSubscriptionStatusParams{ID: id, Status: status})
 }
 
+func (a *SQLiteAdapter) UpdateTwitchPlaybackSessionValidation(ctx context.Context, session *repository.TwitchPlaybackSession) error {
+	return mapErr(a.queries.UpdateTwitchPlaybackSessionValidation(ctx, sqlitegen.UpdateTwitchPlaybackSessionValidationParams{CheckedAt: session.CheckedAt, EncryptedToken: session.EncryptedToken, ExpiresAt: session.ExpiresAt, NeedsReconnect: boolToInt64(session.NeedsReconnect)}))
+}
+
 func (a *SQLiteAdapter) UpdateUserRole(ctx context.Context, id, role string) error {
 	if err := a.queries.UpdateUserRole(ctx, sqlitegen.UpdateUserRoleParams{ID: id, Role: role}); err != nil {
 		return fmt.Errorf("sqlite update user role %s: %w", id, err)
@@ -1488,6 +1571,22 @@ func (a *SQLiteAdapter) UpdateUserRole(ctx context.Context, id, role string) err
 
 func (a *SQLiteAdapter) UpdateVideoStatus(ctx context.Context, id int64, status string) error {
 	return a.queries.UpdateVideoStatus(ctx, sqlitegen.UpdateVideoStatusParams{ID: id, Status: status})
+}
+
+func (a *SQLiteAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
+	row, err := a.queries.UpsertCategory(ctx, sqlitegen.UpsertCategoryParams{BoxArtUrl: toNullString(c.BoxArtURL), Description: toNullString(c.Description), ID: c.ID, IgdbID: toNullString(c.IGDBID), Name: c.Name})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert category %s: %w", c.ID, err)
+	}
+	return sqliteCategoryToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
+	row, err := a.queries.UpsertChannel(ctx, sqlitegen.UpsertChannelParams{BroadcasterID: c.BroadcasterID, BroadcasterLanguage: toNullString(c.BroadcasterLanguage), BroadcasterLogin: c.BroadcasterLogin, BroadcasterName: c.BroadcasterName, BroadcasterType: toNullString(c.BroadcasterType), Description: toNullString(c.Description), OfflineImageUrl: toNullString(c.OfflineImageURL), ProfileImageUrl: toNullString(c.ProfileImageURL), ViewCount: c.ViewCount})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert channel %s: %w", c.BroadcasterID, err)
+	}
+	return sqliteChannelToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
@@ -1504,6 +1603,38 @@ func (a *SQLiteAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enable
 		return nil, fmt.Errorf("sqlite upsert recording webhook config: %w", err)
 	}
 	return sqliteServerSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertServerSettings(ctx context.Context, s *repository.ServerSettings) (*repository.ServerSettings, error) {
+	row, err := a.queries.UpsertServerSettings(ctx, sqlitegen.UpsertServerSettingsParams{EventsubRelayIngestUrl: s.EventSubRelayIngestURL, EventsubRelayLocalCallbackUrl: s.EventSubRelayLocalCallbackURL, EventsubRelaySubscribeUrl: s.EventSubRelaySubscribeURL, EventsubWebhookCallbackUrl: s.EventSubWebhookCallbackURL, ServerMode: s.ServerMode})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert server settings: %w", err)
+	}
+	return sqliteServerSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
+	row, err := a.queries.UpsertSettings(ctx, sqlitegen.UpsertSettingsParams{DatetimeFormat: s.DatetimeFormat, Language: s.Language, Timezone: s.Timezone, UserID: s.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert settings: %w", err)
+	}
+	return sqliteSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error) {
+	row, err := a.queries.UpsertStream(ctx, sqlitegen.UpsertStreamParams{BroadcasterID: s.BroadcasterID, ID: s.ID, IsMature: boolToNullInt64(s.IsMature), Language: s.Language, StartedAt: sqliteTime(s.StartedAt), ThumbnailUrl: toNullString(s.ThumbnailURL), Type: s.Type, ViewerCount: s.ViewerCount})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert stream %s: %w", s.ID, err)
+	}
+	return sqliteStreamToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertSubscription(ctx context.Context, input *repository.SubscriptionInput) (*repository.Subscription, error) {
+	row, err := a.queries.UpsertSubscription(ctx, sqlitegen.UpsertSubscriptionParams{BroadcasterID: toNullString(input.BroadcasterID), Condition: string(input.Condition), Cost: input.Cost, ID: input.ID, Status: input.Status, TransportCallback: input.TransportCallback, TransportMethod: input.TransportMethod, TwitchCreatedAt: sqliteTime(input.TwitchCreatedAt), Type: input.Type, Version: input.Version})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert subscription: %w", err)
+	}
+	return sqliteSubscriptionToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
@@ -1528,6 +1659,26 @@ func (a *SQLiteAdapter) UpsertTitle(ctx context.Context, name string) (*reposito
 		return nil, fmt.Errorf("sqlite upsert title: %w", err)
 	}
 	return sqliteTitleToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
+	row, err := a.queries.UpsertUser(ctx, sqlitegen.UpsertUserParams{DisplayName: u.DisplayName, Email: toNullString(u.Email), ID: u.ID, Login: u.Login, ProfileImageUrl: toNullString(u.ProfileImageURL), Role: u.Role})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert user %s: %w", u.ID, err)
+	}
+	return sqliteUserToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {
+	return a.queries.UpsertUserFollow(ctx, sqlitegen.UpsertUserFollowParams{BroadcasterID: f.BroadcasterID, Followed: boolToInt64(f.Followed), FollowedAt: sqliteTime(f.FollowedAt), UserID: f.UserID})
+}
+
+func (a *SQLiteAdapter) UpsertVideoPlaybackAsset(ctx context.Context, input *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
+	row, err := a.queries.UpsertVideoPlaybackAsset(ctx, sqlitegen.UpsertVideoPlaybackAssetParams{DurationSeconds: nullFloat64(input.DurationSeconds), Error: toNullString(input.Error), Filename: toNullString(input.Filename), GeneratedAt: sqliteTimePtr(input.GeneratedAt), LastAccessedAt: sqliteTimePtr(input.LastAccessedAt), MimeType: toNullString(input.MimeType), SizeBytes: toNullInt64(input.SizeBytes), Status: input.Status, VideoID: input.VideoID})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert video playback asset: %w", err)
+	}
+	return sqliteVideoPlaybackAssetToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {

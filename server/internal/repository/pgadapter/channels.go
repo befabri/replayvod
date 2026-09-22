@@ -8,24 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
-	row, err := a.queries.UpsertChannel(ctx, pggen.UpsertChannelParams{
-		BroadcasterID:       c.BroadcasterID,
-		BroadcasterLogin:    c.BroadcasterLogin,
-		BroadcasterName:     c.BroadcasterName,
-		BroadcasterLanguage: c.BroadcasterLanguage,
-		ProfileImageUrl:     c.ProfileImageURL,
-		OfflineImageUrl:     c.OfflineImageURL,
-		Description:         c.Description,
-		BroadcasterType:     c.BroadcasterType,
-		ViewCount:           c.ViewCount,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert channel %s: %w", c.BroadcasterID, err)
-	}
-	return pgChannelToDomain(row), nil
-}
-
 func (a *PGAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	params := pggen.ListChannelsPageAscParams{
 		LiveOnly:       filter == repository.ChannelFilterLive,
@@ -51,15 +33,6 @@ func (a *PGAdapter) ListChannelsPage(ctx context.Context, limit int, sort string
 		items[i] = *pgChannelToDomain(row)
 	}
 	return repository.ToChannelPage(items, limit), nil
-}
-
-func (a *PGAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {
-	return a.queries.UpsertUserFollow(ctx, pggen.UpsertUserFollowParams{
-		UserID:        f.UserID,
-		BroadcasterID: f.BroadcasterID,
-		FollowedAt:    f.FollowedAt,
-		Followed:      f.Followed,
-	})
 }
 
 func pgChannelCursorName(cursor *repository.ChannelPageCursor) *string {

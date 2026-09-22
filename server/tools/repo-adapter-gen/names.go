@@ -18,12 +18,12 @@ func isScalarType(typ string) bool {
 // misnamedParams lists the scalar parameters of name that its query's Params
 // struct spells differently, which is what leaves a method hand-written after
 // every other shape matches. Only a Params struct is compared. Value-object
-// accessors are expanded; other domain structs are destructured by hand and
-// skipped, but the scalars beside them are still held to their names.
-// A scalar counts when some field has a type it
-// converts to: a value the adapter derives by hand, such as a time passed on
-// as milliseconds, never reaches the query under its own name, so it has
-// nothing to be named after.
+// accessors and domain struct fields are expanded, but a struct field the
+// query does not use is not misnamed: the query decides which fields it
+// needs. A scalar counts when some field has a type it converts to: a value
+// the adapter derives by hand, such as a time passed on as milliseconds,
+// never reaches the query under its own name, so it has nothing to be named
+// after.
 func (r renderer) misnamedParams(name string, sig methodSig) []string {
 	if len(sig.params) == 0 || sig.params[0].typ != "context.Context" {
 		return nil
@@ -50,7 +50,7 @@ func (r renderer) misnamedParams(name string, sig methodSig) []string {
 		names[i] = p.name
 	}
 	for _, p := range r.queryArgs(sig, names) {
-		if !isScalarType(p.typ) {
+		if p.optional || !isScalarType(p.typ) {
 			continue
 		}
 		if _, ok := fieldByNorm[strings.ToLower(p.name)]; ok {

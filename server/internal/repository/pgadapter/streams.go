@@ -5,25 +5,7 @@ import (
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
-
-func (a *PGAdapter) UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error) {
-	row, err := a.queries.UpsertStream(ctx, pggen.UpsertStreamParams{
-		ID:            s.ID,
-		BroadcasterID: s.BroadcasterID,
-		Type:          s.Type,
-		Language:      s.Language,
-		ThumbnailUrl:  s.ThumbnailURL,
-		ViewerCount:   int32(s.ViewerCount),
-		IsMature:      s.IsMature,
-		StartedAt:     s.StartedAt,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert stream %s: %w", s.ID, err)
-	}
-	return pgStreamToDomain(row), nil
-}
 
 func (a *PGAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {
 	rows, err := a.queries.ListLatestLivePerChannel(ctx, int32(limit))

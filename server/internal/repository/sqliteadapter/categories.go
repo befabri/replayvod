@@ -37,20 +37,6 @@ func (a *SQLiteAdapter) GetCategoryDetail(ctx context.Context, id string) (*repo
 	}, nil
 }
 
-func (a *SQLiteAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
-	row, err := a.queries.UpsertCategory(ctx, sqlitegen.UpsertCategoryParams{
-		ID:          c.ID,
-		Name:        c.Name,
-		BoxArtUrl:   toNullString(c.BoxArtURL),
-		IgdbID:      toNullString(c.IGDBID),
-		Description: toNullString(c.Description),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert category %s: %w", c.ID, err)
-	}
-	return sqliteCategoryToDomain(row), nil
-}
-
 const upsertCategoriesPrefix = `INSERT INTO categories (id, name, box_art_url, igdb_id, description)
 VALUES `
 

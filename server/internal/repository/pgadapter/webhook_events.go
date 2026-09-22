@@ -8,25 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) CreateWebhookEvent(ctx context.Context, input *repository.WebhookEventInput) (*repository.WebhookEvent, error) {
-	row, err := a.queries.CreateWebhookEvent(ctx, pggen.CreateWebhookEventParams{
-		EventID:          input.EventID,
-		MessageType:      input.MessageType,
-		EventType:        input.EventType,
-		SubscriptionID:   input.SubscriptionID,
-		BroadcasterID:    input.BroadcasterID,
-		MessageTimestamp: input.MessageTimestamp,
-		Payload:          input.Payload,
-	})
-	if err != nil {
-		// On the ON CONFLICT DO NOTHING path pgx returns ErrNoRows because
-		// the RETURNING clause yields zero rows. Caller treats this as
-		// "already recorded, move on" — return the sentinel so they can.
-		return nil, mapErr(err)
-	}
-	return pgWebhookEventToDomain(row), nil
-}
-
 func (a *PGAdapter) ListWebhookEventsByType(ctx context.Context, eventType string, limit, offset int) ([]repository.WebhookEvent, error) {
 	et := eventType
 	rows, err := a.queries.ListWebhookEventsByType(ctx, pggen.ListWebhookEventsByTypeParams{

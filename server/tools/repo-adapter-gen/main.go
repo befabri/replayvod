@@ -88,7 +88,8 @@ type dialect struct {
 // empty slice argument), direct scalar and rows-affected bool, each with the
 // error-handling styles the adapters use (see shapes.go). Validated value
 // objects expand through their scalar accessors and retain a Validate call
-// before querying (see values.go); ordinary structs stay manual.
+// before querying; domain structs expand through their exported fields, the
+// query's parameters deciding which are used (see values.go).
 // A method is emitted into methods_gen.go only when one of:
 //
 //   - it is already present in methods_gen.go (harvested on a prior run), in

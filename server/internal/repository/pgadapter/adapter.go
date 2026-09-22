@@ -75,32 +75,3 @@ func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.T
 	}
 	return nil
 }
-
-func (a *PGAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
-	row, err := a.queries.UpsertUser(ctx, pggen.UpsertUserParams{
-		ID:              u.ID,
-		Login:           u.Login,
-		DisplayName:     u.DisplayName,
-		Email:           u.Email,
-		ProfileImageUrl: u.ProfileImageURL,
-		Role:            u.Role,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert user %s: %w", u.ID, err)
-	}
-	return pgUserToDomain(row), nil
-}
-
-func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
-	if err := a.queries.CreateSession(ctx, pggen.CreateSessionParams{
-		HashedID:        s.HashedID,
-		UserID:          s.UserID,
-		EncryptedTokens: s.EncryptedTokens,
-		ExpiresAt:       s.ExpiresAt,
-		UserAgent:       s.UserAgent,
-		IpAddress:       s.IPAddress,
-	}); err != nil {
-		return fmt.Errorf("pg create session: %w", err)
-	}
-	return nil
-}

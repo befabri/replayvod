@@ -34,20 +34,6 @@ func (a *PGAdapter) GetCategoryDetail(ctx context.Context, id string) (*reposito
 	}, nil
 }
 
-func (a *PGAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
-	row, err := a.queries.UpsertCategory(ctx, pggen.UpsertCategoryParams{
-		ID:          c.ID,
-		Name:        c.Name,
-		BoxArtUrl:   c.BoxArtURL,
-		IgdbID:      c.IGDBID,
-		Description: c.Description,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert category %s: %w", c.ID, err)
-	}
-	return pgCategoryToDomain(row), nil
-}
-
 const upsertCategoriesSQL = `WITH input AS (
     SELECT *
     FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[]) WITH ORDINALITY

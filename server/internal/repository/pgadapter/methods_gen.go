@@ -20,6 +20,14 @@ func (a *PGAdapter) AddToWhitelist(ctx context.Context, twitchUserID string) err
 	return a.queries.AddToWhitelist(ctx, twitchUserID)
 }
 
+func (a *PGAdapter) BeginMediaPublication(ctx context.Context, input repository.MediaPublication) (*repository.MediaPublication, error) {
+	row, err := a.queries.BeginMediaPublication(ctx, pggen.BeginMediaPublicationParams{Digest: input.Digest, Key: input.Key, SizeBytes: input.SizeBytes, VideoID: input.VideoID})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgMediaPublicationToDomain(row), nil
+}
+
 func (a *PGAdapter) CheckpointAttempt(ctx context.Context, jobID, executionID string, state json.RawMessage) error {
 	return executionAffected(a.queries.CheckpointAttempt(ctx, pggen.CheckpointAttemptParams{JobID: jobID, ExecutionID: executionID, State: state}))
 }
@@ -99,6 +107,14 @@ func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt 
 	return pgAppAccessTokenToDomain(row), nil
 }
 
+func (a *PGAdapter) CreateEventLog(ctx context.Context, input *repository.EventLogInput) (*repository.EventLog, error) {
+	row, err := a.queries.CreateEventLog(ctx, pggen.CreateEventLogParams{ActorUserID: input.ActorUserID, Data: input.Data, Domain: input.Domain, EventType: input.EventType, Message: input.Message, Severity: input.Severity})
+	if err != nil {
+		return nil, fmt.Errorf("pg create event log: %w", err)
+	}
+	return pgEventLogToDomain(row), nil
+}
+
 func (a *PGAdapter) CreateEventSubSnapshot(ctx context.Context, total, totalCost, maxTotalCost int64) (*repository.EventSubSnapshot, error) {
 	row, err := a.queries.CreateSnapshot(ctx, pggen.CreateSnapshotParams{Total: int32(total), TotalCost: int32(totalCost), MaxTotalCost: int32(maxTotalCost)})
 	if err != nil {
@@ -107,12 +123,59 @@ func (a *PGAdapter) CreateEventSubSnapshot(ctx context.Context, total, totalCost
 	return pgSnapshotToDomain(row), nil
 }
 
+func (a *PGAdapter) CreateFetchLog(ctx context.Context, input *repository.FetchLogInput) error {
+	return a.queries.CreateFetchLog(ctx, pggen.CreateFetchLogParams{BroadcasterID: input.BroadcasterID, DurationMs: int32(input.DurationMs), Error: input.Error, FetchType: input.FetchType, Status: int32(input.Status), UserID: input.UserID})
+}
+
+func (a *PGAdapter) CreateInvite(ctx context.Context, input *repository.InviteInput) (*repository.Invite, error) {
+	row, err := a.queries.CreateInvite(ctx, pggen.CreateInviteParams{CreatedBy: input.CreatedBy, ExpiresAt: input.ExpiresAt, Note: input.Note, Role: input.Role, TokenHash: input.TokenHash})
+	if err != nil {
+		return nil, fmt.Errorf("pg create invite: %w", err)
+	}
+	return pgInviteToDomain(row), nil
+}
+
+func (a *PGAdapter) CreateRecordingIntent(ctx context.Context, intent repository.RecordingIntent) error {
+	return mapErr(a.queries.CreateRecordingIntent(ctx, pggen.CreateRecordingIntentParams{BroadcasterID: intent.BroadcasterID, CurrentJobID: intent.CurrentJobID, ID: intent.ID, LastStreamID: intent.LastStreamID, Params: intent.Params, WaitSeconds: intent.WaitSeconds}))
+}
+
 func (a *PGAdapter) CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*repository.ScheduleRequest, error) {
 	row, err := a.queries.CreateScheduleRequest(ctx, pggen.CreateScheduleRequestParams{BroadcasterID: broadcasterID, RequestedBy: requestedBy, Note: note})
 	if err != nil {
 		return nil, fmt.Errorf("pg create schedule request: %w", mapErr(err))
 	}
 	return pgScheduleRequestToDomain(row), nil
+}
+
+func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
+	if err := a.queries.CreateSession(ctx, pggen.CreateSessionParams{EncryptedTokens: s.EncryptedTokens, ExpiresAt: s.ExpiresAt, HashedID: s.HashedID, IpAddress: s.IPAddress, UserAgent: s.UserAgent, UserID: s.UserID}); err != nil {
+		return fmt.Errorf("pg create session: %w", err)
+	}
+	return nil
+}
+
+func (a *PGAdapter) CreateSubscription(ctx context.Context, input *repository.SubscriptionInput) (*repository.Subscription, error) {
+	row, err := a.queries.CreateSubscription(ctx, pggen.CreateSubscriptionParams{BroadcasterID: input.BroadcasterID, Condition: input.Condition, Cost: int32(input.Cost), ID: input.ID, Status: input.Status, TransportCallback: input.TransportCallback, TransportMethod: input.TransportMethod, TwitchCreatedAt: input.TwitchCreatedAt, Type: input.Type, Version: input.Version})
+	if err != nil {
+		return nil, fmt.Errorf("pg create subscription: %w", err)
+	}
+	return pgSubscriptionToDomain(row), nil
+}
+
+func (a *PGAdapter) CreateVideoPart(ctx context.Context, input *repository.VideoPartInput) (*repository.VideoPart, error) {
+	row, err := a.queries.CreateVideoPart(ctx, pggen.CreateVideoPartParams{Codec: input.Codec, Fps: input.FPS, Filename: input.Filename, PartIndex: input.PartIndex, Quality: input.Quality, SegmentFormat: input.SegmentFormat, StartMediaSeq: input.StartMediaSeq, VideoID: input.VideoID})
+	if err != nil {
+		return nil, fmt.Errorf("pg create video part: %w", err)
+	}
+	return pgVideoPartToDomain(row), nil
+}
+
+func (a *PGAdapter) CreateWebhookEvent(ctx context.Context, input *repository.WebhookEventInput) (*repository.WebhookEvent, error) {
+	row, err := a.queries.CreateWebhookEvent(ctx, pggen.CreateWebhookEventParams{BroadcasterID: input.BroadcasterID, EventID: input.EventID, EventType: input.EventType, MessageTimestamp: input.MessageTimestamp, MessageType: input.MessageType, Payload: input.Payload, SubscriptionID: input.SubscriptionID})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgWebhookEventToDomain(row), nil
 }
 
 func (a *PGAdapter) DecideScheduleRequest(ctx context.Context, id int64, status, decidedBy string, scheduleID *int64) (bool, error) {
@@ -243,6 +306,10 @@ func (a *PGAdapter) EnsureServerHMACSecret(ctx context.Context, secret string) e
 		return fmt.Errorf("pg ensure server hmac secret: %w", err)
 	}
 	return nil
+}
+
+func (a *PGAdapter) FinalizeVideoPart(ctx context.Context, input *repository.VideoPartFinalize) error {
+	return a.queries.FinalizeVideoPart(ctx, pggen.FinalizeVideoPartParams{DurationSeconds: input.DurationSeconds, EndMediaSeq: &input.EndMediaSeq, ID: input.ID, SizeBytes: input.SizeBytes, Thumbnail: input.Thumbnail})
 }
 
 func (a *PGAdapter) GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
@@ -1267,6 +1334,10 @@ func (a *PGAdapter) RotateInviteToken(ctx context.Context, id int64, tokenHash s
 	return pgInviteToDomain(row), nil
 }
 
+func (a *PGAdapter) SaveTwitchPlaybackSession(ctx context.Context, session *repository.TwitchPlaybackSession) error {
+	return mapErr(a.queries.SaveTwitchPlaybackSession(ctx, pggen.SaveTwitchPlaybackSessionParams{CheckedAt: session.CheckedAt, EncryptedToken: session.EncryptedToken, ExpiresAt: session.ExpiresAt, TwitchLogin: session.TwitchLogin, TwitchUserID: session.TwitchUserID}))
+}
+
 func (a *PGAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {
 	_, err := a.queries.ScheduleTaskIfEnabled(ctx, name)
 	return mapErr(err)
@@ -1457,6 +1528,14 @@ func (a *PGAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtUR
 	return nil
 }
 
+func (a *PGAdapter) UpdatePlaybackSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
+	row, err := a.queries.UpdatePlaybackSettings(ctx, pggen.UpdatePlaybackSettingsParams{ResumeEndMarginPercent: s.ResumeEndMarginPercent, ResumeEndMarginSeconds: s.ResumeEndMarginSeconds, ResumeMinSeconds: s.ResumeMinSeconds, UserID: s.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("pg update playback settings: %w", err)
+	}
+	return pgSettingsToDomain(row), nil
+}
+
 func (a *PGAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) error {
 	return a.queries.UpdateSessionActivity(ctx, hashedID)
 }
@@ -1473,6 +1552,10 @@ func (a *PGAdapter) UpdateSubscriptionStatus(ctx context.Context, id, status str
 	return a.queries.UpdateSubscriptionStatus(ctx, pggen.UpdateSubscriptionStatusParams{ID: id, Status: status})
 }
 
+func (a *PGAdapter) UpdateTwitchPlaybackSessionValidation(ctx context.Context, session *repository.TwitchPlaybackSession) error {
+	return mapErr(a.queries.UpdateTwitchPlaybackSessionValidation(ctx, pggen.UpdateTwitchPlaybackSessionValidationParams{CheckedAt: session.CheckedAt, EncryptedToken: session.EncryptedToken, ExpiresAt: session.ExpiresAt, NeedsReconnect: session.NeedsReconnect}))
+}
+
 func (a *PGAdapter) UpdateUserRole(ctx context.Context, id, role string) error {
 	if err := a.queries.UpdateUserRole(ctx, pggen.UpdateUserRoleParams{ID: id, Role: role}); err != nil {
 		return fmt.Errorf("pg update user role %s: %w", id, err)
@@ -1482,6 +1565,22 @@ func (a *PGAdapter) UpdateUserRole(ctx context.Context, id, role string) error {
 
 func (a *PGAdapter) UpdateVideoStatus(ctx context.Context, id int64, status string) error {
 	return a.queries.UpdateVideoStatus(ctx, pggen.UpdateVideoStatusParams{ID: id, Status: status})
+}
+
+func (a *PGAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
+	row, err := a.queries.UpsertCategory(ctx, pggen.UpsertCategoryParams{BoxArtUrl: c.BoxArtURL, Description: c.Description, ID: c.ID, IgdbID: c.IGDBID, Name: c.Name})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert category %s: %w", c.ID, err)
+	}
+	return pgCategoryToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
+	row, err := a.queries.UpsertChannel(ctx, pggen.UpsertChannelParams{BroadcasterID: c.BroadcasterID, BroadcasterLanguage: c.BroadcasterLanguage, BroadcasterLogin: c.BroadcasterLogin, BroadcasterName: c.BroadcasterName, BroadcasterType: c.BroadcasterType, Description: c.Description, OfflineImageUrl: c.OfflineImageURL, ProfileImageUrl: c.ProfileImageURL, ViewCount: c.ViewCount})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert channel %s: %w", c.BroadcasterID, err)
+	}
+	return pgChannelToDomain(row), nil
 }
 
 func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
@@ -1498,6 +1597,38 @@ func (a *PGAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bo
 		return nil, fmt.Errorf("pg upsert recording webhook config: %w", err)
 	}
 	return pgServerSettingsToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertServerSettings(ctx context.Context, s *repository.ServerSettings) (*repository.ServerSettings, error) {
+	row, err := a.queries.UpsertServerSettings(ctx, pggen.UpsertServerSettingsParams{EventsubRelayIngestUrl: s.EventSubRelayIngestURL, EventsubRelayLocalCallbackUrl: s.EventSubRelayLocalCallbackURL, EventsubRelaySubscribeUrl: s.EventSubRelaySubscribeURL, EventsubWebhookCallbackUrl: s.EventSubWebhookCallbackURL, ServerMode: s.ServerMode})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert server settings: %w", err)
+	}
+	return pgServerSettingsToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
+	row, err := a.queries.UpsertSettings(ctx, pggen.UpsertSettingsParams{DatetimeFormat: s.DatetimeFormat, Language: s.Language, Timezone: s.Timezone, UserID: s.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert settings: %w", err)
+	}
+	return pgSettingsToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error) {
+	row, err := a.queries.UpsertStream(ctx, pggen.UpsertStreamParams{BroadcasterID: s.BroadcasterID, ID: s.ID, IsMature: s.IsMature, Language: s.Language, StartedAt: s.StartedAt, ThumbnailUrl: s.ThumbnailURL, Type: s.Type, ViewerCount: int32(s.ViewerCount)})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert stream %s: %w", s.ID, err)
+	}
+	return pgStreamToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertSubscription(ctx context.Context, input *repository.SubscriptionInput) (*repository.Subscription, error) {
+	row, err := a.queries.UpsertSubscription(ctx, pggen.UpsertSubscriptionParams{BroadcasterID: input.BroadcasterID, Condition: input.Condition, Cost: int32(input.Cost), ID: input.ID, Status: input.Status, TransportCallback: input.TransportCallback, TransportMethod: input.TransportMethod, TwitchCreatedAt: input.TwitchCreatedAt, Type: input.Type, Version: input.Version})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert subscription: %w", err)
+	}
+	return pgSubscriptionToDomain(row), nil
 }
 
 func (a *PGAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
@@ -1522,6 +1653,26 @@ func (a *PGAdapter) UpsertTitle(ctx context.Context, name string) (*repository.T
 		return nil, fmt.Errorf("pg upsert title: %w", err)
 	}
 	return pgTitleToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
+	row, err := a.queries.UpsertUser(ctx, pggen.UpsertUserParams{DisplayName: u.DisplayName, Email: u.Email, ID: u.ID, Login: u.Login, ProfileImageUrl: u.ProfileImageURL, Role: u.Role})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert user %s: %w", u.ID, err)
+	}
+	return pgUserToDomain(row), nil
+}
+
+func (a *PGAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {
+	return a.queries.UpsertUserFollow(ctx, pggen.UpsertUserFollowParams{BroadcasterID: f.BroadcasterID, Followed: f.Followed, FollowedAt: f.FollowedAt, UserID: f.UserID})
+}
+
+func (a *PGAdapter) UpsertVideoPlaybackAsset(ctx context.Context, input *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
+	row, err := a.queries.UpsertVideoPlaybackAsset(ctx, pggen.UpsertVideoPlaybackAssetParams{DurationSeconds: input.DurationSeconds, Error: input.Error, Filename: input.Filename, GeneratedAt: input.GeneratedAt, LastAccessedAt: input.LastAccessedAt, MimeType: input.MimeType, SizeBytes: input.SizeBytes, Status: input.Status, VideoID: input.VideoID})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert video playback asset: %w", err)
+	}
+	return pgVideoPlaybackAssetToDomain(row), nil
 }
 
 func (a *PGAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {

@@ -145,6 +145,7 @@ arguments:
   # PG nullable columns take pointers to the caller's value
   - {from: "string", to: "*string", expr: "&%s"}
   - {from: "time.Time", to: "*time.Time", expr: "&%s"}
+  - {from: "int64", to: "*int64", expr: "&%s"}
   # SQLite glue
   - {from: "bool", to: "int64", expr: "boolToInt64(%s)"}
   - {from: "json.RawMessage", to: "string", expr: "string(%s)"}
@@ -155,6 +156,8 @@ arguments:
   - {from: "*time.Time", to: "*sqlitetype.PreciseTime", expr: "sqlitePreciseTimePtr(%s)"}
   - {from: "string", to: "sql.NullString", expr: "sql.NullString{String: %s, Valid: true}"}
   - {from: "*string", to: "sql.NullString", expr: "toNullString(%s)"}
+  - {from: "*bool", to: "sql.NullInt64", expr: "boolToNullInt64(%s)"}
+  - {from: "json.RawMessage", to: "sql.NullString", expr: "rawMessageToSQLite(%s)"}
   - {from: "[]string", to: "[]sql.NullString", expr: "toNullStrings(%s)"}
   - {from: "int64", to: "sql.NullInt64", expr: "sql.NullInt64{Int64: %s, Valid: true}"}
   - {from: "*int64", to: "sql.NullInt64", expr: "toNullInt64(%s)"}
