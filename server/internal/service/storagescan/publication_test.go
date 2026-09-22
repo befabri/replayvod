@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader/remux"
@@ -225,7 +226,14 @@ func TestMissingScanWaitHonorsCancellation(t *testing.T) {
 	}
 }
 
+// TestMissingSweepDeadlineKeepsIncompletePageRetryable runs in a bubble, whose
+// clock reaches the deadline only once the sweep is durably blocked on
+// publication, never while inspection is still doing I/O.
 func TestMissingSweepDeadlineKeepsIncompletePageRetryable(t *testing.T) {
+	synctest.Test(t, testMissingSweepDeadlineKeepsIncompletePageRetryable)
+}
+
+func testMissingSweepDeadlineKeepsIncompletePageRetryable(t *testing.T) {
 	f := newFixture(t)
 	v := f.seed(t, "publication-deadline", 1)
 	locks := &recordinglock.Locks{}
