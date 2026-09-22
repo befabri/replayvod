@@ -11,10 +11,6 @@ import {
 	videoUserStatePatch,
 } from "./cache";
 
-// LocalWatchProgress is the copy of a progress write kept in localStorage
-// until the server confirms it. Whatever is still there when the recording is
-// opened again was never confirmed: a flush the server missed while it was
-// restarting, or a tab closed before the response arrived.
 export type LocalWatchProgress = {
 	positionSeconds: number;
 	completed: boolean;
@@ -74,15 +70,9 @@ export function writeLocalWatchProgress(
 			localWatchProgressKey(userId, videoId),
 			JSON.stringify(entry),
 		);
-	} catch {
-		// Storage unavailable (private mode, quota): the server write still goes out.
-	}
+	} catch {}
 }
 
-// clearLocalWatchProgress drops the mirror only if it still matches every
-// supplied field. A server acknowledgement matches the confirmed position;
-// deferred resume cleanup supplies the entire snapshot so it cannot erase a
-// replacement written since render, even at the same position.
 export function clearLocalWatchProgress(
 	userId: string,
 	videoId: number,
@@ -109,16 +99,9 @@ export function clearLocalWatchProgress(
 			}
 		}
 		window.localStorage.removeItem(localWatchProgressKey(userId, videoId));
-	} catch {
-		// Nothing to clear when storage is unavailable.
-	}
+	} catch {}
 }
 
-// useWatchProgressWriter returns the one function the watch page saves
-// progress through. Every write is mirrored locally first and sent on a
-// keepalive request, so a flush from pagehide lands after the tab is gone;
-// the server response patches the recording wherever it is cached and drops
-// the mirror.
 export function useWatchProgressWriter(videoId: number) {
 	const userId = useSelector(authStore, (state) => state.user?.id ?? null);
 	const trpc = useTRPC();
@@ -148,16 +131,11 @@ export function useWatchProgressWriter(videoId: number) {
 				completed: entry.completed,
 				savedAtMs: entry.savedAtMs,
 			});
-			// A response belonging to a previous login must never patch the
-			// current user's cache. Late responses must not rewind it either.
 			if (authStore.state.user?.id !== ownerId) return;
 			const key = trpc.video.getById.queryKey({ id: videoId });
 			const current = queryClient.getQueryData(key)?.user_state;
 			if ((current?.progress_revision ?? 0) > (state.progress_revision ?? 0))
 				return;
-			// An earlier write can be acknowledged while a newer local write is
-			// still pending. Advance that mirror's baseline only for our own
-			// accepted write, so its retry survives this acknowledgement.
 			const pending = readLocalWatchProgress(ownerId, videoId);
 			if (
 				pending &&

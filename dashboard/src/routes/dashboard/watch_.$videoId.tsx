@@ -39,11 +39,6 @@ import { localThumbnailURL } from "@/features/videos/thumbnail";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { cn } from "@/lib/utils";
 
-// Layout choice persists across visits. "aside" places the timeline
-// cards in a right column next to the player; "wide" stacks them below
-// so the player can take the full content width. Only meaningful at
-// xl+ where the aside layout is two-column — narrower viewports always
-// stack, and the toggle is hidden there.
 type WatchLayout = "aside" | "wide";
 const NO_TIMELINE_EVENTS: TimelineEvent[] = [];
 const LAYOUT_STORAGE_KEY = "watch:layout";
@@ -51,10 +46,6 @@ const parseWatchLayout = (raw: string): WatchLayout | null =>
 	raw === "aside" || raw === "wide" ? raw : null;
 const serializeWatchLayout = (value: WatchLayout) => value;
 
-// Search state for the videos library, used whenever the watch page sends the
-// user back there: the "not ready" exit link and the post-removal navigate.
-// Mirrors the library route's validateSearch defaults so both entry points land
-// on the same default view instead of an arbitrary one.
 const VIDEOS_LIBRARY_SEARCH = {
 	tab: "all",
 	status: undefined,
@@ -113,9 +104,6 @@ function WatchContent({ id }: { id: number }) {
 		useAudioWaveform(id, audioWaveformEnabled);
 	const writeWatchProgress = useWatchProgressWriter(id);
 	const invalidateVideo = useInvalidateVideo(id);
-	// The server tombstones a recording whose media it finds gone on the same
-	// 404 the player just hit, so a refetch flips this page into the removed
-	// state instead of leaving the panel up.
 	const handleMediaUnavailable = useCallback(() => {
 		void invalidateVideo();
 	}, [invalidateVideo]);
@@ -126,13 +114,11 @@ function WatchContent({ id }: { id: number }) {
 		parseWatchLayout,
 		serializeWatchLayout,
 	);
-	// A `?t=` deep link wins; otherwise the player opens at the saved place.
 	const resume = useResume(
 		playable ? video : null,
 		playlist?.totalDurationSeconds ?? 0,
 		policy,
 	);
-	// A write the server never confirmed goes out again on the next visit.
 	useEffect(() => {
 		if (!resume.replay) return;
 		writeWatchProgress(resume.replay.positionSeconds, resume.replay.completed);
@@ -286,11 +272,6 @@ function WatchContent({ id }: { id: number }) {
 									}
 								/>
 							) : null}
-							{/* Layout toggle docks alongside the title via the
-							   VideoInfo headerAction slot. Hidden below xl —
-							   the page always stacks there regardless of the
-							   saved preference, so the button would be a no-op.
-							   Icon-only with a tooltip for the verbose label. */}
 							<TooltipProvider>
 								<Tooltip>
 									<TooltipTrigger

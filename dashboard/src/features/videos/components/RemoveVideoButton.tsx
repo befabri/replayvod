@@ -6,14 +6,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDeleteVideo } from "@/features/videos";
 import { cn } from "@/lib/utils";
 
-// RemoveVideoButton is the operator-facing delete control for a recording. It
-// owns the confirm step and the video.delete mutation so every surface (table
-// row, grid card, watch page) drops in the same action. Clicks are stopped from
-// bubbling so it can sit safely inside link-wrapped cards.
-//
-// It does not gate on permission itself: each surface checks useCanManageVideos
-// once and omits the button for viewers, so a read-only list never mounts a
-// mutation + i18n subscription per row just to render null.
 export function RemoveVideoButton({
 	videoId,
 	withLabel = false,
@@ -24,11 +16,7 @@ export function RemoveVideoButton({
 	videoId: number;
 	withLabel?: boolean;
 	className?: string;
-	// permanent removes a missing-media tombstone for good: the confirm names
-	// what is left to delete (previews), since the media is already gone.
 	permanent?: boolean;
-	// onRemoved fires after a successful delete — the watch page uses it to
-	// navigate away from the now-removed recording.
 	onRemoved?: () => void;
 }) {
 	const { t } = useTranslation();

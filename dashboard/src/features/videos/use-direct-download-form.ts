@@ -13,9 +13,6 @@ import {
 } from "./download-form";
 import { liveRenditionsOptions } from "./queries";
 
-// Both download surfaces share the form, query, and submission boundary.
-// Fields render this controller's derived selection; loading is never copied
-// back up from a child through an effect.
 export function useDirectDownloadForm({
 	broadcasterId,
 	disabled = false,
@@ -46,9 +43,6 @@ export function useDirectDownloadForm({
 				) !== "live"
 			)
 				return;
-			// Read the cache for the submitted values, not a render's captured
-			// result. This also guards programmatic submits and codec changes
-			// made before React has committed the corresponding query observer.
 			const snapshot = queryClient.getQueryState(
 				liveRenditionsOptions(trpc, broadcasterId, value.force_h264).queryKey,
 			);

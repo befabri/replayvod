@@ -4,9 +4,6 @@ import { useEffect, useState } from "react";
 import { resolveBoxArtSrcSet, resolveBoxArtUrl } from "@/lib/twitch";
 import { cn } from "@/lib/utils";
 
-// CategoryBoxArt resolves the Twitch box-art template URL and degrades
-// gracefully: missing URL, template-replace miss, or network/404 all
-// land on the same bg-muted placeholder with a controller icon.
 export function CategoryBoxArt({
 	url,
 	name,

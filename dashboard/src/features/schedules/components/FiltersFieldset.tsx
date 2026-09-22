@@ -15,9 +15,6 @@ import type { ScheduleFormApi } from "../form";
 import { MAX_RETENTION_WINDOW_HOURS } from "../schema";
 import { FieldError } from "./FieldError";
 
-// Inputs are always rendered (never conditionally mounted) to avoid
-// layout shift when toggling the gating checkboxes. When the checkbox
-// is unchecked the corresponding input is disabled + dimmed.
 export function FiltersFieldset({
 	form,
 	initialCategories = [],
@@ -48,9 +45,6 @@ export function FiltersFieldset({
 							checked={field.state.value}
 							onChange={(c) => {
 								field.handleChange(c);
-								// Clear the gated input when toggling off so a later
-								// re-toggle doesn't surface stale values, and a submit
-								// while off doesn't silently wipe what the user saw.
 								if (!c) form.setFieldValue("time_before_delete", undefined);
 							}}
 							label={t("schedules.is_delete_rediff")}

@@ -35,8 +35,6 @@ export function useUpdatePlaybackCacheConfig() {
 	);
 }
 
-// useTwitchPlaybackStatus reads the owner-only playback connection state.
-// Callers gate it on the owner role; a viewer's request would only 403.
 export function useTwitchPlaybackStatus() {
 	const trpc = useTRPC();
 	return useQuery(trpc.twitchPlayback.status.queryOptions());

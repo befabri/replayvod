@@ -12,10 +12,6 @@ import { QueryTable } from "@/components/ui/query-table";
 import { useAddWhitelist, useWhitelist } from "@/features/whitelist";
 import { whitelistColumns } from "@/features/whitelist/components/columns";
 
-// WhitelistAddSchema narrows the server's WhitelistIDInput (generated
-// schema is untyped on content). Twitch numeric IDs only — rejects
-// blanks and non-digit input at the client boundary so the server's
-// validator isn't the first line of defense.
 function whitelistAddSchema(t: TFunction) {
 	return z.object({
 		twitch_user_id: z

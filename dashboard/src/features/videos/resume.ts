@@ -12,16 +12,10 @@ import {
 export { resumeOffsetSeconds } from "./resume-policy";
 
 export type ResumeSeed = {
-	// Where the player opens; undefined starts from the beginning.
 	offsetSeconds: number | undefined;
-	// A local write the server never confirmed and that is newer than what
-	// it holds; the page sends it again.
 	replay: LocalWatchProgress | null;
 };
 
-// resolveResume merges the server's saved position with the local mirror. The
-// mirror wins only when it is newer than the server's state and says
-// something different; otherwise it is stale and gets dropped.
 export function resolveResume({
 	server,
 	local,
@@ -33,8 +27,6 @@ export function resolveResume({
 	totalDurationSeconds: number;
 	policy: ResumePolicy;
 }): ResumeSeed {
-	// The mirror records the server revision it was based on. Browser wall
-	// clocks are irrelevant: any later server write supersedes that baseline.
 	const localIsNewer =
 		local != null &&
 		local.baseProgressRevision === (server?.progress_revision ?? 0) &&
@@ -64,11 +56,6 @@ type LatchedSeed = {
 	staleLocal: LocalWatchProgress | null;
 };
 
-// useResume seeds the player once per recording. Every progress write patches
-// the saved position in the video cache, and the player treats a new initial
-// offset as a new seek, so the seed must not follow the live value while the
-// viewer is watching. A stale local mirror is cleared only after this seed
-// commits, and only if the mirror has not changed since it was read.
 export function useResume(
 	video:
 		| { id: number; user_state?: VideoUserStateResponse | null }

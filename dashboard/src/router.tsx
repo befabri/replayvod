@@ -29,9 +29,6 @@ export function getRouter() {
 
 	setupRouterSsrQueryIntegration({ router, queryClient: context.queryClient });
 
-	// Bounce to /login when any request 401s (an expired session mid-use). The
-	// caches detect it; the router performs the same clearUser + redirect the
-	// logout flow does, so the two unauthenticated paths stay in sync.
 	registerUnauthorizedRedirect(() => {
 		clearUser();
 		void router.navigate({ to: "/login", search: { error: undefined } });

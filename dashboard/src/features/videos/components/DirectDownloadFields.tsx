@@ -4,8 +4,6 @@ import type { DirectDownloadController } from "@/features/videos/use-direct-down
 import { qualityTierForHeight } from "@/lib/recording-settings";
 import { LiveRenditionPicker } from "./LiveRenditionPicker";
 
-// A presentation binding only: the dialog's controller owns the query and
-// resolves the same selection for these fields and for submission.
 export function DirectDownloadFields({
 	controller,
 }: {

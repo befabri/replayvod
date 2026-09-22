@@ -1,11 +1,5 @@
 import { useMemo, useState } from "react";
 
-// MultiSelectPicker is a simple searchable multi-select used by the
-// schedule create/edit forms to pick categories and tags. Deliberately
-// minimal: a search input, scrollable option list, toggleable rows,
-// plus a chip display of the current selection. No Radix/Base UI
-// combobox — the interaction is light enough that raw inputs keep
-// the code short and accessible-by-default.
 export type PickerOption<T extends string | number> = {
 	id: T;
 	label: string;

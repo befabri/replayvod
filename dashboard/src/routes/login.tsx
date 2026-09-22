@@ -19,10 +19,6 @@ const ERROR_KEYS = new Set([
 	"invite_self",
 ]);
 
-// Login matches v1: two-column 50/50 color split, all content centered
-// in the left column; right column is pure color with no content.
-// bg-popover = #262444 (v1 custom_space_cadet)
-// bg-card    = #1C1A31 (v1 custom_lightblue)
 function LoginPage() {
 	const { t } = useTranslation();
 	const { error } = Route.useSearch();

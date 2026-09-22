@@ -48,10 +48,6 @@ import {
 const EVENT_COMPLETED = "recording.completed";
 const EVENT_FAILED = "recording.failed";
 
-// formStateFromConfig maps a loaded config to form values. An empty events list
-// means "all events", which presents as both boxes checked. The signing secret
-// is not editable: it is displayed read-only from the loaded config and rotated
-// via the Regenerate button, so it is not part of the form.
 export function formStateFromConfig(
 	data: ConfigResponse,
 ): RecordingWebhookFormValues {
@@ -65,9 +61,6 @@ export function formStateFromConfig(
 	};
 }
 
-// buildPayload reduces the form to the update input. Events carries only the
-// checked identifiers; the URL is trimmed. The secret is never sent: it is
-// managed server-side and rotated through its own action.
 export function buildPayload(
 	state: RecordingWebhookFormValues,
 ): UpdateConfigInput {
@@ -87,8 +80,6 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 	const regenerate = useRegenerateRecordingWebhookSecret();
 	const test = useTestRecordingWebhookDelivery();
 
-	// Pure UI state, not form data: the secret reveal toggle and the rotate
-	// confirmation dialog. Form values live in the form store below.
 	const [showSecret, setShowSecret] = useState(false);
 	const [confirmRotate, setConfirmRotate] = useState(false);
 
@@ -101,15 +92,8 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 		onSubmit: async ({ value, formApi }) => {
 			try {
 				await update.mutateAsync(buildPayload(value));
-				// Adopt the just-saved values as the new clean baseline so the form
-				// reads as saved and "Send test" re-enables. The refetch the mutation
-				// triggers refreshes the read-only secret rendered from `data`.
 				formApi.reset(value);
-			} catch {
-				// A failed save is surfaced through the update.isError banner below;
-				// swallow the rejection (mutateAsync rethrows) so it does not become
-				// an unhandled rejection, and leave the form dirty for a retry.
-			}
+			} catch {}
 		},
 	});
 
@@ -363,7 +347,6 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 	);
 }
 
-// TestResultBanner renders the synchronous outcome of a test delivery.
 function TestResultBanner({
 	result,
 }: {

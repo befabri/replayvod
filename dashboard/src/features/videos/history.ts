@@ -38,8 +38,6 @@ const OUTCOME_PARAM: Record<HistoryOutcome, VideoOutcome | undefined> = {
 	failed: "failed",
 	cancelled: "cancelled",
 };
-// Unavailable is the slice of removed rows whose media went missing and can
-// still come back, so it is the removed scope narrowed by deletion kind.
 const SCOPE_BY_MEDIA: Record<
 	HistoryMedia,
 	{ scope: VideoScope; deletionKind?: VideoDeletionKind }

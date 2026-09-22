@@ -11,9 +11,6 @@ import {
 import { cn } from "@/lib/utils";
 import { authStore, hasRole } from "@/stores/auth";
 
-// StorageBanner tells every user why nothing plays or records while storage
-// is away, and points owners at the page where they can fix or adopt it. It
-// owns the live subscription so the layout only renders it.
 export function StorageBanner() {
 	const { t } = useTranslation();
 	useLiveStorageStatus();

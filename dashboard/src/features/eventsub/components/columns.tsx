@@ -2,8 +2,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { useUnsubscribe } from "@/features/eventsub";
 
-// Row shape the subscriptions query actually returns; condition is
-// json.RawMessage server-side so broadcaster_id may be absent.
 export type SubRowData = {
 	id: string;
 	type: string;

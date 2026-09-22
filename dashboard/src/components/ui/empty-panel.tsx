@@ -1,10 +1,6 @@
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
-// EmptyPanel is the subtle dashed-box placeholder shown when a list or
-// tab has no rows (e.g. an empty Watch Later tab). For prominent,
-// onboarding-style empties with an icon and a call to action, use
-// EmptyState instead.
 export function EmptyPanel({
 	children,
 	className,

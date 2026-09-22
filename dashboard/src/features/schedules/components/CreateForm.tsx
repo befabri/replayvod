@@ -13,11 +13,6 @@ import { FieldError } from "./FieldError";
 import { FiltersFieldset } from "./FiltersFieldset";
 import { RecordingSettingsField } from "./RecordingSettingsField";
 
-// CreateForm is the schedule creation form, rendered inside the
-// CreateScheduleDialog modal. It mirrors EditForm's modal layout (vertical
-// fields, bled footer) but starts from empty defaults and exposes the
-// channel picker, since the target channel isn't fixed the way it is when
-// editing an existing schedule.
 export function CreateForm({ onDone }: { onDone: () => void }) {
 	const { t } = useTranslation();
 	const create = useCreateSchedule();
@@ -91,8 +86,6 @@ export function CreateForm({ onDone }: { onDone: () => void }) {
 				</div>
 			)}
 
-			{/* Footer mirrors EditForm: bled to the dialog edges, Cancel + Create
-				on the right with a shared min-width so labels line up. */}
 			<div className="flex items-center justify-end gap-2 border-t border-border pt-4 -mx-6 px-6 -mb-6 pb-6">
 				<Button
 					type="button"

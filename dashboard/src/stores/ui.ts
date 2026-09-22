@@ -8,9 +8,7 @@ function loadCollapsed(): boolean {
 }
 
 interface UIState {
-	/** Mobile drawer visibility. */
 	sidebarOpen: boolean;
-	/** Desktop rail mode (icons only). Persisted across sessions. */
 	sidebarCollapsed: boolean;
 }
 

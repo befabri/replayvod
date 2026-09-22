@@ -28,16 +28,11 @@ const STATUS_VARIANTS: Record<InviteStatus, "default" | "emerald" | "muted"> = {
 	expired: "muted",
 };
 
-// InviteActions is how row actions reach the section that owns the
-// copy-once panel: a freshly issued link to show, or a revoked invite
-// whose link must stop being offered.
 export type InviteActions = {
 	onIssued: (info: InviteCreatedInfo) => void;
 	onRevoked: (id: number) => void;
 };
 
-// Keep rotation and revocation mutually exclusive so a late rotation response
-// cannot put a revoked link back into the copy panel.
 function InviteRowActions({
 	invite,
 	actions,

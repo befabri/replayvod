@@ -34,10 +34,6 @@ interface CategoryMultiPickerProps {
 
 const EMPTY_SELECTED_CATEGORIES: CategoryPickerCategory[] = [];
 
-// CategoryMultiPicker drives the schedule form's category filter via a
-// Base UI Combobox in multi-select mode. Server-side search keeps the
-// dropdown responsive for arbitrarily large Twitch catalogs while the
-// selected-item union keeps chips visible across query changes.
 function PickerThumb({ url, name }: { url?: string | null; name: string }) {
 	return (
 		<CategoryBoxArt
@@ -66,11 +62,6 @@ export function CategoryMultiPicker({
 	const { data: results, isFetching } = useCategorySearch(debounced, 50);
 	const { data: all } = useCategories();
 
-	// Accumulate every category we've ever seen: edit-form defaults, the full
-	// list, plus any search page. Edit defaults matter before useCategories()
-	// resolves; without them, interacting during initial load can make unresolved
-	// chips disappear from `selectedItems`, and the next onValueChange would write
-	// the form back without those IDs.
 	const [seen, setSeen] = useState<Map<string, CategoryPickerCategory>>(
 		() => new Map(),
 	);
@@ -91,9 +82,6 @@ export function CategoryMultiPicker({
 		});
 	}, [selectedCategories, all, results]);
 
-	// Resolve the currently-selected ids into full CategoryResponse objects so
-	// chips can display the label. Union the seen cache with the freshest list +
-	// results so a just-arrived row resolves on the same render the effect commits.
 	const selectedItems = useMemo<CategoryPickerCategory[]>(() => {
 		const byId = new Map(seen);
 		for (const c of selectedCategories) byId.set(c.id, c);
@@ -104,18 +92,12 @@ export function CategoryMultiPicker({
 			.filter((c): c is CategoryPickerCategory => !!c);
 	}, [selected, selectedCategories, seen, all, results]);
 
-	// Stitch selected items into the visible options so they remain
-	// deselectable from the dropdown even when they don't match the
-	// current query.
 	const items = useMemo<CategoryPickerCategory[]>(() => {
 		const list = results ?? [];
 		const seen = new Set(list.map((c) => c.id));
 		return [...list, ...selectedItems.filter((c) => !seen.has(c.id))];
 	}, [results, selectedItems]);
 
-	// Visual dim when disabled. Input-blocking is handled by Base UI's
-	// own `disabled` prop on Combobox.Root — no `pointer-events-none`
-	// wrapper needed.
 	return (
 		<div className={disabled ? "opacity-50" : undefined}>
 			<Combobox<CategoryPickerCategory, true>

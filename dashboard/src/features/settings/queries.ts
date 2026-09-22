@@ -17,8 +17,6 @@ async function cacheSavedSettings(
 	changes: Partial<SettingsResponse>,
 ) {
 	if (authStore.state.user?.id !== saved.user_id) return false;
-	// A snapshot can start during the mutation. Its older settings must not
-	// overwrite the confirmed save, even if its transport ignores cancellation.
 	await queryClient.cancelQueries({ queryKey: trpc.settings.get.pathKey() });
 	if (authStore.state.user?.id !== saved.user_id) return false;
 	queryClient.setQueryData(trpc.settings.get.queryKey(), (current) => ({
@@ -44,7 +42,6 @@ export function useUpdatePlaybackSettings() {
 			onMutate: () =>
 				queryClient.cancelQueries({ queryKey: trpc.settings.get.pathKey() }),
 			onSuccess: async (saved) => {
-				// The other form can have saved since this response was captured.
 				if (
 					!(await cacheSavedSettings(queryClient, trpc, saved, {
 						playback: saved.playback,

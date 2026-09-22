@@ -40,12 +40,6 @@ export function PlaybackCacheCard({
 	const { t } = useTranslation();
 	const update = useUpdatePlaybackCacheConfig();
 
-	// Defaults are computed from the loaded config at first render (the parent
-	// mounts this card only once config is present), so there's no prop-to-state
-	// sync effect. The generated schema (int, 1-100) is the single source of truth
-	// for the percentage bound — no hand-rolled clamp; invalid input surfaces as a
-	// field error and blocks submit. Successful saves re-baseline from the mutation
-	// response.
 	const form = useForm({
 		defaultValues: playbackCacheFormValues(data),
 		validators: {
@@ -195,8 +189,6 @@ export function PlaybackCacheCard({
 	);
 }
 
-// TanStack Form surfaces Zod issues as objects with a `message`; fall back to
-// the raw value for plain-string errors.
 function fieldErrorMessage(errors: readonly unknown[]): string {
 	const first = errors[0];
 	if (typeof first === "string") return first;

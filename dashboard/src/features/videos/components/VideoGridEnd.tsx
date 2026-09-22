@@ -1,9 +1,5 @@
 import { useTranslation } from "react-i18next";
 
-// VideoGridEnd renders the "end of list" divider at the tail of an
-// infinite-scroll grid. Callers pass an i18n key (not a resolved
-// string) so the translation lookup stays co-located with the
-// component — route code doesn't need to touch t() for this.
 export function VideoGridEnd({
 	labelKey = "videos.end_of_list",
 }: {

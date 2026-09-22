@@ -6,9 +6,6 @@ import { cn } from "@/lib/utils";
 
 export type MediaFailureKind = Exclude<MediaProbeResult, "ok">;
 
-// MediaUnavailablePanel replaces the player once a source cannot play, so the
-// page never sits on a spinner. actions is the route's slot for the remove
-// button and history link, shown for the two definitive kinds only.
 export function MediaUnavailablePanel({
 	kind,
 	onRetry,

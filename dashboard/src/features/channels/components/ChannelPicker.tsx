@@ -22,9 +22,6 @@ interface ChannelPickerProps {
 	"aria-invalid"?: boolean;
 }
 
-// Base UI Combobox clears by passing null to onValueChange; we map that to
-// an empty string so consumers stay on a simple string contract.
-
 export function ChannelPicker({
 	value,
 	onChange,
@@ -38,8 +35,6 @@ export function ChannelPicker({
 	const { data: results, isFetching } = useChannelSearch(debounced, 20);
 	const { data: selectedChannel } = useChannel(value);
 
-	// Stitch the currently-selected channel into the options list so its
-	// value stays resolvable even when it's outside the active search page.
 	const items = useMemo<ChannelResponse[]>(() => {
 		const list = results ?? [];
 		if (!selectedChannel) return list;

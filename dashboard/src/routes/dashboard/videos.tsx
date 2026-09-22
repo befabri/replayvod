@@ -61,8 +61,6 @@ const SORT_CONFIG: Record<SortKey, { sort: VideoSort; order: VideoOrder }> = {
 	recently_watched: { sort: "last_watched", order: "desc" },
 	newest: { sort: "created_at", order: "desc" },
 	oldest: { sort: "created_at", order: "asc" },
-	// An archive sorts by the date its stream aired; a live recording aired
-	// when it was recorded, so both kinds interleave by air date.
 	streamed_newest: { sort: "broadcast_at", order: "desc" },
 	streamed_oldest: { sort: "broadcast_at", order: "asc" },
 	channel_asc: { sort: "channel", order: "asc" },
@@ -98,17 +96,8 @@ const SOURCE_FILTERS = [
 type SourceFilter = (typeof SOURCE_FILTERS)[number];
 const THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Sentinel for the "no filter" option in the Select widget. Base UI
-// Select treats each non-empty string value as a distinct option;
-// using an empty string risks colliding with unset-value semantics
-// in the primitive, so we round-trip through "any" on the UI side
-// and undefined on the URL/server side.
 const ANY = "any";
 
-// Twitch's quality ladder — a small closed set so the quality
-// dropdown renders the full range even when the current filter
-// narrows data rows down to a single rendition. Sourced from the
-// labels the variant picker emits plus Helix's fallback enums.
 const QUALITY_LADDER = [
 	"1080p60",
 	"1080p",
@@ -203,9 +192,6 @@ function VideosPage() {
 	const navigate = Route.useNavigate();
 	const [filtersOpen, setFiltersOpen] = useState(false);
 	const { data: stats } = useStatistics();
-	// Resolve the delete permission once for the whole page; the table columns
-	// and the grid cards omit the remove control for viewers rather than each
-	// row subscribing to the auth store and rendering null.
 	const canManage = useCanManageVideos();
 
 	const sortConfig = SORT_CONFIG[sortKey];
@@ -242,9 +228,6 @@ function VideosPage() {
 		watch_later: stats?.watch_later,
 		continue_watching: stats?.continue_watching,
 	};
-	// Languages grow across the session so the dropdown doesn't
-	// collapse to a single option once the user narrows the server
-	// filter. Reset on page reload. See note in useLanguageFacet.
 	const seenLanguages = useLanguageFacet(loadedRows, language);
 
 	const columns = useMemo(
@@ -309,7 +292,6 @@ function VideosPage() {
 		],
 		[t],
 	);
-	// Narrow previous-query rows while placeholderData keeps them mounted.
 	const filteredVideos = useMemo(
 		() =>
 			filterLoadedVideosForSearch(
@@ -317,7 +299,6 @@ function VideosPage() {
 				{
 					tab,
 					status,
-					// The display label omits the requested tier and may add an FPS suffix.
 					quality: videos.isPlaceholderData ? quality : undefined,
 					language,
 					duration,
@@ -539,13 +520,6 @@ function VideosPage() {
 	);
 }
 
-// useLanguageFacet accumulates every distinct language code seen in
-// loaded rows across the session. The language dropdown renders this
-// set so it never collapses to a single option once the user applies
-// a narrowing server filter. Reset on full page reload. Also seeds
-// from the URL-driven `currentValue` so a user who lands on a
-// narrow ?language=... sees their own selection in the dropdown even
-// before any unfiltered rows have been loaded.
 function useLanguageFacet(
 	rows: VideoResponse[],
 	currentValue: string | undefined,
@@ -646,8 +620,6 @@ function ScopeTabs({
 	onChange,
 }: {
 	current: TabKey;
-	// counts is keyed by tab. Values come from the statistics endpoint
-	// and are exact for tabs that have server backing.
 	counts: Partial<Record<TabKey, number>>;
 	onChange: (key: TabKey) => void;
 }) {
@@ -737,12 +709,6 @@ function matchesTabFilter(
 	return true;
 }
 
-// withSelectedOption makes sure the URL-held filter value has a
-// matching entry in the dropdown options, synthesising one if the
-// derived list (ladder, useChannels, seenLanguages) doesn't cover
-// it yet. Without this, the trigger label would silently fall back
-// to "any" while the URL and server filter still reflect the real
-// value.
 function withSelectedOption(
 	options: Array<{ value: string; label: string }>,
 	selected: string | undefined,

@@ -29,19 +29,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { useUpdateEventSubConfig } from "../queries";
 
-// Mode is the generated ServerMode union (Go config.ServerMode); the form's
-// FormValues["mode"] resolves to the same set via the oneof on the input schema.
 type Mode = ServerMode;
 
-// FormValues is the validated config shape; mode is narrowed to the enum the
-// schema enforces (the wire type widens it to string).
 type FormValues = z.infer<typeof UpdateConfigInputSchema>;
 
-// The mode picker presents the delivery modes as a guided choice rather than a
-// bare dropdown, so a first-run owner reads what each one does before picking.
-// Order is most-direct to least: webhook, relay, poll, off. Icon + copy are
-// resolved per mode; copy keys are spelled out (not interpolated) so the typed
-// `t` keeps them honest.
 const MODE_ORDER: readonly Mode[] = ["direct", "relay", "poll", "off"];
 
 const MODE_ICON: Record<Mode, Icon> = {
@@ -76,9 +67,6 @@ function modeCopy(t: TFunction, mode: Mode): { label: string; desc: string } {
 	}
 }
 
-// Only the fields the form actually edits are seeded: the mode and (for relay)
-// the relay URL. The server derives every other URL, so the form never tracks
-// them.
 function formValues(data: ConfigResponse): FormValues {
 	return {
 		mode: (data.mode || "poll") as Mode,
@@ -86,11 +74,6 @@ function formValues(data: ConfigResponse): FormValues {
 	};
 }
 
-// payload sends only what the owner actually supplies for the chosen mode: the
-// relay URL for relay, nothing for off/poll/direct. The server derives the rest
-// (relay subscribe + local callback from the relay URL, the direct webhook
-// callback from the public base), so the form never sends a URL the owner did
-// not type. Exported for tests.
 export function payload(values: FormValues): UpdateConfigInput {
 	const mode = values.mode as Mode;
 	if (mode === "relay") {
@@ -99,20 +82,13 @@ export function payload(values: FormValues): UpdateConfigInput {
 	return { mode };
 }
 
-// copyText copies via the async clipboard API when available (HTTPS or
-// localhost) and falls back to a hidden-textarea execCommand for the plain-HTTP
-// LAN origins a self-hosted dashboard is often reached at, where
-// navigator.clipboard is undefined. Returns whether the copy actually succeeded
-// so the UI only acknowledges real copies.
 async function copyText(value: string): Promise<boolean> {
 	try {
 		if (navigator.clipboard?.writeText) {
 			await navigator.clipboard.writeText(value);
 			return true;
 		}
-	} catch {
-		// Fall through to the execCommand fallback below.
-	}
+	} catch {}
 	try {
 		const textarea = document.createElement("textarea");
 		textarea.value = value;
@@ -128,9 +104,6 @@ async function copyText(value: string): Promise<boolean> {
 	}
 }
 
-// CopyButton copies a value and acknowledges with a brief "copied" state, but
-// only when the copy actually succeeds (the value here is the callback URL the
-// owner pastes into Twitch, so a false "copied" would silently lose it).
 function CopyButton({ value }: { value: string }) {
 	const { t } = useTranslation();
 	const [copied, setCopied] = useState(false);
@@ -174,9 +147,6 @@ function statusVariant(data: ConfigResponse) {
 	return "green" as const;
 }
 
-// ModeOption is one selectable mode card: icon tile + label + one-line
-// description, with a radio indicator. The whole card is a label wrapping the
-// radio, so a click anywhere selects the mode.
 function ModeOption({
 	mode,
 	selected,
@@ -224,9 +194,6 @@ function ModeOption({
 	);
 }
 
-// UrlField is the single controlled input every URL-backed mode reuses. Folding
-// the per-field Label+Input+onChange into one component removes the copy-paste
-// where a field could write to the wrong state key.
 function UrlField({
 	id,
 	label,
@@ -274,15 +241,8 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 		onSubmit: async ({ value, formApi }) => {
 			try {
 				const saved = await update.mutateAsync(payload(value));
-				// Adopt the saved config as the new clean baseline. mutateAsync resolves
-				// with the fresh config, so the form goes clean and the "saved" banner
-				// shows without waiting for the invalidation refetch to land.
 				formApi.reset(formValues(saved));
-			} catch {
-				// A failed save is surfaced through the update.isError banner below;
-				// swallow the rejection (mutateAsync rethrows) so it does not become
-				// an unhandled rejection, and leave the form dirty for a retry.
-			}
+			} catch {}
 		},
 	});
 
@@ -301,12 +261,6 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 		}
 	};
 
-	// The persistent server state (restart/setup/env-managed/active mode) is read
-	// from the fresh query `data`, never from the mutation response: a sticky
-	// `update.data` would keep showing the pre-save snapshot after the owner
-	// restarts and the config query refetches (e.g. on window focus), leaving the
-	// "restart required" banner stuck. The transient "saved" banner keys off
-	// update.isSuccess instead, so it does not need the response either.
 	const disabled = data.env_managed || update.isPending;
 	const restartRequired = data.restart_required;
 
@@ -321,8 +275,6 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 						{t("eventsub.config_title")}
 					</CardTitle>
 				</div>
-				{/* No badge in env-managed mode: the env-managed hint below already
-				    says environment variables own this config. */}
 				{!data.env_managed && (
 					<Badge variant={statusVariant(data)}>
 						{data.restart_required
@@ -439,9 +391,6 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 						</form.Subscribe>
 
 						<div>
-							{/* In direct mode with no derived callback (no public URL),
-							    saving would just fail server-side on top of the warning
-							    already shown, so block it here. */}
 							<form.Subscribe selector={(s) => s.values.mode}>
 								{(mode) => (
 									<Button

@@ -10,18 +10,10 @@ import { VideoThumbnail } from "./listColumns";
 import { VideoRemovalActions } from "./VideoRemovalActions";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 
-// HistoryOutcome is the download outcome the tabs filter on, and it is the same
-// axis as the Status column. The server owns what separates a failure from a
-// run the operator stopped, so "cancelled" is a value here rather than a rule
-// the dashboard has to know.
 export type HistoryOutcome = "all" | "failed" | "cancelled";
 
-// HistoryMedia is the other axis, the same one the Media column shows: whether
-// the recording's files are still on disk.
 export type HistoryMedia = "any" | "on_disk" | "removed" | "unavailable";
 
-// HistoryView is one cell of the two axes, which together are what the page's
-// two controls select.
 export type HistoryView = {
 	outcome: HistoryOutcome;
 	media: HistoryMedia;
@@ -35,10 +27,6 @@ function channelColumn(t: TFunction): ColumnDef<VideoResponse> {
 	};
 }
 
-// RecordingCell identifies a row at a glance: the poster while one is still in
-// storage (a missing-media tombstone keeps it, every other removal purges it),
-// the channel link, and the stream title underneath. Poster and title both open
-// the player, so the row needs no Watch button of its own.
 export function RecordingCell({
 	row,
 	t,
@@ -48,8 +36,6 @@ export function RecordingCell({
 }) {
 	const title = row.title?.trim();
 	const subtitle = title && title !== channelLabel(row) ? title : null;
-	// Only a finished recording that still has its media opens the player; a
-	// tombstone or a failure has nothing to play, so it stays plain content.
 	const watchable = !row.deleted_at && row.status === "DONE";
 	return (
 		<div
@@ -135,9 +121,6 @@ function TitleCell({
 	);
 }
 
-// ChannelCell links the channel name to its channel page (broadcaster_id), the
-// same target the video cards use. Falls back to plain text for the rare row
-// with no synced broadcaster.
 function ChannelCell({ row }: { row: VideoResponse }) {
 	const label = channelLabel(row);
 	if (!row.broadcaster_id) {
@@ -154,8 +137,6 @@ function ChannelCell({ row }: { row: VideoResponse }) {
 	);
 }
 
-// statusColumn owns one axis: what the recorder did. Whether the media survived
-// is the media column's business, so a tombstone never adds a second badge here.
 function statusColumn(t: TFunction): ColumnDef<VideoResponse> {
 	return {
 		accessorKey: "status",
@@ -170,18 +151,12 @@ function statusColumn(t: TFunction): ColumnDef<VideoResponse> {
 	};
 }
 
-// mediaColumn owns the other axis: whether the recording's files are still on
-// disk, and why they left if they aren't. Plain text rather than a badge, so it
-// never competes with the status pill next to it.
 const mediaColumn = (t: TFunction): ColumnDef<VideoResponse> => ({
 	id: "media",
 	header: t("history.col_media"),
 	cell: ({ row }) => <MediaCell row={row.original} t={t} />,
 });
 
-// MediaCell reads deletion_kind to tell auto-cleanup (retention), media that
-// vanished from storage (missing) and an operator delete (manual) apart.
-// Failed recordings may still own finalized media.
 export function MediaCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 	if (row.deleted_at) {
 		return (
@@ -214,8 +189,6 @@ function mediaLabelKey(deletionKind?: string | null): string {
 	}
 }
 
-// A tombstone keeps its quality and size as an audit record, dimmed so the row
-// reads as inactive rather than advertising bytes that are no longer there.
 const dimmedIfRemoved = (row: VideoResponse) =>
 	row.deleted_at ? "opacity-50" : undefined;
 
@@ -244,17 +217,11 @@ const sizeColumn = (t: TFunction): ColumnDef<VideoResponse> => ({
 	),
 });
 
-// whenColumn shows the most relevant moment for the row: when it was removed,
-// else when it finished, else when it started. Relative ("2h ago") with an
-// absolute hover via the shared Timestamp.
 const whenColumn = (
 	t: TFunction,
 	locale: string,
 ): ColumnDef<VideoResponse> => ({
 	id: "when",
-	// The value exists only so TanStack lets the header sort: getCanSort()
-	// requires an accessor, and manualSorting means the server does the
-	// ordering. Mirrors the iso the cell renders.
 	accessorFn: (row) =>
 		row.deleted_at ?? row.downloaded_at ?? row.start_download_at,
 	header: t("history.col_when"),
@@ -291,9 +258,6 @@ function actionsColumn(canManage: boolean): ColumnDef<VideoResponse> {
 	};
 }
 
-// ErrorCell shows a failure message clamped to one line, click to expand the
-// full text. Errors run long (ffmpeg/HLS dumps), so an inline expand reads far
-// better than hover-truncation.
 function ErrorCell({ error }: { error?: string }) {
 	const [expanded, setExpanded] = useState(false);
 	if (!error) {
@@ -314,9 +278,6 @@ function ErrorCell({ error }: { error?: string }) {
 	);
 }
 
-// historyColumns returns the column set for one view. Every column has to earn
-// its place: Media says nothing once the scope pins it, Size is empty for a run
-// that never wrote a file, and the error only exists on failures.
 export function historyColumns(
 	t: TFunction,
 	view: HistoryView,
@@ -335,12 +296,7 @@ export function historyColumns(
 	if (view.outcome === "failed") {
 		cols.push(errorColumn(t));
 	}
-	// Every view can hold a restorable tombstone, so the actions column stays;
-	// its cells decide per row.
 	cols.push(actionsColumn(canManage));
-	// Enable sorting only on columns the server can sort (the header drives a
-	// real server-side sort + page reset; see HISTORY_SORT_BY_COLUMN). Status,
-	// quality, error, and actions stay non-sortable.
 	return cols.map((col) => {
 		const id =
 			"accessorKey" in col && col.accessorKey
@@ -353,9 +309,6 @@ export function historyColumns(
 	});
 }
 
-// HISTORY_SORT_BY_COLUMN maps a sortable column's id to the server VideoSort key.
-// Column ids are the accessorKey ("display_name", "size_bytes") or explicit id
-// ("when"). Keep in lockstep with the column factories above.
 export const HISTORY_SORT_BY_COLUMN: Record<
 	string,
 	"channel" | "size" | "history_when"

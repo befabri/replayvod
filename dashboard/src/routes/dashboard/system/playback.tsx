@@ -30,9 +30,6 @@ function PlaybackCachePage() {
 			)}
 			{config.data && (
 				<div className="grid gap-6">
-					{/* No version field on the config, so key on the values: a server-side
-					    change (or the post-save refetch) remounts the card to re-baseline
-					    its form defaults — no prop-to-state sync effect needed. */}
 					<PlaybackCacheCard
 						key={`${config.data.enabled}-${config.data.max_percent}-${config.data.auto_generate}`}
 						data={config.data}

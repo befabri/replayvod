@@ -30,7 +30,6 @@ import {
 	recordingElapsedSeconds,
 } from "./runningDownloadsTimeline";
 
-// Matches the downloader stage order and renders as the active-row breadcrumb.
 const STAGE_PIPELINE = [
 	"auth",
 	"playlist",
@@ -127,7 +126,6 @@ function RunningDownloadRow({
 	);
 	const hasTimeline = scaleSeconds > 0;
 
-	// Poll while the recording runs so mid-stream title/category changes appear.
 	const { data: timeline } = useVideoTimeline(row.video.id, hasTimeline, {
 		refetchInterval: 15_000,
 	});
@@ -303,8 +301,6 @@ function DownloadMetrics({
 	const { t } = useTranslation();
 
 	const figures: string[] = [];
-	// A finite playlist (a VOD archive) knows its size from the first poll, so
-	// the percentage is real; live recordings report -1 until they finish.
 	if (row.percent >= 0) figures.push(`${Math.round(row.percent)}%`);
 	if (scaleSeconds > 0) figures.push(formatPlaybackTime(scaleSeconds));
 	figures.push(
@@ -358,7 +354,6 @@ function DownloadTimeline({
 
 	const pct = (seconds: number) => `${percentOf(seconds, scaleSeconds)}%`;
 
-	// Shade tracks category runs, while title-only changes keep the same tone.
 	const dimShade: boolean[] = [];
 	let dim = false;
 	for (let i = 0; i < segments.length; i++) {

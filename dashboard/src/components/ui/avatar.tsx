@@ -20,17 +20,9 @@ interface AvatarProps extends Omit<React.ComponentProps<"span">, "children"> {
 	name?: string;
 	size?: Size;
 	isLive?: boolean;
-	// Tailwind class for the live-dot ring. Defaults to `ring-card` since
-	// most live-dot consumers sit on card surfaces; override when the
-	// avatar lands on a different surface (popover, navbar, bare page bg).
 	liveRingClass?: string;
 }
 
-// Avatar deliberately passes `alt=""` to the <img> so a failed image load
-// (404, CORS, offline) doesn't spill the subject's name next to a sibling
-// label. The component tracks load errors and swaps to initials instead.
-// Callers that need AT-readable text should label the Avatar's container
-// (aria-label) or rely on adjacent visible text.
 export function Avatar({
 	src,
 	alt: _alt,
@@ -49,10 +41,6 @@ export function Avatar({
 		.toUpperCase();
 
 	const [errored, setErrored] = useState(false);
-	// Reset the error state when src changes so a subsequent valid URL
-	// reloads the image rather than staying stuck on initials. `src` is
-	// a trigger, not consumed in the body — biome's exhaustive-deps
-	// lint can't tell the difference.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: src is the trigger, not a body dependency
 	useEffect(() => {
 		setErrored(false);
@@ -83,8 +71,6 @@ export function Avatar({
 				<span
 					aria-hidden="true"
 					className={cn(
-						// Dot scales with avatar size: bigger avatars get a bigger dot
-						// so the signal stays readable at any container size.
 						"absolute -bottom-0.5 -right-0.5 block rounded-full bg-destructive ring-2",
 						size === "sm" && "h-2 w-2",
 						(size === "md" || size === "lg") && "h-2.5 w-2.5",

@@ -60,9 +60,6 @@ export function ScheduleStatistics() {
 	);
 }
 
-// Extracted to its own component so each row can fire its own useChannel
-// query for name/avatar resolution without cluttering the parent hook
-// list. React Query dedupes across rows with the same broadcaster_id.
 function ScheduleStatsRow({
 	schedule,
 	canManage,

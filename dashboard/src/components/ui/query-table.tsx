@@ -8,9 +8,6 @@ type QueryTableState<TData> = {
 	error: { message: string } | null;
 };
 
-// Shared loading/error/empty shell around DataTable. Surrounding chrome stays in
-// the route; getRows pulls the row array from the payload (identity, or .data for
-// an envelope).
 export function QueryTable<TData, Row, TValue>({
 	query,
 	columns,

@@ -3,7 +3,6 @@ export function SnapshotChart({
 }: {
 	data: { id: number; fetched_at: string; total_cost: number; total: number }[];
 }) {
-	// Newest first from the server; reverse for left-to-right chronological.
 	const points = [...data].reverse();
 	const maxCost = Math.max(1, ...points.map((p) => p.total_cost));
 

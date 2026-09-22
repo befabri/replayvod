@@ -35,10 +35,6 @@ function SchedulesPage() {
 	const { data: pauseState } = useSchedulesPaused();
 	const hasSchedules = (data?.data.length ?? 0) > 0;
 	const globallyPaused = pauseState?.paused ?? false;
-	// schedule.create/toggle/delete are admin-only on the server, so the
-	// management controls are hidden from viewers rather than letting them
-	// act and hit a 403. Viewers see the full list read-only and file a
-	// request (admin-approved) instead of creating schedules directly.
 	const user = useSelector(authStore, (s) => s.user);
 	const canManage = hasRole(user, "admin");
 	const cta = canManage ? <CreateScheduleDialog /> : <RequestScheduleDialog />;
@@ -61,9 +57,6 @@ function SchedulesPage() {
 		>
 			<SchedulesPausedBanner />
 
-			{/* Requests live above the schedule list: a viewer's own asks
-				(always visible, with their pending/approved/rejected state)
-				or the admin review queue they turn into schedules. */}
 			{canManage ? <RequestsQueue /> : <MyRequests />}
 
 			{isLoading && (
@@ -101,10 +94,6 @@ function SchedulesPage() {
 	);
 }
 
-// RequestsQueue is the admin review surface, embedded above the
-// schedule list so pending decisions come first: approve opens the
-// settings dialog, reject closes the request. Hidden while nobody has
-// ever filed anything.
 function RequestsQueue() {
 	const { t } = useTranslation();
 	const requests = useAllScheduleRequests();
@@ -113,9 +102,6 @@ function RequestsQueue() {
 	);
 	const columns = useMemo(() => adminRequestColumns(t, setApproving), [t]);
 
-	// Hidden while loading or genuinely empty, but a failed load must
-	// surface (QueryTable's error state) — an invisible queue would leave
-	// pending requests sitting undecided with no hint anything broke.
 	if (!requests.isError && (requests.data?.length ?? 0) === 0) return null;
 
 	return (
@@ -137,9 +123,6 @@ function RequestsQueue() {
 	);
 }
 
-// MyRequests shows the viewer's own filed requests above the schedule
-// list, so an ask and its pending/approved/rejected state stay in view
-// (and cancellable) — including when they haven't filed anything yet.
 function MyRequests() {
 	const { t } = useTranslation();
 	const requests = useMyScheduleRequests();

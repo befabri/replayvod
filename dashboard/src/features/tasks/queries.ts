@@ -33,11 +33,6 @@ export function useRunTaskNow() {
 	);
 }
 
-// useLiveTaskStatus attaches to the task.status live feed and
-// invalidates the task list on every transition. The list reload
-// (one cheap query) is the simpler path than optimistic patching
-// here — a task row has ~10 fields all of which move on each
-// transition, so there's nothing to save by patching by hand.
 export function useLiveTaskStatus() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();

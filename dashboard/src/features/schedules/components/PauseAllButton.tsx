@@ -7,11 +7,6 @@ import {
 	useSetSchedulesPaused,
 } from "@/features/schedules/queries";
 
-// PauseAllButton toggles the global auto-download pause flag. Pausing leaves
-// every schedule's own enabled/disabled state intact; resuming restores prior
-// behavior exactly, since the flag lives on the server and never rewrites the
-// individual schedules. Labelled "Pause all" / "Resume" (not "Resume all") to
-// make clear resume restores prior state rather than enabling everything.
 export function PauseAllButton() {
 	const { t } = useTranslation();
 	const { data } = useSchedulesPaused();

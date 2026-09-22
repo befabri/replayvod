@@ -26,13 +26,6 @@ import { DirectDownloadForm } from "./DirectDownloadForm";
 
 type DownloadTab = "now" | "schedule";
 
-// ChannelDownloadDialog is the channel detail page's download entry
-// point. It folds two distinct actions behind one button: an instant
-// "download now" (records the current live stream, so it only works while
-// the channel is live) and "schedule" (an auto-download rule that fires
-// every time the channel goes live, with the same filters as the
-// schedules page). The direct form checks the broadcaster when opened;
-// followed-channel membership only supplies the avatar's live indicator.
 export function ChannelDownloadDialog({
 	broadcasterId,
 	broadcasterName,
@@ -83,8 +76,6 @@ function ChannelDownloadDialogBody({
 	onClose: () => void;
 }) {
 	const { t } = useTranslation();
-	// Absence from the followed-stream snapshot does not mean offline. Start
-	// with the direct check and offer scheduling once offline is confirmed.
 	const [tab, setTab] = useState<DownloadTab>("now");
 
 	return (
@@ -146,9 +137,6 @@ function ScheduleTab({
 	const { t } = useTranslation();
 	const create = useCreateSchedule();
 
-	// broadcaster_id is fixed to this channel (no picker): the dialog is
-	// scoped to one channel, so the picker the schedules page shows would
-	// be redundant here.
 	const defaultValues: ScheduleFormValues = {
 		broadcaster_id: broadcasterId,
 		recording_type: "video",

@@ -44,19 +44,6 @@ function dedupConsecutiveEvents(
 	return out;
 }
 
-// StreamHistoryButton renders the merged title + category timeline
-// for a recording. The backing endpoint (video.timeline) reads from
-// video_metadata_changes, where each row is one channel.update event
-// with both dimensions captured under a single occurred_at — so the
-// frontend doesn't need to interleave or group anything client-side.
-//
-// The query is gated on `open` (lazy-load): list pages won't fan out
-// N requests at render time.
-//
-// `videoStartDownloadAt` is the recording's start instant. Each event's
-// occurred_at is turned into a seconds offset from it, which is both the
-// label and the deep-link target into the player (?t=offset) — clicking
-// a row's timestamp jumps the watch page to that moment.
 export function StreamHistoryButton({
 	videoId,
 	videoStartDownloadAt,
@@ -110,12 +97,6 @@ function StreamHistoryDialogContent({
 }) {
 	const { data: rawEvents, isLoading } = useVideoTimeline(videoId, true);
 
-	// Run-length dedup: collapse consecutive events whose (category,
-	// title) pair is identical to the previous row. The server emits
-	// one row per channel.update tick, so a re-fired event that didn't
-	// change anything produces a row that's a literal duplicate of its
-	// predecessor — visually noisy and not what a viewer thinks of as
-	// "history."
 	const events = dedupConsecutiveEvents(rawEvents);
 
 	return (
@@ -140,10 +121,6 @@ function StreamHistoryDialogContent({
 						</Tooltip>
 					</TooltipProvider>
 				</DialogTitle>
-				{/* Visually hidden — sighted users read the same text
-					    from the InfoIcon tooltip; this connects the dialog
-					    to a description for screen readers via Base UI's
-					    auto-wired aria-describedby. */}
 				<DialogDescription className="sr-only">
 					{t("videos.history.description")}
 				</DialogDescription>
@@ -164,18 +141,10 @@ function StreamHistoryDialogContent({
 			{events && events.length > 0 && (
 				<ol className="flex flex-col py-2">
 					{events.map((event, idx) => {
-						// Use the same offset resolver the player seeks through
-						// (media_offset_seconds when present, else wall-clock from the
-						// recording start), so the timestamp link lands on the marker the
-						// player shows — not ~the gap-length past it on a recording with
-						// ad-break / dropped-segment gaps. Clamp the unparseable sentinel.
 						const offsetSec = Math.max(
 							0,
 							timelineEventOffsetSeconds(event, videoStartDownloadAt),
 						);
-						// "Start" only when the change is actually at the recording's
-						// start (offset 0). Keying on idx mislabelled the first row when
-						// the earliest tracked change happened mid-recording.
 						const offsetLabel =
 							offsetSec === 0
 								? t("videos.history.start")
@@ -183,7 +152,6 @@ function StreamHistoryDialogContent({
 						const isLast = idx === events.length - 1;
 						return (
 							<li key={timelineEventKey(event)} className="flex gap-3">
-								{/* Timestamp deep-links into the player at this offset. */}
 								<Link
 									to="/dashboard/watch/$videoId"
 									params={{ videoId: String(videoId) }}

@@ -27,11 +27,6 @@ export type RecordingPlaylistPart = {
 export type RecordingPlaylistSource = {
 	src: string;
 	mimeType: "video/mp4" | "audio/mp4";
-	// Probed duration of the continuous file, when known. The muxed artifact runs
-	// on its own clock, which can drift from the recording timeline (summed part
-	// EXTINF). The player reconciles that drift against `totalDurationSeconds` at
-	// the I/O boundary; everything the UI renders stays on the recording basis.
-	// Null when unknown — treat as no drift.
 	durationSeconds: number | null;
 };
 
@@ -74,11 +69,6 @@ export function buildRecordingPlaylist(
 	apiUrl = "",
 ): RecordingPlaylist {
 	const parts = buildPlaylistParts(video, apiUrl);
-	// One timeline basis for rendering AND seeking: the recording timeline from
-	// summed part durations (metadata markers are in real recording seconds, so
-	// they live on this basis too). A ready muxed artifact may probe to a slightly
-	// different total; that drift is reconciled at the player boundary (see
-	// WatchPlayer), not by handing the UI a second timebase.
 	const totalDurationSeconds = playlistDuration(parts, video.duration_seconds);
 	return {
 		videoId: video.id,
@@ -123,10 +113,6 @@ export function continuousSourceForVideo(
 	return null;
 }
 
-// artifactDurationSeconds returns the ready artifact's probed duration, the
-// length of the muxed file's own clock. The player uses it to reconcile that
-// clock against the recording timeline. Null when there's no usable ready
-// artifact (the player then assumes no drift).
 function artifactDurationSeconds(
 	artifact: VideoResponse["playback_artifact"],
 ): number | null {
@@ -352,10 +338,6 @@ function lastMarkerAtOrBefore(
 
 export type MediaProbeResult = "ok" | "gone" | "removed" | "failed";
 
-// probeMediaSource asks the server what happened to a source the media element
-// refused to play. The element itself never exposes the HTTP status, so a HEAD
-// request tells a file that left storage (404) and a removed recording (410)
-// apart from a transient failure worth retrying.
 export async function probeMediaSource(
 	src: string,
 	fetchImpl: typeof fetch = fetch,

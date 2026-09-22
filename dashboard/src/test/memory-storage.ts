@@ -1,6 +1,3 @@
-// installMemoryStorage swaps window.localStorage for an in-memory Storage so
-// tests do not depend on the runtime's own: under vitest's jsdom environment
-// the global is Node's stub, which lacks the Web Storage methods.
 export function installMemoryStorage(): Storage {
 	const entries = new Map<string, string>();
 	const storage: Storage = {

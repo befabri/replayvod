@@ -5,10 +5,6 @@ import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// `chip` is the auto-width, card-surface trigger used in toolbar rows
-// (sort, view, filter chips). It drops the form-control affordances —
-// full width, input-style background, drop shadow — that would clash
-// with the surrounding chip group.
 const selectTriggerVariants = cva(
 	"flex h-9 items-center justify-between gap-2 rounded-md border border-border px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
 	{

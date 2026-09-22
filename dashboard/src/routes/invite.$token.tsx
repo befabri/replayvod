@@ -7,9 +7,6 @@ export const Route = createFileRoute("/invite/$token")({
 	component: InvitePage,
 });
 
-// Public invite landing, outside the dashboard auth guard. Mirrors the
-// login page's two-column layout; the Twitch button carries the raw
-// invite token so the OAuth callback can redeem it.
 function InvitePage() {
 	const { t } = useTranslation();
 	const { token } = Route.useParams();

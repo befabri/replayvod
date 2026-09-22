@@ -6,10 +6,6 @@ import type {
 
 export type ResumePolicy = SettingsResponse["playback"];
 
-// resumeOffsetSeconds picks the offset the player opens at for a saved watch
-// position, or undefined to start from the beginning. Only the position
-// counts: completed_at records that the recording was once watched through,
-// and a rewatch that stopped halfway still resumes.
 export function resumeOffsetSeconds(
 	state:
 		| Pick<VideoUserStateResponse, "last_position_seconds">
@@ -31,7 +27,6 @@ export function resumeOffsetSeconds(
 	return position;
 }
 
-// The library and dashboard also apply this after a progress cache patch.
 export function isContinueWatchingVideo(
 	video: Pick<
 		VideoResponse,

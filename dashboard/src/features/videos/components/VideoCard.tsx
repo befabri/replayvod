@@ -23,7 +23,6 @@ import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { WatchLaterButton } from "./WatchLaterButton";
 
-// Hover preview timing tuned to avoid flicker and accidental fetch fan-out.
 const HOVER_SWAP_INTERVAL_MS = 900;
 
 const HOVER_INTENT_DELAY_MS = 700;
@@ -43,8 +42,6 @@ function firstSnapshotURL(video: VideoResponse, cacheBust = 0): string {
 	);
 }
 
-// Returns current and previous frames so the caller can crossfade without
-// flashing back to the hero thumbnail between swaps.
 function useHoverSnapshots(
 	urls: string[],
 	active: boolean,
@@ -73,9 +70,6 @@ function useHoverSnapshots(
 	return { current, prev: prev ?? null };
 }
 
-// StatusOverlayBadge tells a card that is not playable apart: still
-// downloading, queued, or failed. Finished recordings carry no status badge;
-// the play overlay says it.
 function StatusOverlayBadge({
 	status,
 	completionKind,
@@ -107,9 +101,6 @@ function StatusOverlayBadge({
 	);
 }
 
-// IncompleteOverlayBadge is one visual bucket for recordings that did not
-// capture the full broadcast; the label names whether it was partial,
-// cancelled, or otherwise truncated.
 function IncompleteOverlayBadge({
 	completionKind,
 	truncated,
@@ -243,7 +234,6 @@ export function VideoCard({
 		return () => window.clearTimeout(id);
 	}, [hovered]);
 
-	// Finished recordings can fetch the full hover time-lapse after hover intent.
 	const { data: snapshotPaths } = useVideoSnapshots(
 		video.id,
 		previewing && video.status === "DONE",
@@ -253,8 +243,6 @@ export function VideoCard({
 
 	const label = channelLabel(video);
 	const dateLabel = new Date(video.start_download_at).toLocaleDateString();
-	// An archive shows the date its stream aired where a live recording shows
-	// its recording date; the download date moves to the meta line.
 	const isArchive = video.source === "vod";
 	const airedLabel =
 		isArchive && video.broadcast_at
@@ -263,8 +251,6 @@ export function VideoCard({
 	const sizeLabel = formatBytes(video.size_bytes);
 	const primaryCategoryLabel = video.primary_category_name?.trim() || null;
 	const primaryLabel = video.title?.trim() || video.display_name;
-	// The bar shows where playback resumes; a finished or barely started
-	// recording shows none, matching what the player would do.
 	const resumeSeconds =
 		video.status === "DONE"
 			? resumeOffsetSeconds(
@@ -391,9 +377,6 @@ export function VideoCard({
 		</>
 	);
 
-	// Only a finished recording opens the player. A recording still being
-	// downloaded leads to the download queue, a failed one to History where its
-	// error is shown, so every card goes somewhere useful.
 	const mediaLinkClassName =
 		"block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 	const mediaNode =

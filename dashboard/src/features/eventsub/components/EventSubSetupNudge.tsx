@@ -8,15 +8,6 @@ import { useTranslation } from "react-i18next";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// EventSubSetupNudge is the dashboard-home prompt: a compact onboarding callout
-// linking to the full setup form on the system page. The form lives in exactly
-// one place (EventSubSetupCard on /dashboard/system/eventsub), so its
-// save/success/restart feedback is never lost when this prompt unmounts after a
-// successful save.
-//
-// Two states share the layout: the first-run "set up live detection" nudge
-// (primary accent, inviting) and the post-save "restart required" reminder
-// (amber accent, advisory).
 export function EventSubSetupNudge({
 	setupRequired,
 	restartRequired,

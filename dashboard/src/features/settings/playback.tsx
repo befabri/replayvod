@@ -6,8 +6,6 @@ import { useSettings } from "./queries";
 
 const PlaybackContext = createContext<ResumePolicy | null>(null);
 
-// Mount playback consumers only after the server's policy is available. A late
-// settings response must never change a player's already-latched resume seed.
 export function PlaybackSettingsProvider({
 	children,
 }: {

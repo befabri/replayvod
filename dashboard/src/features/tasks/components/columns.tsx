@@ -4,8 +4,6 @@ import type { TaskResponse } from "@/features/tasks";
 import { StatusBadge } from "./StatusBadge";
 import { TaskActions } from "./TaskActions";
 
-// Columns are a function so translations bind lazily — i18n instance is
-// pulled in by the caller's useTranslation hook, not at module load.
 export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 	return [
 		{

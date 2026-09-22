@@ -3,9 +3,6 @@ import { RecordingSettingsFields } from "@/components/recording-settings-fields"
 import { cn } from "@/lib/utils";
 import type { ScheduleFormApi } from "../form";
 
-// RecordingSettingsField is the schedule-form binding for the shared
-// RecordingSettingsFields control: it wraps the fields in the labelled
-// fieldset and wires them to the schedule form.
 export function RecordingSettingsField({
 	form,
 	className,

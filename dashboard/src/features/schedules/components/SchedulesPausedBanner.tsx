@@ -9,10 +9,6 @@ import {
 } from "@/features/schedules/queries";
 import { authStore, hasRole } from "@/stores/auth";
 
-// SchedulesPausedBanner surfaces the global pause state so it's obvious nothing
-// will record. The text shows for everyone (viewers benefit from knowing why
-// nothing records); the Resume action is admin-only, since schedule.setPaused is
-// admin-only on the server. Renders nothing when not paused.
 export function SchedulesPausedBanner() {
 	const { t } = useTranslation();
 	const { data } = useSchedulesPaused();

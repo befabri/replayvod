@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
 
-// Shared timers keyed by interval. Each component that calls useTick(ms)
-// subscribes to the same timer as other callers with the same interval,
-// so we run at most one setInterval per distinct interval app-wide
-// regardless of how many consumers mount.
 type Entry = {
 	count: number;
 	tick: number;
@@ -46,9 +42,6 @@ function subscribe(intervalMs: number, listener: (tick: number) => void) {
 	};
 }
 
-// useTick forces a re-render every `intervalMs`. Multiple consumers with
-// the same interval share one setInterval — only one timer fires per
-// interval app-wide, and they stay in sync.
 export function useTick(intervalMs: number): number {
 	const [tick, setTick] = useState(() => registry.get(intervalMs)?.tick ?? 0);
 	useEffect(() => subscribe(intervalMs, setTick), [intervalMs]);

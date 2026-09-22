@@ -11,11 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { CreateForm } from "./CreateForm";
 
-// CreateScheduleDialog is the schedules page's "New schedule" entry point:
-// a trigger button that opens the creation form in a modal, so the page
-// itself is just the list. The form is mounted only while open so each run
-// starts from clean defaults. An optional custom trigger lets callers reuse
-// this from places like the empty state.
 export function CreateScheduleDialog({
 	trigger,
 }: {

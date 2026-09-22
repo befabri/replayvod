@@ -21,11 +21,6 @@ export function useEventLogs(params: {
 	);
 }
 
-// useLiveSystemEvents subscribes to the system.events live feed and
-// invalidates the event_logs query set on every new row. A full
-// invalidation (not per-page patching) keeps filter + pagination
-// coherent — if we patched one page optimistically, a user on page 2
-// would see a phantom new row that doesn't actually belong there.
 export function useLiveSystemEvents() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();

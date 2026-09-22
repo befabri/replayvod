@@ -10,9 +10,6 @@ import { isContinueWatchingVideo } from "@/features/videos/resume-policy";
 
 const CONTINUE_WATCHING_LIMIT = 5;
 
-// ContinueWatching puts the recordings the viewer is partway through on the
-// home page, most recently watched first. The server uses the same eligibility
-// and order as the library tab; the local filter also handles patched progress.
 export function ContinueWatching() {
 	const policy = usePlaybackSettings();
 	const { t } = useTranslation();

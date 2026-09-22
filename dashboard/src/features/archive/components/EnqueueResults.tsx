@@ -19,13 +19,9 @@ const STATUS_VARIANT: Record<
 	error: "red",
 };
 
-// EnqueueResults lists what happened to each submitted link. Each line keeps
-// the user's own input so a bad paste is easy to spot and fix.
 export function EnqueueResults({ items }: { items: EnqueueArchiveItem[] }) {
 	const { t } = useTranslation();
 	if (items.length === 0) return null;
-	// The same input can appear twice (a duplicate line), so key on the
-	// input plus its occurrence rather than the array position.
 	const seen = new Map<string, number>();
 	const keyed = items.map((item) => {
 		const n = (seen.get(item.input) ?? 0) + 1;

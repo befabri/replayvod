@@ -30,9 +30,6 @@ import {
 import { withSessionProbe } from "@/stores/auth";
 import { VIDEO_LIST_CACHES, videoCaches, videoUserStatePatch } from "./cache";
 
-// VideoCategory (the category-span row) and VideoTitle (the title-span row) are
-// the generated wire shapes of video.categories / video.titles. VideoTitle
-// keeps its dashboard name as an alias of the generated TitleItem.
 export type { VideoCategory };
 export type VideoTitle = TitleItem;
 
@@ -50,20 +47,13 @@ export type VideoSort =
 	| "broadcast_at"
 	| "last_watched";
 export type VideoOrder = "asc" | "desc";
-// VideoScope selects the tombstone state. "active" (the default everywhere) is
-// live recordings only; "removed" and "all" power the removed-inclusive history
-// surface. Only video.listPage honours it; grids and search stay active-only.
 export type VideoScope = "active" | "removed" | "all";
-// VideoOutcome splits terminal recordings the way the download history does.
-// The server maps it onto status + completion_kind, so the dashboard never has
-// to know that a cancellation is stored as a failed row.
 export type VideoOutcome = "completed" | "failed" | "cancelled";
 export type VideoDeletionKind = "retention" | "manual" | "missing";
 export type VideoListFilters = {
 	quality?: string;
 	broadcasterId?: string;
 	language?: string;
-	// source narrows to live recordings or archives of past broadcasts.
 	source?: VideoSource;
 	duration?: string;
 	size?: string;
@@ -75,8 +65,6 @@ export type VideoListFilters = {
 	terminalOnly?: boolean;
 	scope?: VideoScope;
 	outcome?: VideoOutcome;
-	// deletionKind narrows tombstones to why they left; only meaningful with
-	// scope "removed" or "all".
 	deletionKind?: VideoDeletionKind;
 };
 
@@ -115,7 +103,6 @@ export function useInfiniteVideoPages(
 			{
 				getNextPageParam: (lastPage: VideoListPageResponse) =>
 					lastPage.next_cursor ?? undefined,
-				// Keep previous filter data mounted while the next query runs.
 				placeholderData: keepPreviousData,
 				enabled: options?.enabled ?? true,
 			},
@@ -137,8 +124,6 @@ export function useVideoSearch(
 	);
 }
 
-// Video-change notifications refresh continuation windows independently of
-// playback. Keep this query mounted even while a singleton panel is hidden.
 export function useRelatedRecordings(id: number) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -146,8 +131,6 @@ export function useRelatedRecordings(id: number) {
 			{ id },
 			{
 				enabled: id > 0,
-				// Reuse navigation only within a known related window. Playback data
-				// must still load independently for the destination recording.
 				placeholderData: (previous) =>
 					previous?.items.some((item) => item.id === id) ? previous : undefined,
 			},
@@ -162,20 +145,6 @@ export function useVideo(id: number) {
 			{ id },
 			{
 				enabled: id > 0,
-				// The single-file playback artifact is built lazily — the first time
-				// this recording is played (the server kicks it when a part is
-				// streamed). So a multi-part recording opened for the first time has
-				// no artifact row yet; it appears as "building" and then "ready" over
-				// the next seconds/minutes. Poll while a finished multi-part recording
-				// has no ready artifact so the player upgrades from the part sequencer
-				// to the continuous file the moment the build lands, then stop.
-				//
-				// Stop once the artifact reaches any terminal state: "ready" (the
-				// player swaps to it), or "failed"/"unavailable" (won't become ready
-				// without another play). Keep polling only while it's absent or
-				// "building". A recording too big for the cache cap is left with no
-				// row, so it keeps polling while its watch page is open — bounded to
-				// the session, since the query unmounts on navigate.
 				refetchInterval: (query) => {
 					const v = query.state.data;
 					if (v?.deleted_at) return false;
@@ -230,11 +199,6 @@ export function useAudioWaveform(videoId: number, enabled = true) {
 	});
 }
 
-// useVideoTitles fetches the full title history for a video. Empty
-// array when title tracking is disabled on the server or the
-// recording was too short to capture a change. The UI shows the
-// badge only when length > 1 (single title = same info as
-// video.title on the VideoResponse).
 export function useVideoTitles(videoId: number, enabled = true) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -245,11 +209,6 @@ export function useVideoTitles(videoId: number, enabled = true) {
 	);
 }
 
-// useVideoCategories fetches the categories seen during a recording.
-// A stream can change category mid-broadcast; the server appends each
-// distinct category to the M2M via LinkStreamCategory on every live-
-// poll tick. Empty array means the recording predates category
-// tracking or the stream ran with no recognized category.
 export function useVideoCategories(videoId: number, enabled = true) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -260,8 +219,6 @@ export function useVideoCategories(videoId: number, enabled = true) {
 	);
 }
 
-// useVideoTimeline fetches the recording's chronological observation log.
-// Each row carries a title, a category, or both.
 export function useVideoTimeline(
 	videoId: number,
 	enabled = true,
@@ -280,15 +237,6 @@ export function useVideoTimeline(
 	);
 }
 
-// useVideoSnapshots returns the ordered list of snapshot storage
-// paths captured during a recording (one per live-preview tick).
-// The VideoCard's hover effect cycles through these — including
-// audio-only recordings, whose previews come from Twitch's live
-// frame endpoint while the recording is active. The backend probes
-// storage, so an empty result means either no snapshots, too-short
-// recording, or the recording predates the snapshotter. `enabled`
-// is a lazy-load gate: list queries shouldn't fire for every card,
-// only for ones currently under hover.
 export function useVideoSnapshots(videoId: number, enabled = true) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -296,9 +244,6 @@ export function useVideoSnapshots(videoId: number, enabled = true) {
 			{ video_id: videoId },
 			{
 				enabled: enabled && videoId > 0,
-				// Storage contents don't change after DONE — we can
-				// cache forever for the session. A refresh rebuilds
-				// the query when the user reloads the page.
 				staleTime: Number.POSITIVE_INFINITY,
 			},
 		),
@@ -336,9 +281,6 @@ export function useInfiniteVideosByCategory(categoryId: string, limit = 24) {
 	);
 }
 
-// useHistoryCounts labels the download-history controls. One call covers every
-// tab under either media scope, so switching scope re-labels the tabs without
-// another round trip.
 export function useHistoryCounts() {
 	const trpc = useTRPC();
 	return useQuery(
@@ -353,23 +295,12 @@ export function useStatistics() {
 	const trpc = useTRPC();
 	return useQuery(
 		trpc.video.statistics.queryOptions(undefined, {
-			// Refresh on a slow cadence so server-side row transitions
-			// (download completion, hourly cleanups) tick into the
-			// dashboard without the user reloading. Mutations that
-			// originate from the UI already invalidate this key
-			// directly; the interval covers the gap for events the
-			// dashboard didn't trigger.
 			refetchInterval: 30_000,
 			refetchOnWindowFocus: true,
 		}),
 	);
 }
 
-// useChannelStatistics rolls up DONE recordings for one broadcaster:
-// total count, summed bytes, summed duration. Backed by a single
-// SQL aggregate (no client-side pagination) so the watch page can
-// surface a "N recordings · X GB" line without paying for a full
-// library scan over tRPC.
 export function useChannelStatistics(broadcasterId: string) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -380,8 +311,6 @@ export function useChannelStatistics(broadcasterId: string) {
 	);
 }
 
-// useDownloadCapacity reads the service-wide concurrent-download cap. It's
-// static server config, so it's fetched once and kept indefinitely.
 export function useDownloadCapacity() {
 	const trpc = useTRPC();
 	return useQuery(
@@ -391,17 +320,6 @@ export function useDownloadCapacity() {
 	);
 }
 
-// useLiveActiveDownloads streams active downloads via the server's
-// live subscription and mirrors each tick into the tanstack-query
-// cache under trpc.video.activeDownloads.queryKey(). Mirroring
-// through the cache (rather than a component-local useState) means
-// an unmount/remount keeps the last known state, and any other
-// consumer reading that key sees the same rows.
-//
-// enabled: false ensures mutations that invalidate activeDownloads
-// never refetch through HTTP and race with live subscription writes — the
-// subscription is the sole writer for this key while this hook is
-// mounted.
 export function useLiveActiveDownloads() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -428,8 +346,6 @@ export function useLiveActiveDownloads() {
 
 	return {
 		data,
-		// Wall-clock time of the latest live sample, so consumers can extrapolate
-		// live counters (elapsed clock) forward between pushes.
 		dataUpdatedAt,
 		isLoading: data === undefined && error == null,
 		isError: error != null,
@@ -437,9 +353,6 @@ export function useLiveActiveDownloads() {
 	};
 }
 
-// Only data for this broadcaster and codec can authorize a direct download.
-// Do not carry placeholder data across keys: a new codec may expose a wholly
-// different set of renditions. Failed lookups let the form use its ceiling.
 export function liveRenditionsOptions(
 	trpc: ReturnType<typeof useTRPC>,
 	broadcasterId: string,
@@ -473,10 +386,6 @@ export function useCancelDownload() {
 	);
 }
 
-// One subscription in the authenticated layout covers every video surface.
-// Recording, intent, and removal transitions share the feed, so related lists
-// and pending/running videos update without polling. Reconnect invalidates
-// snapshots, including inactive caches reread when their page next mounts.
 export function useLiveVideoChanges() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -494,9 +403,6 @@ export function useLiveVideoChanges() {
 	});
 }
 
-// useDeleteVideo queues a finished recording for background removal. The worker
-// later purges files and tombstones the row (deletion_kind=manual), so the
-// shared cache invalidation refreshes library, search, statistics, and history.
 export function useDeleteVideo() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -504,8 +410,6 @@ export function useDeleteVideo() {
 	return useMutation(
 		trpc.video.delete.mutationOptions({
 			onSuccess: (_result, { id }) => {
-				// The API has accepted deletion, but its worker may not run immediately.
-				// Reflect the acknowledged queue state in every mounted surface now.
 				patchEntity<VideoResponse>(queryClient, caches, {
 					match: (video) => video.id === id,
 					update: (video) => ({
@@ -520,9 +424,6 @@ export function useDeleteVideo() {
 	);
 }
 
-// useRestoreVideo brings a missing-media tombstone back. The row moves from
-// History into the library, so every video cache and the history counts
-// refetch.
 export function useRestoreVideo() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -564,7 +465,6 @@ export function useSetWatchLater() {
 								qc.getQueryData(trpc.settings.get.queryKey())?.playback,
 							),
 						);
-						// Stats is scalar (not row-patched); apply the count delta directly.
 						qc.setQueriesData<StatisticsResponse>(
 							{ queryKey: caches.statistics.pathKey },
 							(cache) => applyWatchLaterDeltaToStats(cache, watch_later),
@@ -586,9 +486,6 @@ export function useSetWatchLater() {
 	);
 }
 
-// useContinueWatching lists the recordings the user is partway through, most
-// recently watched first. The server applies the same resume policy as the
-// library tab, so callers can request exactly the number they display.
 export function useContinueWatching(limit = 12) {
 	const trpc = useTRPC();
 	return useQuery(trpc.video.continueWatching.queryOptions({ limit }));
@@ -619,8 +516,6 @@ function applyWatchLaterDeltaToStats(
 	};
 }
 
-// Scan the loaded video caches for an existing copy, so the optimistic state can
-// preserve fields the mutation doesn't carry (position, watched/completed times).
 function findCachedVideo(
 	queryClient: ReturnType<typeof useQueryClient>,
 	caches: ReturnType<typeof videoCaches>,
@@ -662,16 +557,10 @@ function findVideoInCachedData(
 	return undefined;
 }
 
-// useInvalidateVideo refetches one recording and every list it appears in.
-// The watch page calls it when the player finds the media gone: the server
-// tombstones such a recording before answering that 404, so the refetch flips
-// the page into its removed state and drops the row from the library.
 export function useInvalidateVideo(id: number) {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	return useCallback(() => {
-		// Build descriptors when invalidating so their fresh identity never
-		// becomes a dependency of the callback returned to the watch page.
 		invalidateCaches(queryClient, videoCaches(trpc), VIDEO_LIST_CACHES);
 		return queryClient.invalidateQueries({
 			queryKey: trpc.video.getById.queryKey({ id }),

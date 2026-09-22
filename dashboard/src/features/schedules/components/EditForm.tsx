@@ -18,10 +18,6 @@ import type { ScheduleFormValues } from "@/features/schedules/schema";
 import { FiltersFieldset } from "./FiltersFieldset";
 import { RecordingSettingsField } from "./RecordingSettingsField";
 
-// EditForm mirrors the v1 shared ScheduleForm in edit mode: the
-// broadcaster field is shown read-only at the top (context, no change
-// allowed after creation); the footer carries Delete on the left and
-// Cancel + Save on the right, matching v1's modal footer layout.
 export function EditForm({
 	schedule,
 	onDone,
@@ -88,7 +84,6 @@ export function EditForm({
 			}}
 			className="flex flex-col gap-4"
 		>
-			{/* Broadcaster context — read-only in edit, matching v1. */}
 			<div className="flex items-center gap-3">
 				<Avatar
 					src={channel?.profile_image_url}
@@ -114,9 +109,6 @@ export function EditForm({
 				</div>
 			)}
 
-			{/* Footer: Delete on the left, Cancel + Save on the right (v1 modal layout).
-				All three buttons share a min-width so they line up visually across
-				translations with varied label lengths. */}
 			<div className="flex items-center justify-between gap-3 border-t border-border pt-4 -mx-6 px-6 -mb-6 pb-6">
 				<Button
 					type="button"

@@ -20,8 +20,6 @@ export function useMyScheduleRequests() {
 	});
 }
 
-// useAllScheduleRequests backs the admin review queue; the procedure is
-// admin-gated server-side, so only mount it behind a role check.
 export function useAllScheduleRequests() {
 	const trpc = useTRPC();
 	return useInfiniteQuery({
@@ -81,7 +79,6 @@ export function useApproveScheduleRequest() {
 		trpc.schedule.approveRequest.mutationOptions({
 			onSuccess: () => {
 				invalidate();
-				// Approval created a schedule; refresh the schedule lists too.
 				queryClient.invalidateQueries({
 					queryKey: trpc.schedule.list.pathKey(),
 				});

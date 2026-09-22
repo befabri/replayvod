@@ -13,10 +13,6 @@ export const Route = createFileRoute("/dashboard/archive")({
 	component: ArchivePage,
 });
 
-// The Archive page is where past broadcasts enter the library: paste VOD links
-// or browse a channel, pick a recording quality once, and the queue below shows
-// what is waiting and downloading. Viewers only see the queue; queueing is
-// admin-level on the server like every other download control.
 function ArchivePage() {
 	const { t } = useTranslation();
 	const canManage = useCanManageVideos();

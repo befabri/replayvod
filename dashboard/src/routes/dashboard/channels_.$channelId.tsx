@@ -35,10 +35,6 @@ function ChannelDetailPage() {
 	});
 	const liveSet = useLiveSet();
 	const isLive = liveSet.has(channelId);
-	// Both the direct download (video.triggerDownload) and the schedule tab
-	// (schedule.create) are admin-only on the server, so the whole Download
-	// entry point is hidden from viewers rather than letting them fill the
-	// flow and fail on submit.
 	const user = useSelector(authStore, (s) => s.user);
 	const canDownload = hasRole(user, "admin");
 	const videoItems = resource.items;

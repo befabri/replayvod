@@ -3,9 +3,6 @@ import type { CompletionKind, VideoStatus } from "@/api/generated/trpc";
 import { Badge } from "@/components/ui/badge";
 import { videoStatusLabel } from "@/features/videos/labels";
 
-// Record<VideoStatus, ...> so a new generated status is a compile error here
-// rather than silently falling through to an undefined variant. Maps each
-// status onto a shared Badge color variant.
 const STATUS_VARIANT: Record<VideoStatus, "green" | "red" | "blue" | "muted"> =
 	{
 		DONE: "green",

@@ -19,10 +19,6 @@ import {
 } from "@/features/schedules/form";
 import type { ScheduleFormValues } from "@/features/schedules/schema";
 
-// ApproveRequestDialog is the admin's decision surface: the schedule
-// settings form (same fields as schedule creation) pinned to the
-// requested channel. Submitting creates the schedule and consumes the
-// request server-side in one call.
 export function ApproveRequestDialog({
 	request,
 	onClose,

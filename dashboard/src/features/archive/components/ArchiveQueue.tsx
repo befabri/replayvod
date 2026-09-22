@@ -39,11 +39,6 @@ const ArchiveStorageContext = createContext<StorageState | undefined>(
 const EMPTY_PROGRESS: ReadonlyMap<string, ActiveDownloadResponse> = new Map();
 const ArchiveProgressContext = createContext(EMPTY_PROGRESS);
 
-// LiveArchiveProgress owns the live feed the Downloads page also reads (the
-// queue rows themselves only carry status) and hands the per-job samples down
-// through context. It renders its children untouched, so a tick re-renders the
-// progress cells reading the context and nothing else: not the queue table, and
-// not its column definitions.
 function LiveArchiveProgress({ children }: { children: ReactNode }) {
 	const { data: active } = useLiveActiveDownloads();
 	const { data: storage } = useStorageStatus();
@@ -62,14 +57,6 @@ function LiveArchiveProgress({ children }: { children: ReactNode }) {
 	);
 }
 
-// ArchiveQueue shows what is waiting and what is downloading, oldest first,
-// which is the order the pump takes, then what failed in the last week. A
-// queued archive can be removed outright (nothing was captured); a running one
-// is cancelled like any download; a failed one can be retried by hand, and a
-// retry the server scheduled on its own can be cancelled.
-//
-// The live feed sits above the tables so the subscription is not torn down
-// when the queue query goes loading or errors.
 export function ArchiveQueue() {
 	return (
 		<LiveArchiveProgress>
@@ -275,7 +262,6 @@ function failureColumns(
 	return columns;
 }
 
-// RetryCell counts down to the automatic retry, or says none is scheduled.
 function RetryCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 	const until = useUntil(row.next_retry_at);
 	if (!until) {
@@ -385,9 +371,6 @@ function FailureActions({ row }: { row: VideoResponse }) {
 	);
 }
 
-// ProgressCell shows how far a running archive is. A VOD playlist reveals its
-// size on the first poll, so the percentage is real from the start; the speed
-// and remaining time come from the same live sample.
 function ProgressCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 	const progress = useContext(ArchiveProgressContext).get(row.job_id);
 	const storageState = useContext(ArchiveStorageContext);

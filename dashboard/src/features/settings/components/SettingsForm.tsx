@@ -54,19 +54,15 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 			const submitted = { ...value };
 			try {
 				const saved = await update.mutateAsync(value);
-				// A completed save must not discard edits made while it was pending.
 				if (
 					FIELDS.every((name) => formApi.state.values[name] === submitted[name])
 				) {
 					formApi.reset(settingsFormValues(saved));
 				}
-			} catch {
-				/* The mutation error is displayed below; keep the user's edits. */
-			}
+			} catch {}
 		},
 	});
 	useEffect(() => {
-		// Saving playback preferences must not discard unsaved locale edits.
 		if (!form.state.isDirty) form.reset(settingsFormValues(data));
 	}, [data, form]);
 

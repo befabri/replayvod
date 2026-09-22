@@ -27,9 +27,6 @@ import {
 	useVisibleNavGroups,
 } from "./nav-data";
 
-// Single source of truth for the sidebar footprint. The aside width and the
-// layout's <main> margin must move together, so both live here and are imported
-// by the layout rather than re-typed there.
 export const SIDEBAR_EXPANDED = "w-64";
 export const SIDEBAR_COLLAPSED = "w-[4.5rem]";
 export const SIDEBAR_MARGIN_EXPANDED = "md:ml-64";
@@ -56,7 +53,6 @@ export function Sidebar() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const isDesktop = useIsDesktop();
 
-	// Rail mode only applies on desktop; the mobile drawer is always full width.
 	const compact = collapsed && isDesktop;
 
 	const activeIndex = useMemo(
@@ -81,7 +77,6 @@ export function Sidebar() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
-	// Expand the rail and reveal a group's children in one click.
 	const expandInto = (idx: number) => {
 		setSidebarCollapsed(false);
 		setOpenIndex(idx);
@@ -160,8 +155,6 @@ export function Sidebar() {
 		</>
 	);
 }
-
-/* ---------------------------------------------------------------- rows --- */
 
 const rowBase =
 	"group/row relative flex h-9 items-center rounded-lg text-sm font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring";

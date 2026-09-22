@@ -12,10 +12,6 @@ import { useTranslation } from "react-i18next";
 import type { FileRouteTypes } from "@/routeTree.gen";
 import { authStore, hasRole, type Role } from "@/stores/auth";
 
-// StaticRoute is the subset of router paths that take no params (no `$`
-// segment). The sidebar only links to param-free destinations, so typing
-// `to` against this lets `<Link to={...}>` type-check without params and
-// without an `as any` cast — a renamed/removed route breaks the build here.
 export type StaticRoute = Exclude<FileRouteTypes["to"], `${string}$${string}`>;
 
 export type NavChild = {
@@ -28,7 +24,6 @@ export type NavChild = {
 export type NavGroup = {
 	icon: Icon;
 	label: string;
-	/** Minimum role required to see the group; omitted = everyone. */
 	roleMin?: Role;
 } & (
 	| { to: StaticRoute; children?: undefined }
@@ -104,7 +99,6 @@ export function useVisibleNavGroups(): NavGroup[] {
 	);
 }
 
-/** True when the route is exactly `child.to` or nested below it. */
 export function isChildActive(pathname: string, child: NavChild): boolean {
 	if (
 		child.activePrefixes?.some(
@@ -117,14 +111,12 @@ export function isChildActive(pathname: string, child: NavChild): boolean {
 	return pathname === child.to || pathname.startsWith(`${child.to}/`);
 }
 
-/** True when any child of the group matches the current route. */
 export function isGroupActive(pathname: string, group: NavGroup): boolean {
 	if (group.children)
 		return group.children.some((c) => isChildActive(pathname, c));
 	return pathname === group.to || pathname.startsWith(`${group.to}/`);
 }
 
-/** Index of the group owning the current route, or -1. */
 export function activeGroupIndex(pathname: string, groups: NavGroup[]): number {
 	return groups.findIndex((g) => isGroupActive(pathname, g));
 }

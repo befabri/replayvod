@@ -14,9 +14,6 @@ import { cn } from "@/lib/utils";
 import { MAX_VODS_PER_ENQUEUE } from "../limits";
 import { EnqueueResults } from "./EnqueueResults";
 
-// ArchiveLinksForm is the paste box: one VOD link or id per line, nothing else
-// required. Lines that are not VOD links are flagged before submit; the server
-// answers per line (queued, already held, gone from Twitch) after.
 export function ArchiveLinksForm({ settings }: { settings: ArchiveSettings }) {
 	const { t } = useTranslation();
 	const id = useId();

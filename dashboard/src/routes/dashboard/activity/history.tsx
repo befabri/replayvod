@@ -32,8 +32,6 @@ import {
 import { useCanManageVideos } from "@/features/videos/permissions";
 
 const PAGE_SIZE = 50;
-// Newest first by default. The "when" column maps to the server's history_when
-// sort (see HISTORY_SORT_BY_COLUMN).
 const DEFAULT_SORTING: SortingState = [{ id: "when", desc: true }];
 
 type HistoryQueryIdentity = {
@@ -82,9 +80,6 @@ function HistoryContent({
 	const [page, setPage] = useState(0);
 	const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
-	// Drive a real server-side sort from the table header. The column id maps to
-	// a VideoSort key; unsortable columns never reach here (enableSorting gates
-	// them), so the fallback is just defensive.
 	const activeSort = sorting[0];
 	const sortKey: VideoSort = activeSort
 		? (HISTORY_SORT_BY_COLUMN[activeSort.id] ?? "created_at")
@@ -96,9 +91,6 @@ function HistoryContent({
 		terminalOnly: true,
 	});
 	const loadedPages = videos.data?.pages ?? [];
-	// Resolve the delete permission once for the table; the actions column omits
-	// the remove control for viewers instead of mounting a per-row hook stack
-	// that renders null.
 	const canManage = useCanManageVideos();
 	const columns = useMemo(
 		() => historyColumns(t, view, canManage, i18n.language),
@@ -106,14 +98,9 @@ function HistoryContent({
 	);
 	const counts = useHistoryTabCounts(view.media);
 
-	// The async fetchNextPage().then must only advance the page for the exact
-	// query that requested it. Sorting and view changes both rotate the query
-	// key; a stale completion from the previous key must not mutate the current
-	// paginator.
 	const latestQuerySignature = useRef(querySignature);
 	latestQuerySignature.current = querySignature;
 
-	// A header click changes the server sort, so jump back to the first page.
 	const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
 		setSorting((prev) =>
 			typeof updater === "function" ? updater(prev) : updater,
@@ -121,9 +108,6 @@ function HistoryContent({
 		setPage(0);
 	};
 
-	// Keep the page index inside the loaded range. A delete/invalidation can
-	// shrink the cached pages under a deep page; clamp so the table doesn't
-	// strand the user on an empty page.
 	useEffect(() => {
 		if (!videos.hasNextPage && page > loadedPages.length - 1) {
 			setPage(Math.max(0, loadedPages.length - 1));
@@ -135,8 +119,6 @@ function HistoryContent({
 		(page < loadedPages.length - 1 || !!videos.hasNextPage) &&
 		!videos.isFetchingNextPage;
 
-	// Cursor pagination: advancing past the loaded pages fetches the next one,
-	// then moves on only if the fetch succeeded and the view didn't change.
 	const goNext = () => {
 		const next = page + 1;
 		if (page < loadedPages.length - 1) {
@@ -225,9 +207,6 @@ function HistoryContent({
 	);
 }
 
-// useHistoryTabCounts labels each outcome tab under the current media scope.
-// The server returns both halves of every outcome, so changing scope re-labels
-// the tabs from cache instead of refetching.
 function useHistoryTabCounts(
 	media: HistoryMedia,
 ): Record<HistoryOutcome, number | undefined> {

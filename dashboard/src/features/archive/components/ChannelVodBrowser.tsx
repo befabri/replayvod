@@ -27,17 +27,11 @@ import { formatDuration } from "@/features/videos/format";
 import { formatAbsolute } from "@/lib/format-relative";
 import { cn } from "@/lib/utils";
 
-// ChannelVodBrowser looks a channel up on Twitch and lists what it still has
-// online, so several VODs can be queued at once. VODs already in the library
-// show their status instead of a checkbox.
 export function ChannelVodBrowser({ settings }: { settings: ArchiveSettings }) {
 	const { t, i18n } = useTranslation();
 	const id = useId();
 	const [query, setQuery] = useState("");
 	const [channel, setChannel] = useState<string | null>(null);
-	// Selection is the table's own state, keyed by VOD id via getRowId, so it
-	// survives pages being appended and leaves the column definitions untouched
-	// by a click.
 	const [selected, setSelected] = useState<RowSelectionState>({});
 	const vods = useChannelVods(channel);
 	const enqueue = useEnqueueArchive();
@@ -62,15 +56,11 @@ export function ChannelVodBrowser({ settings }: { settings: ArchiveSettings }) {
 	};
 
 	const archiveSelected = async () => {
-		// Read the ids back off the loaded rows: a row that cannot be archived
-		// cannot be selected, and one that left the list is no longer offered.
 		const ids = rows
 			.filter((row) => selected[row.id] && canArchive(row))
 			.map((row) => row.id);
 		if (ids.length === 0) return;
 		try {
-			// A selection can outgrow one call; the batches run in order so the
-			// queue keeps the order of the list.
 			const items: EnqueueArchiveItem[] = [];
 			for (const batch of chunk(ids, MAX_VODS_PER_ENQUEUE)) {
 				const response = await enqueue.mutateAsync({
@@ -153,9 +143,6 @@ export function ChannelVodBrowser({ settings }: { settings: ArchiveSettings }) {
 						getRowId={(row) => row.id}
 						rowSelection={selected}
 						onRowSelectionChange={setSelected}
-						// A VOD already in the library, still on air, or private has
-						// nothing to queue, so it offers no checkbox and the header's
-						// select-all skips it.
 						enableRowSelection={(row) => canArchive(row.original)}
 					/>
 					<div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,8 +188,6 @@ function browserColumns(
 	return [
 		{
 			id: "select",
-			// Selection comes off `table`/`row` rather than a captured Set, so this
-			// definition is built once per locale instead of once per click.
 			header: ({ table }) => (
 				<Checkbox
 					aria-label={t("archive.select_all")}
@@ -314,15 +299,12 @@ function vodTypeLabel(t: TFunction, type: string): string {
 	}
 }
 
-// canArchive says whether the browser offers a VOD: not held by the library,
-// not still on air, and not private on Twitch.
 function canArchive(vod: TwitchVODResponse): boolean {
 	return (
 		vod.archived_video_id == null && !vod.live && vod.viewable !== "private"
 	);
 }
 
-// StatusCell explains why a VOD has no checkbox, or that it is free to take.
 function StatusCell({ vod, t }: { vod: TwitchVODResponse; t: TFunction }) {
 	if (vod.archived_status) {
 		return (

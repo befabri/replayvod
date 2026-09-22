@@ -1,7 +1,3 @@
-// Client-side mirrors of the server's VOD and channel parsers so a pasted
-// list gets instant feedback. The server re-parses every input and is the
-// authority; these only decide what to show before submit.
-
 const TWITCH_HOSTS = /(^|\.)twitch\.tv$/i;
 const VOD_PATH = /^\/(?:videos|[A-Za-z0-9_]+\/(?:video|v))\/(\d+)\/?$/i;
 const LOGIN = /^[A-Za-z0-9_]{2,25}$/;
@@ -16,7 +12,6 @@ function parseTwitchUrl(raw: string): URL | null {
 	}
 }
 
-/** The Twitch VOD id in a bare id or any twitch.tv VOD link, or null. */
 export function parseVodId(input: string): string | null {
 	const s = input.trim();
 	if (!s) return null;
@@ -27,7 +22,6 @@ export function parseVodId(input: string): string | null {
 	return match?.[1] ?? null;
 }
 
-/** The lowercase login in a channel name or twitch.tv channel link, or null. */
 export function parseChannelInput(input: string): string | null {
 	const s = input.trim().replace(/^@/, "");
 	if (!s) return null;
@@ -42,7 +36,6 @@ export function parseChannelInput(input: string): string | null {
 
 export type ParsedLine = { input: string; vodId: string | null };
 
-/** Splits pasted text into non-empty lines (also on commas and spaces between links). */
 export function parseVodLines(text: string): ParsedLine[] {
 	return text
 		.split(/[\n,]+|\s+(?=https?:\/\/|twitch\.tv)/)

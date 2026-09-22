@@ -23,9 +23,6 @@ export function timelineEventOffsetSeconds(
 			? wallClockAnchor
 			: new Date(wallClockAnchor).getTime();
 	const occurredMs = new Date(event.occurred_at).getTime();
-	// Unparseable timestamps yield NaN, which slips past downstream `< 0` and
-	// clamp() guards and renders a marker at left: NaN%. Return a negative
-	// sentinel instead so those guards reject (or clamp) it like any bad offset.
 	if (!Number.isFinite(anchorMs) || !Number.isFinite(occurredMs)) return -1;
 	return Math.max(0, Math.round((occurredMs - anchorMs) / 1000));
 }

@@ -26,8 +26,6 @@ export function ScheduleRow({
 }: {
 	schedule: ScheduleResponse;
 	globallyPaused?: boolean;
-	// Toggling, editing, and deleting are admin-only on the server. Non-admin
-	// viewers get a read-only card: no toggle, no edit strip, no hover hint.
 	canManage?: boolean;
 }) {
 	const { t } = useTranslation();
@@ -36,10 +34,6 @@ export function ScheduleRow({
 	const [editing, setEditing] = useState(false);
 
 	const channelLabel = channel?.broadcaster_name ?? schedule.broadcaster_id;
-	// While the global pause is on, every card reads as paused (dimmed, muted
-	// accent) and the per-card enable/pause toggle is suppressed — toggling one
-	// schedule's state has no visible effect until the global switch is off, so
-	// surfacing it would just confuse. Editing stays available.
 	const dimmed = schedule.is_disabled || globallyPaused;
 
 	const handleToggle = async () => {
@@ -54,10 +48,6 @@ export function ScheduleRow({
 
 	return (
 		<div className="relative flex overflow-hidden rounded-lg bg-card shadow-sm">
-			{/* Left segment: clicking anywhere here toggles enable/pause. The
-				play/pause glyph is only a hover hint (below). Dimmed when paused.
-				The status accent lives inside this segment so it ends exactly at
-				the divider. */}
 			<button
 				type="button"
 				onClick={handleToggle}
@@ -124,9 +114,6 @@ export function ScheduleRow({
 						)}
 					</div>
 				</div>
-				{/* Status accent: a flat bar across the bottom of this segment,
-					so it terminates cleanly at the divider. Green when enabled,
-					muted when paused. */}
 				<div
 					aria-hidden="true"
 					className={cn(
@@ -136,9 +123,6 @@ export function ScheduleRow({
 				/>
 			</button>
 
-			{/* Right segment: the whole ~1/8 strip opens the edit dialog,
-				divided from the content by a full-height left border. Admin-only —
-				editing is an admin action, so viewers get a read-only card. */}
 			{canManage && (
 				<button
 					type="button"
@@ -154,10 +138,6 @@ export function ScheduleRow({
 				</button>
 			)}
 
-			{/* Hover hint: a subtle play/pause glyph centered over the card while
-				the toggle segment is hovered. Purely decorative
-				(pointer-events-none); the click target is the segment itself.
-				Hidden while globally paused or for read-only viewers. */}
 			{canManage && !globallyPaused && (
 				<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-foreground opacity-0 drop-shadow-md transition-opacity peer-hover/toggle:opacity-100 [&_svg]:size-8">
 					{schedule.is_disabled ? (

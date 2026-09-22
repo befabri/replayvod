@@ -23,9 +23,6 @@ export type MetadataMarker = {
 	onMediaAxis?: boolean;
 };
 
-// ContentSegment is a period of constant metadata on the recording's media
-// clock. Bands are colored by category, so a title-only change keeps the color
-// and reads as a seam while still carrying its own title.
 export type ContentSegment = {
 	key: string;
 	startSeconds: number;
@@ -83,12 +80,6 @@ export function clampMetadataMarkers(
 	if (scaleSeconds <= 0) return [];
 	return markers
 		.map((marker): MetadataMarker | null => {
-			// scaleSeconds is on the media clock (recordingElapsedSeconds). An event
-			// with an explicit media_offset is on that same axis, so one beyond the
-			// scale is genuinely future/stale — drop it. But an event WITHOUT a media
-			// offset falls back to wall-clock elapsed, which runs ahead of the media
-			// clock (gaps/startup lag); a valid recent marker can exceed the scale, so
-			// clamp it to the live edge rather than silently dropping it.
 			if (marker.onMediaAxis && marker.offsetSeconds > scaleSeconds)
 				return null;
 			return {
@@ -103,10 +94,6 @@ function sortMetadataMarkers(markers: MetadataMarker[]): MetadataMarker[] {
 	return [...markers].sort((a, b) => a.offsetSeconds - b.offsetSeconds);
 }
 
-// activeMetadataAt returns the category/title in effect at an offset — the most
-// recent change of each kind at or before it (a value persists until it changes,
-// so a category set in an earlier part carries forward). `ordered` must be sorted
-// ascending by offset.
 function activeMetadataAt(
 	ordered: MetadataMarker[],
 	atSeconds: number,
@@ -121,14 +108,6 @@ function activeMetadataAt(
 	return { category, title };
 }
 
-// contentSegments slices the recording at every metadata change (category OR
-// title) across the elapsed media clock, carrying forward the active value of
-// the field that didn't change.
-//
-// It sorts by offset defensively: upstream orders events by occurred_at, but the
-// marker offset is derived (media clock, or wall-clock fallback for events with
-// no media offset), so the two can diverge. The segmentation — and "current"
-// being the last segment — depends on strict offset order.
 export function contentSegments(
 	markers: MetadataMarker[],
 	scaleSeconds: number,
@@ -148,7 +127,6 @@ export function contentSegmentsFromOrderedMarkers(
 		return [{ key: "seg-0", startSeconds: 0, endSeconds: scaleSeconds }];
 	}
 	const segments: ContentSegment[] = [];
-	// A gap before the first change (rare): a neutral, category-less band.
 	const first = ordered[0];
 	if (first && first.offsetSeconds > 0) {
 		segments.push({

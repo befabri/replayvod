@@ -21,10 +21,6 @@ type RequestFormValues = {
 	note: string;
 };
 
-// RequestScheduleDialog is the non-admin entry point on the schedules
-// page: schedule creation is admin-only, so viewers file a request
-// (channel + optional note) that an admin approves into a schedule.
-// An optional custom trigger lets the empty state reuse it.
 export function RequestScheduleDialog({
 	trigger,
 }: {

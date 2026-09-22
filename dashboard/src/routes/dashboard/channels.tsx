@@ -49,16 +49,11 @@ function ChannelsPage() {
 	const resource = useInfiniteResource(channels, {
 		getItems: (page) => page.items,
 		rootMargin: "500px 0px",
-		// Avoid draining every channel page when the live filter is active but the
-		// SSE live set says nobody is live.
 		shouldLoadMore: ({ query }) =>
 			!!query.hasNextPage &&
 			!query.error &&
 			(filter !== "live" || liveSet.size > 0),
 	});
-	// filter === "live" is applied client-side against the SSE-backed liveSet so
-	// channels going on/offline reflect in real time. The downloaded tab is
-	// API-backed because it depends on local video rows.
 	const visible = useMemo(
 		() =>
 			filter === "live"

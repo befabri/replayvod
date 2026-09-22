@@ -95,7 +95,6 @@ function requestedColumn(t: TFunction): ColumnDef<ScheduleRequestResponse> {
 	};
 }
 
-// CancelButton mounts its mutation per row so pending state stays isolated.
 function CancelButton({ id, t }: { id: number; t: TFunction }) {
 	const cancel = useCancelScheduleRequest();
 	return (
@@ -110,8 +109,6 @@ function CancelButton({ id, t }: { id: number; t: TFunction }) {
 	);
 }
 
-// myRequestColumns is the requester's own view: channel, note, status,
-// filing date, and a cancel action while still pending.
 export function myRequestColumns(
 	t: TFunction,
 ): ColumnDef<ScheduleRequestResponse>[] {
@@ -151,9 +148,6 @@ function RejectButton({ id, t }: { id: number; t: TFunction }) {
 	);
 }
 
-// adminRequestColumns is the review queue: adds the requester column and
-// the approve/reject decisions on pending rows. Approval opens the
-// schedule-settings dialog, so it's a callback into page state.
 export function adminRequestColumns(
 	t: TFunction,
 	onApprove: (request: ScheduleRequestResponse) => void,

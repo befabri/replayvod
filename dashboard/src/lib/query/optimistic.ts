@@ -8,10 +8,6 @@ import {
 	snapshotCaches,
 } from "./cache";
 
-// Codifies the optimistic-mutation contract once: cancel + snapshot the families,
-// apply the patch, roll back on error, reconcile from the server response, and
-// invalidate on settle. Callers supply only apply/applyServer, so a mutation
-// can't get the key semantics wrong. Spread into a tRPC mutationOptions() call.
 export type OptimisticWriteConfig<TData, TVars> = {
 	apply: (qc: QueryClient, vars: TVars) => void;
 	applyServer?: (qc: QueryClient, data: TData, vars: TVars) => void;

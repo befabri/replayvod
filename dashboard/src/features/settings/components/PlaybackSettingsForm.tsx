@@ -24,7 +24,6 @@ export function PlaybackSettingsForm({ data }: { data: SettingsResponse }) {
 			const submitted = { ...value };
 			try {
 				const saved = await update.mutateAsync(value);
-				// Inputs remain editable during a save; only reset the values it acknowledged.
 				if (
 					FIELDS.every((name) =>
 						Object.is(formApi.state.values[name], submitted[name]),
@@ -32,13 +31,10 @@ export function PlaybackSettingsForm({ data }: { data: SettingsResponse }) {
 				) {
 					formApi.reset(saved.playback);
 				}
-			} catch {
-				/* The mutation error is displayed below; keep the user's edits. */
-			}
+			} catch {}
 		},
 	});
 	useEffect(() => {
-		// Refresh pristine forms after another device's save, preserving local edits.
 		if (!form.state.isDirty) form.reset(data.playback);
 	}, [data.playback, form]);
 	return (

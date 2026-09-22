@@ -4,11 +4,6 @@ import { toast } from "sonner";
 import { useRestoreVideo } from "@/features/videos/queries";
 import { cn } from "@/lib/utils";
 
-// RestoreVideoButton brings a missing-media tombstone back into the library.
-// Nothing is destroyed, so there is no confirm: the server refuses with a
-// clear reason when the files are not all back, and that reason is shown.
-// Surfaces gate on useCanManageVideos before mounting it, like the remove
-// button.
 export function RestoreVideoButton({
 	videoId,
 	withLabel = false,

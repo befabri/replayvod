@@ -11,8 +11,6 @@ const TOAST_OPTIONS: ToasterProps["toastOptions"] = {
 		actionButton:
 			"bg-primary text-primary-foreground rounded-md px-2 py-1 text-xs",
 		cancelButton: "bg-muted text-muted-foreground rounded-md px-2 py-1 text-xs",
-		// Status variants get a tinted bg so they read as status at a
-		// glance; text color matches so the pair stays legible.
 		success: "bg-badge-green-bg text-badge-green-fg",
 		error: "bg-destructive/15 text-destructive",
 		warning: "bg-badge-yellow-bg text-badge-yellow-fg",

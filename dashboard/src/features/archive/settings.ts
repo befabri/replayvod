@@ -2,9 +2,6 @@ import { useState } from "react";
 import type { RecordingMode, RecordingQuality } from "@/lib/recording-settings";
 import { forceH264For } from "@/lib/recording-settings";
 
-// ArchiveSettings are the recording options applied to every VOD queued from
-// the archive page; both the paste box and the channel browser read the same
-// values so a user picks quality once.
 export type ArchiveSettings = {
 	recording_type: RecordingMode;
 	quality: RecordingQuality;
@@ -37,8 +34,6 @@ export function useArchiveSettings(initial = DEFAULT_ARCHIVE_SETTINGS) {
 	};
 }
 
-// archivePayloadSettings shapes the settings part of an archive.enqueue call.
-// Force H.264 is video-only; the server applies the same rule.
 export function archivePayloadSettings(settings: ArchiveSettings) {
 	return {
 		recording_type: settings.recording_type,

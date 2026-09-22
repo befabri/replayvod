@@ -1,11 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useLiveStreams } from "./queries";
 
-// LiveStreamsCard renders the last few stream.live events. Shows
-// nothing when the feed is empty (typical steady state), so the
-// dashboard only grows a card when there's fresh activity. A
-// matched_schedules counter tells operators whether the auto-
-// download pipeline actually kicked in.
 export function LiveStreamsCard() {
 	const { t } = useTranslation();
 	const events = useLiveStreams(5);

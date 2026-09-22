@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { DirectDownloadForm } from "./DirectDownloadForm";
 
-// The watch page's entry point shares the channel dialog's live-download form.
 export function TriggerDownloadDialog({
 	broadcasterId,
 	broadcasterName,

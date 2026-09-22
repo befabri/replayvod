@@ -15,8 +15,6 @@ interface MyRouterContext {
 	queryClient: QueryClient;
 }
 
-// Dark is the :root default; .light class opts into the light palette.
-// Also migrates the legacy v1 `darkMode` boolean key to the new `theme` key.
 const THEME_INIT_SCRIPT = `(function(){try{var ls=window.localStorage;var stored=ls.getItem('theme');if(!stored){var legacy=ls.getItem('darkMode');if(legacy==='true'){stored='dark';ls.setItem('theme','dark')}else if(legacy==='false'){stored='light';ls.setItem('theme','light')}if(legacy!==null)ls.removeItem('darkMode')}var mode=(stored==='light'||stored==='dark')?stored:'dark';var root=document.documentElement;root.classList.remove('light');if(mode==='light')root.classList.add('light');root.setAttribute('data-theme',mode);}catch(e){}})();`;
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
@@ -37,14 +35,8 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-	// Auth is resolved per-route in beforeLoad guards (see resolveSession) and
-	// the store is hydrated by the dashboard layout, so the root no longer
-	// hydrates the session in a mount effect.
 	const { i18n } = useTranslation();
 
-	// Keep <html lang> in sync with i18n so screen readers, browser
-	// translation prompts, and :lang() CSS selectors follow the UI
-	// language. SPA mode — no SSR lang to worry about.
 	useEffect(() => {
 		const base = i18n.language.split("-")[0] || "en";
 		if (document.documentElement.lang !== base) {

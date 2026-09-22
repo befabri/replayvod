@@ -4,10 +4,6 @@ import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Thin shadcn-style wrappers over Base UI Combobox. Pass `items` directly
-// (server-side filtered results) and Base UI's default filter = items.
-// Callers that want client-side filtering can pass their own via `filter` prop.
-
 function Combobox<Value, Multiple extends boolean | undefined = false>(
 	props: ComboboxPrimitive.Root.Props<Value, Multiple>,
 ) {

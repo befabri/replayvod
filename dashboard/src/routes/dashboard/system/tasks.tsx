@@ -15,9 +15,6 @@ export const Route = createFileRoute("/dashboard/system/tasks")({
 function TasksPage() {
 	const { t } = useTranslation();
 	const tasks = useTasks();
-	// Mount the task.status SSE subscription — each lifecycle transition
-	// triggers a task.list re-fetch so the UI reflects running →
-	// success / failed without polling.
 	useLiveTaskStatus();
 
 	const columns = useMemo(() => taskColumns(t), [t]);

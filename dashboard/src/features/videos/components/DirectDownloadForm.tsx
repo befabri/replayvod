@@ -8,8 +8,6 @@ import { useDirectDownloadForm } from "@/features/videos/use-direct-download-for
 import { DirectDownloadFields } from "./DirectDownloadFields";
 import { DirectDownloadStatus } from "./DirectDownloadStatus";
 
-// Own the live check, mutation, error state and submit controls once. Dialogs
-// supply their header; both surfaces enforce the same live-channel boundary.
 export function DirectDownloadForm({
 	broadcasterId,
 	onClose,
@@ -37,7 +35,6 @@ export function DirectDownloadForm({
 			onSubmit={(event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				// TanStack Form retains failure state; the mutation renders its error.
 				void form.handleSubmit().catch(() => {});
 			}}
 			className="space-y-5"

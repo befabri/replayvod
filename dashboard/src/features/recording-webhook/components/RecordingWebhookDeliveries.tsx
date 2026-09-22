@@ -17,7 +17,6 @@ import {
 	useRetryRecordingWebhookDelivery,
 } from "../queries";
 
-// outcomeVariant maps a delivery outcome to a badge color.
 function outcomeVariant(outcome: string): "green" | "yellow" | "red" | "muted" {
 	switch (outcome) {
 		case "delivered":
@@ -34,8 +33,6 @@ function outcomeVariant(outcome: string): "green" | "yellow" | "red" | "muted" {
 	}
 }
 
-// RecordingWebhookDeliveries shows the durable delivery log so an owner can
-// tell at a glance whether deliveries are landing and retry failed attempts.
 export function RecordingWebhookDeliveries() {
 	const { t } = useTranslation();
 	const deliveries = useRecordingWebhookDeliveries();

@@ -50,8 +50,6 @@ export function TwitchPlaybackCard() {
 		setToken("");
 		setConsent(false);
 		try {
-			// A direct mutation keeps the credential out of React Query's
-			// mutation cache/devtools. The field is cleared before the request.
 			const saved =
 				action === "connect"
 					? await client.twitchPlayback.connect.mutate({
@@ -63,9 +61,6 @@ export function TwitchPlaybackCard() {
 						: await client.twitchPlayback.disconnect.mutate();
 			await queryClient.cancelQueries({ queryKey: queryOptions.queryKey });
 			queryClient.setQueryData(queryOptions.queryKey, saved);
-			// Renditions depend on this shared playback session. Reset every
-			// broadcaster/codec, including inactive caches, and cancel old requests
-			// so a response from the previous account cannot repopulate them.
 			await queryClient.resetQueries({
 				queryKey: trpc.video.liveRenditions.pathKey(),
 			});

@@ -4,26 +4,12 @@ import type {
 	QueryKey,
 } from "@tanstack/react-query";
 
-// shape tells the engine each cache's container so it knows how to patch it:
-//   single   - the cache value IS one entity row (e.g. getById)
-//   array    - a flat Row[] (e.g. search, listFollowed)
-//   wrapped  - a { data: Row[] } envelope (e.g. schedule.list)
-//   infinite - InfiniteData whose pages are { items: Row[] } (cursor grids)
-//   scalar   - a non-row value invalidated/snapshotted but never row-patched
-//
-// Every family operation keys off pathKey(), so it matches a cache regardless of
-// input or query type; queryKey()/infiniteQueryKey() are only for exact get/set.
 export type CacheShape = "single" | "array" | "wrapped" | "infinite" | "scalar";
 
-// Only pathKey() runs at runtime; the phantom ~types.output (the marker tRPC's
-// own inferOutput reads) lets defineCaches check shape against the real output.
 type ProcedureNode = { pathKey: () => QueryKey; "~types": { output: unknown } };
 
 type NodeOutput<N> = N extends { "~types": { output: infer O } } ? O : never;
 
-// A row-list output forces its container, so a wrong infinite/wrapped/array is a
-// compile error rather than a runtime crash. "scalar" is the always-allowed
-// opt-out for caches that are only invalidated, never row-patched.
 type StructuralShape<Output> = [Output] extends [readonly unknown[]]
 	? "array"
 	: [Output] extends [{ data: readonly unknown[] }]
@@ -73,8 +59,6 @@ export function restoreCaches(qc: QueryClient, snapshot: CacheSnapshot) {
 	}
 }
 
-// only is keyed off the descriptor, so a typo'd or renamed family name is a
-// compile error rather than a silently dropped invalidation.
 export function invalidateCaches<T extends CacheGroup>(
 	qc: QueryClient,
 	caches: T,
@@ -86,16 +70,12 @@ export function invalidateCaches<T extends CacheGroup>(
 	}
 }
 
-// match finds the affected row(s); update returns the patched row; removeFrom
-// receives the updated row and optionally drops it from a filtered cache.
 export type EntityPatch<Row> = {
 	match: (row: Row) => boolean;
 	update: (row: Row) => Row;
 	removeFrom?: (queryKey: QueryKey, shape: CacheShape, row: Row) => boolean;
 };
 
-// Patch every row-bearing cache via getQueriesData(pathKey) (matches normal and
-// infinite alike), writing back only entries that changed so identity is stable.
 export function patchEntity<Row>(
 	qc: QueryClient,
 	caches: CacheGroup,
@@ -171,8 +151,6 @@ function patchRows<Row>(
 	return changed ? next : rows;
 }
 
-// Reports whether a resolved tRPC key encodes field === value, so removeFrom can
-// detect a filtered cache (e.g. filter:"favorites", watch_later_only:true).
 export function keyHasInput(
 	queryKey: QueryKey,
 	field: string,
@@ -191,8 +169,6 @@ function walkForInput(node: unknown, field: string, value: unknown): boolean {
 	return Object.values(record).some((part) => walkForInput(part, field, value));
 }
 
-// Live feeds do not replay missed transitions. Cancel even an initial fetch
-// before refetching so a snapshot started before reconnection cannot win.
 export async function resyncQuery(qc: QueryClient, queryKey: QueryKey) {
 	const filter = { queryKey };
 	await qc.cancelQueries(filter);

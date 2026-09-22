@@ -26,10 +26,6 @@ const STATE_VARIANT: Record<StorageState, "green" | "yellow" | "red"> = {
 	unreachable: "red",
 };
 
-// StorageCard shows the owner what the server thinks of its storage and
-// offers the one deliberate action: adopting a volume that reads as foreign
-// or empty. Adopting is the "I wiped it" path, so it sits behind a confirm
-// that names the consequence.
 export function StorageCard({ data }: { data: StorageDetailsResponse }) {
 	const { t, i18n } = useTranslation();
 	const adopt = useAdoptStorage();

@@ -11,9 +11,6 @@ export function VirtualVideoGrid({
 	className,
 }: {
 	videos: VideoResponse[];
-	// canManage is resolved once by the owning route (a single auth-store read)
-	// and forwarded to every card, so a grid never fans out one permission
-	// subscription per VideoCard.
 	canManage: boolean;
 	variant?: VideoGridVariant;
 	className?: string;

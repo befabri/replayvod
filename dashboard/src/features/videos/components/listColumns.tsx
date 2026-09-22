@@ -132,9 +132,6 @@ export function videoListColumns(
 	];
 }
 
-// VideoThumbnail falls back to the placeholder when a poster's object is gone
-// (a purged thumbnail whose path outlived it, a storage hiccup), so a row with
-// a broken poster looks like one that never had a poster.
 export function VideoThumbnail({
 	video,
 	t,

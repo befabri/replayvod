@@ -6,8 +6,6 @@ import type { useTRPC } from "@/api/trpc";
 import { defineCaches, type EntityPatch, keyHasInput } from "@/lib/query";
 import { isContinueWatchingVideo, type ResumePolicy } from "./resume-policy";
 
-// Every cache a video row lives in, plus derived summaries and aggregates
-// (scalar: invalidated, never patched as full video rows).
 export function videoCaches(trpc: ReturnType<typeof useTRPC>) {
 	return defineCaches({
 		listPage: { path: trpc.video.listPage, shape: "infinite" },
@@ -26,8 +24,6 @@ export function videoCaches(trpc: ReturnType<typeof useTRPC>) {
 	});
 }
 
-// The list/aggregate caches a write should refetch without disturbing the
-// single-video query (getById) the watch page may be actively polling.
 export const VIDEO_LIST_CACHES = [
 	"listPage",
 	"byBroadcaster",
@@ -39,8 +35,6 @@ export const VIDEO_LIST_CACHES = [
 	"statisticsByBroadcaster",
 ] as const;
 
-// Progress changes the library lists and its per-user tab counts. Channel
-// statistics only count recordings and bytes, so they stay out of this set.
 export const VIDEO_USER_STATE_CACHES = [
 	"listPage",
 	"byBroadcaster",
@@ -50,8 +44,6 @@ export const VIDEO_USER_STATE_CACHES = [
 	"statistics",
 ] as const;
 
-// Merge the new user_state wherever the row appears, and drop it from filter-only
-// lists it left (a watch-later list once un-flagged, an unwatched list once watched).
 export function videoUserStatePatch(
 	videoId: number,
 	state: VideoUserStateResponse,
@@ -72,7 +64,6 @@ export function videoUserStatePatch(
 						!isContinueWatchingVideo(video, policy))
 				);
 			}
-			// This array is the dashboard preview; search arrays keep the row.
 			return (
 				shape === "array" &&
 				Array.isArray(queryKey[0]) &&
@@ -89,7 +80,6 @@ function applyVideoUserState(
 	state: VideoUserStateResponse,
 ): VideoResponse {
 	const current = video.user_state;
-	// Bookmark responses include a progress snapshot that can precede a newer save.
 	if (
 		current &&
 		(current.progress_revision ?? 0) > (state.progress_revision ?? 0)

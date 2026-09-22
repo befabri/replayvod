@@ -4,8 +4,6 @@ import { videoRemovalState } from "@/features/videos/removal";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { RestoreVideoButton } from "./RestoreVideoButton";
 
-// Both history and missing-media watch pages use the same eligibility rules.
-// Callers check permission before mounting mutation observers for a recording.
 export function VideoRemovalActions({
 	video,
 	withLabel = false,

@@ -6,14 +6,9 @@ import { useFollowedStreams } from "@/features/streams-live";
 import { useTick } from "@/hooks/useTick";
 import { formatRelative } from "@/lib/format-relative";
 
-// LastLiveStatistics — shows currently-live followed channels with the
-// Helix stream snapshot (title, game, viewer count, profile image).
-// Server joined `profile_image_url` into the response, so no secondary
-// channel catalog fetch is needed.
 export function LastLiveStatistics() {
 	const { t, i18n } = useTranslation();
 	const { data, isLoading, isError } = useFollowedStreams();
-	// Re-render once per minute so "5m ago" labels stay current.
 	useTick(60_000);
 
 	const items = (data ?? []).slice(0, 4);

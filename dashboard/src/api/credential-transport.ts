@@ -36,8 +36,6 @@ export function browserCredentialTransportAllowed(apiURL: string) {
 	);
 }
 
-// This link must sit before batching and serialization so no caller can put a
-// credential on the network without passing the guard.
 export function credentialTransportLink(
 	allowed: () => boolean,
 ): TRPCLink<AppRouter> {

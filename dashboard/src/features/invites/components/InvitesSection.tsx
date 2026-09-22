@@ -30,20 +30,13 @@ type InviteFormValues = {
 	note: string;
 };
 
-// TTL choices are presets rather than free input: invites are short-lived
-// onboarding links, not standing credentials.
 const TTL_MINUTES = ["60", "1440", "10080", "43200"] as const;
-// A note names who the invite is for; the server enforces the same cap.
 const NOTE_MAX = 60;
 
-// InvitesSection is the invite management block on the users page:
-// create form, copy-once URL panel, and the invites table.
 export function InvitesSection() {
 	const { t } = useTranslation();
 	const invites = useInvites();
 	const create = useCreateInvite();
-	// The panel shows the most recently issued link, whether it came from
-	// the create form or a row's "New link" action.
 	const [issued, setIssued] = useState<InviteCreatedInfo | null>(null);
 	const onRevoked = useCallback(
 		(id: number) => setIssued((cur) => (cur?.id === id ? null : cur)),
@@ -85,10 +78,7 @@ export function InvitesSection() {
 						note: note === "" ? undefined : note,
 					}),
 				);
-			} catch {
-				// The mutation's error state renders below; keep the form
-				// available for retry without rejecting the submit handler.
-			}
+			} catch {}
 		},
 	});
 

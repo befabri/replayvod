@@ -1,8 +1,6 @@
 import { RecordingSettingsFields } from "@/components/recording-settings-fields";
 import type { useArchiveSettings } from "@/features/archive/settings";
 
-// ArchiveSettingsFields binds the shared recording controls to the page-level
-// archive settings, so both ways of picking VODs record the same way.
 export function ArchiveSettingsFields({
 	controller,
 	disabled = false,

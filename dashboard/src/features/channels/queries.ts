@@ -21,10 +21,6 @@ export function useChannels() {
 
 export type ChannelListFilter = "all" | "downloaded" | "favorites";
 
-// useInfiniteChannels fetches the channel list paginated by name.
-// The "live now" tab is still applied client-side in the route using
-// useLiveSet; the SSE-backed liveSet is the only source that stays
-// fresh as channels go on- and offline.
 export function useInfiniteChannels(
 	sort: "name_asc" | "name_desc",
 	filter: ChannelListFilter = "all",
@@ -62,8 +58,6 @@ export function useChannelSearch(
 	options?: { enabled?: boolean },
 ) {
 	const trpc = useTRPC();
-	// Empty query returns all channels up to limit (per backend contract) —
-	// that's what powers the combobox's "show all" initial state.
 	return useQuery(
 		trpc.channel.search.queryOptions(
 			{ query, limit },
@@ -81,8 +75,6 @@ export function useSyncChannel() {
 		trpc.channel.syncFromTwitch.mutationOptions({
 			onSuccess: () => {
 				invalidateCaches(queryClient, channels);
-				// Video lists show broadcaster_name/profile_image_url denormalized from
-				// the channel row, so a sync that changed those must refresh the grids.
 				invalidateCaches(queryClient, videos, [
 					"listPage",
 					"byBroadcaster",

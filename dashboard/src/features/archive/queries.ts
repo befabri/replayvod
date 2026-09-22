@@ -13,8 +13,6 @@ import { withSessionProbe } from "@/stores/auth";
 
 export const CHANNEL_VODS_PAGE_SIZE = 30;
 
-// useChannelVods pages through a channel's VODs on Twitch, newest first. The
-// lookup burns Helix quota, so it only runs once the user submits a channel.
 export function useChannelVods(channel: string | null) {
 	const trpc = useTRPC();
 	return useInfiniteQuery(
@@ -31,10 +29,6 @@ export function useChannelVods(channel: string | null) {
 	);
 }
 
-// useLiveArchiveQueue follows archive queue transitions. The server publishes
-// every queue transition (enqueue, start, completion, failure, dequeue, retry
-// cancelled) on archive.queueLive, and each event refetches the queue, so the
-// page follows the pump without polling. Mount it once above the queue.
 export function useLiveArchiveQueue() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -46,7 +40,6 @@ export function useLiveArchiveQueue() {
 	});
 }
 
-// useArchiveQueue lists what is queued or running and what failed recently.
 export function useArchiveQueue() {
 	const trpc = useTRPC();
 	return useQuery(
@@ -87,7 +80,6 @@ export function useDequeueArchive() {
 	);
 }
 
-// useRetryArchive queues a new attempt of a failed archive right away.
 export function useRetryArchive() {
 	const trpc = useTRPC();
 	const invalidate = useInvalidateArchive();
@@ -96,7 +88,6 @@ export function useRetryArchive() {
 	);
 }
 
-// useCancelArchiveRetry drops the automatic retry of a failed archive.
 export function useCancelArchiveRetry() {
 	const trpc = useTRPC();
 	const invalidate = useInvalidateArchive();

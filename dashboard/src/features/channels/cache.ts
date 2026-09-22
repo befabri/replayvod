@@ -5,7 +5,6 @@ import type {
 import type { useTRPC } from "@/api/trpc";
 import { defineCaches, type EntityPatch, keyHasInput } from "@/lib/query";
 
-// Every cache a channel row lives in.
 export function channelCaches(trpc: ReturnType<typeof useTRPC>) {
 	return defineCaches({
 		list: { path: trpc.channel.list, shape: "array" },
@@ -17,8 +16,6 @@ export function channelCaches(trpc: ReturnType<typeof useTRPC>) {
 	});
 }
 
-// Update the row's user_state everywhere, and drop it from favorites-only
-// lists when it was just un-favorited.
 export function channelFavoritePatch(
 	broadcasterId: string,
 	state: ChannelUserStateResponse,

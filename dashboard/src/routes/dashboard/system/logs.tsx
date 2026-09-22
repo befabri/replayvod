@@ -125,7 +125,6 @@ function EventsView({
 		domain,
 		severity,
 	});
-	// Land new rows live while this view is mounted.
 	useLiveSystemEvents();
 
 	const columns = useMemo(() => eventLogColumns(t), [t]);

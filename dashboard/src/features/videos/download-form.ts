@@ -14,9 +14,6 @@ import {
 	renditionOptions,
 } from "./renditions";
 
-// Store the user's preference, never a default copied from a query result.
-// A ladder tier is a ceiling; a number is a height explicitly picked from
-// the live list. These are alternatives, so they cannot drift out of sync.
 export const DirectDownloadFormSchema = z.object({
 	recording_type: z.enum(["video", "audio"]),
 	quality: z.union([RecordingQualitySchema, z.number().int().min(1).max(4320)]),
@@ -30,8 +27,6 @@ export type DirectDownloadAvailability =
 	| "offline"
 	| "error";
 
-// A cached live verdict cannot authorize a submit while it is being rechecked.
-// Errors remain distinct from an authoritative offline response.
 export function resolveDirectDownloadAvailability(
 	snapshot:
 		| Pick<QueryState<boolean>, "data" | "status" | "fetchStatus">
@@ -63,8 +58,6 @@ type RenditionsSnapshot = Pick<
 	"data" | "status" | "fetchStatus"
 >;
 
-// Render and submission resolve the same preference against the same query
-// identity. No effect writes derived heights back into the user's form.
 export function resolveDirectDownloadQuality(
 	values: DirectDownloadFormValues,
 	lookupEnabled: boolean,
@@ -89,9 +82,6 @@ export function resolveDirectDownloadQuality(
 		return { kind: "loading" };
 	}
 	if (options.length === 0) {
-		// A failed or empty lookup cannot turn a pinned 936p choice into an
-		// unrestricted 1080p ceiling. Exact ladder heights can keep their limit;
-		// other heights require an explicit fallback choice before submission.
 		return {
 			kind: "ceiling",
 			quality:
@@ -114,8 +104,6 @@ export function resolveDirectDownloadQuality(
 	};
 }
 
-// Numeric quality is already resolved to a visible live rendition before
-// submission. The server receives its exact height and its display tier.
 export function buildDirectDownloadPayload(
 	broadcasterId: string,
 	value: DirectDownloadFormValues,

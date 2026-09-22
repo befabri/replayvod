@@ -1,6 +1,3 @@
-// Formatting helpers kept in a separate file so the table/player components
-// can import them without pulling in all of the queries module.
-
 export function formatBytes(bytes: number | undefined | null): string {
 	if (bytes == null || bytes <= 0) return "—";
 	const units = ["B", "KB", "MB", "GB", "TB"];
@@ -13,11 +10,6 @@ export function formatBytes(bytes: number | undefined | null): string {
 	return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-// formatAverageBitrate derives an average bitrate from total bytes
-// and total seconds. Not the encoder bitrate — there's no stored
-// "encode bitrate" on the recording — but it's the right order of
-// magnitude and matches what tools like ffprobe report under
-// `format.bit_rate`.
 export function formatAverageBitrate(
 	sizeBytes: number | undefined | null,
 	durationSeconds: number | undefined | null,

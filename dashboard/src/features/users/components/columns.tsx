@@ -14,12 +14,6 @@ const ROLE_LABEL_KEYS: Record<Role, UserRoleLabelKey> = {
 	owner: "users.role_owner",
 };
 
-// RoleSelect is a thin cell component so the mutation hook mounts per
-// row — keeps each row's pending/error state isolated.
-//
-// The owner carve-out mirrors the server: only an owner can grant owner
-// or touch an existing owner's role, so non-owner callers get a locked
-// select on owner rows and no owner option elsewhere.
 function RoleSelect({
 	user,
 	isSelf,

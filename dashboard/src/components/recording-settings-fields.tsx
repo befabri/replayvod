@@ -27,30 +27,6 @@ import {
 } from "@/lib/recording-settings";
 import { cn } from "@/lib/utils";
 
-// RecordingSettingsFields renders the mode / quality / Force H.264 controls
-// shared by the schedule forms and the "download now" surfaces. It is
-// presentational: it takes the current values plus change callbacks rather than
-// a form instance, so the two features (which use different TanStack forms) can
-// each bind it without leaking their form type here.
-//
-// Quality and the H.264 override are video-only: switching to audio greys them
-// out and clears force_h264 so a stale checked box can't sit behind the
-// disabled control. The server enforces the same audio rule
-// (repository.ScheduleForceH264) and ignores quality for audio, so this is the
-// UX mirror, not the source of truth. `disabled` greys the whole block at once
-// (the channel dialog passes it when the channel is offline).
-//
-// The quality ladder is a list of ceilings, and says so under the picker. A
-// ceiling above 1080p may need the owner's Twitch session, so
-// QualitySessionHint sits there too whenever such a quality is live (video
-// mode, block enabled); see that component for who sees what.
-//
-// `qualityPicker` swaps the ladder for another control under the same label,
-// which the "download now" surface uses to list what the live stream offers.
-// The ladder's hints go with it: the replacement explains itself.
-//
-// `tBase` is the i18n namespace ("schedules" or "videos"); both expose the same
-// recording_mode / mode_* / quality / quality_* / force_h264* keys.
 export function RecordingSettingsFields({
 	recordingType,
 	onRecordingTypeChange,

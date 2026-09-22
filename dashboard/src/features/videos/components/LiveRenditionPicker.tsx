@@ -16,16 +16,6 @@ import {
 	renditionLabel,
 } from "@/features/videos/renditions";
 
-// LiveRenditionPicker replaces the quality ladder on the "download now"
-// surface once the server has read the live stream's master playlist: it
-// lists the renditions Twitch offers right now, the way Twitch's own player
-// does, and the recording takes exactly the one picked. While the list is
-// loading the control stays put but disabled, so the form does not jump.
-//
-// When the list was fetched anonymously the login gap is visible as absence
-// (a 1440p that is not there). The notice under the picker says why, worded
-// for the owner (who can connect a session, with a link) or for everyone
-// else (who cannot).
 export function LiveRenditionPicker({
 	id,
 	options,

@@ -8,10 +8,6 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 
-// ConfirmDialog is a controlled yes/no confirmation for an action that warrants
-// a deliberate second step (e.g. an irreversible delete). The caller owns the
-// open state and runs the action in onConfirm; `confirming` disables both
-// buttons while the action is in flight.
 export function ConfirmDialog({
 	open,
 	onOpenChange,

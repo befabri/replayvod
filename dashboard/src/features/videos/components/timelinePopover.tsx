@@ -2,13 +2,6 @@ import { useTranslation } from "react-i18next";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { cn } from "@/lib/utils";
 
-// Shared content for the timeline popovers used both in the watch-page scrubber
-// and the dashboard's Running-now strip, so a part hover and a metadata-change
-// hover read identically in either place.
-//
-// Tone adapts only the text colors to the surface the popover floats on: "video"
-// sits over arbitrary frames (force white), "surface" sits on a themed popover
-// (theme tokens). The structure is the same either way.
 export type TimelinePopoverTone = "video" | "surface";
 
 const TONE: Record<
@@ -31,13 +24,9 @@ export type TimelineChangeData = {
 	time?: string;
 	category?: { name: string; boxArtUrl?: string | null };
 	title?: { name: string };
-	// Shown only when neither a category nor a title resolved — keeps a popover
-	// from rendering empty for an unusual change event.
 	fallback?: string;
 };
 
-// TimelinePartContent is the part-segment popover body: which part, its media
-// range, and its duration/size figures.
 export function TimelinePartContent({
 	heading,
 	range,
@@ -61,9 +50,6 @@ export function TimelinePartContent({
 	);
 }
 
-// TimelineChangeContent is the metadata-change popover body: the category (with
-// its box art) and/or the title that changed. The box art carries the category
-// visually; there are no color-coded dots.
 export function TimelineChangeContent({
 	change,
 	tone,

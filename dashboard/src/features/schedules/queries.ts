@@ -51,8 +51,6 @@ export function useToggleSchedule() {
 	const caches = scheduleCaches(trpc);
 	return useMutation(
 		trpc.schedule.toggle.mutationOptions(
-			// Flip is_disabled in both lists immediately: without it, opening Edit
-			// right after Pause captures the stale value and a save stomps the toggle.
 			optimisticWrite<ScheduleResponse, ScheduleToggleInput>(
 				queryClient,
 				caches,
@@ -65,8 +63,6 @@ export function useToggleSchedule() {
 	);
 }
 
-// Global auto-download pause flag. Reading is viewer-level so the paused
-// banner shows for everyone; flipping it is admin-only on the server.
 export function useSchedulesPaused() {
 	const trpc = useTRPC();
 	return useQuery(trpc.schedule.pauseState.queryOptions(undefined));
@@ -78,8 +74,6 @@ export function useSetSchedulesPaused() {
 	const caches = schedulePauseCaches(trpc);
 	return useMutation(
 		trpc.schedule.setPaused.mutationOptions(
-			// The button + banner read this flag, so set it immediately. Individual
-			// schedules are untouched server-side, so only the flag needs invalidation.
 			optimisticWrite<PauseStateResponse, SetPausedInput>(queryClient, caches, {
 				apply: (qc, { paused }) =>
 					qc.setQueriesData<PauseStateResponse>(

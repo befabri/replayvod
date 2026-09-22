@@ -21,14 +21,6 @@ import {
 	TableRow,
 } from "./table";
 
-// DataTable is the shared TanStack Table wrapper used by the dashboard
-// system pages. Headless by design so each caller supplies its own
-// column definitions; sorting is opt-in per column via `enableSorting`.
-//
-// Sorting is client-side by default (the table reorders `data`). Pass
-// `sorting` + `onSortingChange` + `manualSorting` to control it externally and
-// have the header drive a server-side sort instead — the caller re-fetches
-// already-sorted data rather than the table reordering a single page.
 export function DataTable<TData, TValue>({
 	columns,
 	data,
@@ -53,11 +45,6 @@ export function DataTable<TData, TValue>({
 	sorting?: SortingState;
 	onSortingChange?: OnChangeFn<SortingState>;
 	manualSorting?: boolean;
-	// Row selection is the table's own state, so a select column reads it off
-	// `row`/`table` in its cell rather than closing over it. That keeps the
-	// column definitions stable across a click instead of rebuilding them.
-	// Pass `getRowId` alongside it so a selection survives the rows moving
-	// (a sort, a page appended) instead of being keyed by index.
 	rowSelection?: RowSelectionState;
 	onRowSelectionChange?: OnChangeFn<RowSelectionState>;
 	enableRowSelection?: boolean | ((row: Row<TData>) => boolean);
@@ -80,9 +67,6 @@ export function DataTable<TData, TValue>({
 		onRowSelectionChange: onRowSelectionChange ?? setInternalRowSelection,
 		enableRowSelection,
 		manualSorting,
-		// A server-sorted table has no unsorted state to return to: clearing the
-		// sort just falls back to whatever default the query uses, under a header
-		// that no longer shows which. Cycle desc/asc instead.
 		enableSortingRemoval: !manualSorting,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
