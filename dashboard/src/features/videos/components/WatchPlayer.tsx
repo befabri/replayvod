@@ -11,6 +11,8 @@ import {
 	SpeakerSlashIcon,
 } from "@phosphor-icons/react";
 import {
+	MEDIA_KEY_SHORTCUTS,
+	type MediaKeyShortcuts,
 	MediaPlayer,
 	type MediaPlayerInstance,
 	MediaProvider,
@@ -120,6 +122,7 @@ export function WatchPlayer({
 		localSeconds: number;
 		playbackRate: number;
 		resume: boolean;
+		viewer?: boolean;
 	} | null>(null);
 	const appliedInitialSeekRef = useRef<string | null>(null);
 	const handledEndedSourceRef = useRef<string | null>(null);
@@ -229,6 +232,16 @@ export function WatchPlayer({
 		[playlist.totalDurationSeconds],
 	);
 
+	const applySeek = useCallback(
+		(player: PlaybackController, seconds: number, viewer: boolean) => {
+			const alreadyThere = player.currentTime === seconds;
+			viewerSeekPendingRef.current = viewer && !alreadyThere;
+			if (viewer && alreadyThere) setPosterDismissed(true);
+			player.currentTime = seconds;
+		},
+		[],
+	);
+
 	const seekToGlobal = useCallback(
 		(offsetSeconds: number, options?: RecordingSeekOptions) => {
 			const target = findPartForOffset(
@@ -238,10 +251,8 @@ export function WatchPlayer({
 			);
 			if (!target) return;
 			const mode = options?.mode ?? "commit";
-			if (!options?.initial) {
-				viewerEngagedRef.current = true;
-				if (mode === "commit") viewerSeekPendingRef.current = true;
-			}
+			const viewer = !options?.initial;
+			if (viewer) viewerEngagedRef.current = true;
 			const player = isAudioSource ? audioRef.current : playerRef.current;
 			const resume = options?.resume ?? (player ? !player.paused : false);
 			const trigger = options?.trigger;
@@ -277,7 +288,7 @@ export function WatchPlayer({
 					if (mode === "preview") {
 						if (!isAudioSource) mediaRemote.seeking(playerSeconds, trigger);
 					} else {
-						player.currentTime = playerSeconds;
+						applySeek(player, playerSeconds, viewer);
 						if (resume && player.paused) {
 							void playPlaybackController(player, trigger).catch(() => {});
 						}
@@ -288,6 +299,7 @@ export function WatchPlayer({
 							localSeconds: playerSeconds,
 							playbackRate: player?.playbackRate ?? 1,
 							resume,
+							viewer,
 						};
 					}
 				}
@@ -312,7 +324,7 @@ export function WatchPlayer({
 						if (!isAudioSource)
 							mediaRemote.seeking(target.localSeconds, trigger);
 					} else {
-						player.currentTime = target.localSeconds;
+						applySeek(player, target.localSeconds, viewer);
 						if (resume && player.paused) {
 							void playPlaybackController(player, trigger).catch(() => {});
 						}
@@ -323,6 +335,7 @@ export function WatchPlayer({
 							localSeconds: target.localSeconds,
 							playbackRate: player.playbackRate ?? 1,
 							resume,
+							viewer,
 						};
 					}
 				}
@@ -332,10 +345,12 @@ export function WatchPlayer({
 				localSeconds: target.localSeconds,
 				playbackRate: player?.playbackRate ?? 1,
 				resume,
+				viewer: viewer && mode === "commit",
 			};
 			setPartPosition(target.part.position);
 		},
 		[
+			applySeek,
 			continuousDurationSeconds,
 			currentSourceKey,
 			isAudioSource,
@@ -404,11 +419,18 @@ export function WatchPlayer({
 
 	const handleCanPlay = useCallback(() => {
 		if (!currentSourceKey) return;
+		const video = playerRef.current;
+		if (
+			!isAudioSource &&
+			(!video?.state.canPlay || video.state.source.src !== currentSourceKey)
+		) {
+			return;
+		}
 		readySourceKeyRef.current = currentSourceKey;
 		const pending = pendingSeekRef.current;
-		const player = isAudioSource ? audioRef.current : playerRef.current;
+		const player = isAudioSource ? audioRef.current : video;
 		if (!pending || !player) return;
-		player.currentTime = pending.localSeconds;
+		applySeek(player, pending.localSeconds, pending.viewer ?? false);
 		if (
 			isAudioSource &&
 			Math.abs(player.currentTime - pending.localSeconds) >
@@ -419,7 +441,7 @@ export function WatchPlayer({
 		pendingSeekRef.current = null;
 		player.playbackRate = pending.playbackRate;
 		if (pending.resume) void playPlaybackController(player).catch(() => {});
-	}, [currentSourceKey, isAudioSource]);
+	}, [applySeek, currentSourceKey, isAudioSource]);
 
 	const attachAudio = useCallback(
 		(audio: HTMLAudioElement | null) => {
@@ -828,15 +850,34 @@ export function WatchPlayer({
 		syncPlaybackTime(detail.currentTime);
 	}
 
-	function handlePlayerKeyDown(event: KeyboardEvent<HTMLElement>) {
-		if (event.target !== event.currentTarget) return;
+	function seekByKey(
+		event: Pick<Event, "preventDefault" | "stopPropagation">,
+		key: string,
+	) {
 		const total = playlist.totalDurationSeconds;
-		const next = seekKeyTarget(event.key, globalTime, total);
+		const next = seekKeyTarget(key, globalTime, total);
 		if (next == null) return;
 		event.preventDefault();
 		event.stopPropagation();
 		seekToGlobal(next);
 	}
+
+	function handlePlayerKeyDown(event: KeyboardEvent<HTMLElement>) {
+		if (event.target !== event.currentTarget) return;
+		seekByKey(event, event.key);
+	}
+
+	const keyShortcuts: MediaKeyShortcuts = {
+		...MEDIA_KEY_SHORTCUTS,
+		seekBackward: {
+			keys: "j J ArrowLeft",
+			onKeyDown: ({ event }) => seekByKey(event, "ArrowLeft"),
+		},
+		seekForward: {
+			keys: "l L ArrowRight",
+			onKeyDown: ({ event }) => seekByKey(event, "ArrowRight"),
+		},
+	};
 
 	const recordingTimeline = (
 		<RecordingTimeline
@@ -968,6 +1009,7 @@ export function WatchPlayer({
 				title={playlist.title}
 				crossOrigin={isCrossOrigin ? "use-credentials" : null}
 				fullscreenOrientation={fullscreenOrientation}
+				keyShortcuts={keyShortcuts}
 				playsInline
 				onCanPlay={handleCanPlay}
 				onEnded={handleEnded}

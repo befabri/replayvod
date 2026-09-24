@@ -143,21 +143,27 @@ export function videoRecording(
 		quality: "1080p60",
 		codec: "h264",
 		is_audio_only: false,
-		parts: [
-			{
-				part_index: 1,
-				filename: "resume-fixture-part1.mp4",
-				quality: "1080p60",
-				codec: "h264",
-				segment_format: "fmp4",
-				duration_seconds: durationSeconds,
-				size_bytes: 8807,
-				start_media_seq: 0,
-				end_media_seq: 6,
-			},
-		],
+		parts: videoParts(durationSeconds),
 		...overrides,
 	};
+}
+
+// videoParts lists the parts of a video recording, one per length given, the
+// way a recording the downloader restarted comes back. Part N streams from
+// parts/N/stream, and every part can be served the same fixture clip: the
+// player places parts on the recording by these lengths, not the file's.
+export function videoParts(...durationsSeconds: number[]) {
+	return durationsSeconds.map((durationSeconds, index) => ({
+		part_index: index + 1,
+		filename: `resume-fixture-part${index + 1}.mp4`,
+		quality: "1080p60",
+		codec: "h264",
+		segment_format: "fmp4",
+		duration_seconds: durationSeconds,
+		size_bytes: 8807,
+		start_media_seq: 0,
+		end_media_seq: 6,
+	}));
 }
 
 // userState is a video.getById user_state for a recording the user started.

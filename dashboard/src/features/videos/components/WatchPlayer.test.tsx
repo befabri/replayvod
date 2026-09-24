@@ -28,6 +28,8 @@ type MockPlayer = {
 	muted: boolean;
 	paused: boolean;
 	playbackRate: number;
+	source: string;
+	readonly state: { canPlay: boolean; source: { src: string } };
 	volume: number;
 	addEventListener: ReturnType<typeof vi.fn>;
 	removeEventListener: ReturnType<typeof vi.fn>;
@@ -45,6 +47,12 @@ const vidstackMock = vi.hoisted(() => {
 		muted: false,
 		paused: false,
 		playbackRate: 1,
+		source: "",
+		// Vidstack's state for the source it has loaded, which the player
+		// checks before it trusts a readiness signal.
+		get state() {
+			return { canPlay: player.canPlay, source: { src: player.source } };
+		},
 		volume: 1,
 		addEventListener: vi.fn(
 			(type: string, listener: EventListenerOrEventListenerObject) => {
@@ -183,6 +191,9 @@ vi.mock("@vidstack/react", async () => {
 			ref,
 		) => {
 			React.useImperativeHandle(ref, () => vidstackMock.player);
+			React.useLayoutEffect(() => {
+				vidstackMock.player.source = sourceSrc(src);
+			}, [src]);
 			return React.createElement(
 				"section",
 				{
@@ -282,6 +293,7 @@ vi.mock("@vidstack/react", async () => {
 		},
 	);
 	return {
+		MEDIA_KEY_SHORTCUTS: {},
 		MediaPlayer,
 		MediaProvider: ({ children }: { children?: ReactNode }) =>
 			React.createElement("div", { "data-testid": "media-provider" }, children),
@@ -341,6 +353,7 @@ afterEach(() => {
 	vidstackMock.player.muted = false;
 	vidstackMock.player.paused = false;
 	vidstackMock.player.playbackRate = 1;
+	vidstackMock.player.source = "";
 	vidstackMock.player.volume = 1;
 	vidstackMock.player.addEventListener.mockClear();
 	vidstackMock.player.removeEventListener.mockClear();

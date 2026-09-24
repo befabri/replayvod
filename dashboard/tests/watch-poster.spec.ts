@@ -9,6 +9,7 @@ import {
 	audioOnlyVideo,
 	mockWatchPage,
 	userState,
+	videoParts,
 	videoRecording,
 } from "./support/watch";
 
@@ -136,7 +137,7 @@ test.describe("watch page poster after the handoff", () => {
 			route.fulfill({ contentType: "image/svg+xml", body: POSTER_SVG }),
 		);
 		await page.route(
-			`**/api/v1/videos/${VIDEO_ID}/parts/1/stream`,
+			`**/api/v1/videos/${VIDEO_ID}/parts/*/stream`,
 			async (route) => {
 				await fulfillRangeFixture(route, videoFixture, "video/mp4");
 			},
@@ -169,6 +170,37 @@ test.describe("watch page poster after the handoff", () => {
 			.getByRole("button", { name: "Start over" })
 			.click();
 
+		await expect.poll(() => mediaTime(page)).toBeLessThan(0.5);
+		await expect(poster).toHaveAttribute("data-dismissed");
+		expect(await isPaused(page)).toBe(true);
+	});
+
+	// Starting over from a later part loads the first part, which already sits
+	// on its opening frame. Vidstack skips a seek to the time it is at, so no
+	// `seeked` follows, and the viewer's seek still has to drop the poster.
+	test("drops the poster for a viewer who starts over from a later part", async ({
+		page,
+	}) => {
+		await openVideo(page, {
+			parts: videoParts(10, 20),
+			user_state: userState(15),
+		});
+		await expect
+			.poll(() => mediaSource(page), { timeout: 15_000 })
+			.toContain("/parts/2/stream");
+		await expect
+			.poll(() => mediaTime(page), { timeout: 15_000 })
+			.toBeGreaterThanOrEqual(5);
+		const poster = page.getByTestId("player-poster");
+		await page.waitForTimeout(400);
+		await expect(poster).not.toHaveAttribute("data-dismissed");
+
+		await page
+			.getByTestId("resume-notice")
+			.getByRole("button", { name: "Start over" })
+			.click();
+
+		await expect.poll(() => mediaSource(page)).toContain("/parts/1/stream");
 		await expect.poll(() => mediaTime(page)).toBeLessThan(0.5);
 		await expect(poster).toHaveAttribute("data-dismissed");
 		expect(await isPaused(page)).toBe(true);
@@ -227,6 +259,12 @@ function mediaTime(page: Page) {
 	return page
 		.locator("video")
 		.evaluate((video: HTMLMediaElement) => video.currentTime);
+}
+
+function mediaSource(page: Page) {
+	return page
+		.locator("video")
+		.evaluate((video: HTMLMediaElement) => video.currentSrc);
 }
 
 function isPaused(page: Page) {
