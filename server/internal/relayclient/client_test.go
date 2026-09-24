@@ -78,9 +78,8 @@ func TestHandleFrameForwardsBodyAndSafeHeaders(t *testing.T) {
 	defer srv.Close()
 
 	c, err := New(Config{
-		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
-		CallbackURL:            srv.URL,
-		AllowUnsafeCallbackURL: true,
+		SubscribeURL: "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:  loopbackCallbackURL(srv.URL),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -130,9 +129,8 @@ func TestHandleFrameDoesNotAdvanceCursorOnServerError(t *testing.T) {
 	defer srv.Close()
 
 	c, err := New(Config{
-		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
-		CallbackURL:            srv.URL,
-		AllowUnsafeCallbackURL: true,
+		SubscribeURL: "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:  loopbackCallbackURL(srv.URL),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -169,9 +167,8 @@ func TestHandleFrameSendsDispatchResult(t *testing.T) {
 	defer cleanup()
 
 	c, err := New(Config{
-		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
-		CallbackURL:            callback.URL,
-		AllowUnsafeCallbackURL: true,
+		SubscribeURL: "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:  loopbackCallbackURL(callback.URL),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -243,9 +240,8 @@ func TestReadyOnlyFiresAfterWebSocketHandshake(t *testing.T) {
 	defer callback.Close()
 
 	c, err := New(Config{
-		SubscribeURL:           websocketURL(wsServer.URL),
-		CallbackURL:            callback.URL,
-		AllowUnsafeCallbackURL: true,
+		SubscribeURL: websocketURL(wsServer.URL),
+		CallbackURL:  loopbackCallbackURL(callback.URL),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -322,10 +318,9 @@ func TestSessionWebSocketOutlivesCallbackHTTPClientTimeout(t *testing.T) {
 	defer wsServer.Close()
 
 	c, err := New(Config{
-		SubscribeURL:           websocketURL(wsServer.URL),
-		CallbackURL:            callback.URL,
-		AllowUnsafeCallbackURL: true,
-		HTTPClient:             &http.Client{Timeout: 25 * time.Millisecond},
+		SubscribeURL: websocketURL(wsServer.URL),
+		CallbackURL:  loopbackCallbackURL(callback.URL),
+		HTTPClient:   &http.Client{Timeout: 25 * time.Millisecond},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -387,9 +382,8 @@ func TestSessionStopsAfterDispatchFailure(t *testing.T) {
 	defer wsServer.Close()
 
 	c, err := New(Config{
-		SubscribeURL:           websocketURL(wsServer.URL),
-		CallbackURL:            callback.URL,
-		AllowUnsafeCallbackURL: true,
+		SubscribeURL: websocketURL(wsServer.URL),
+		CallbackURL:  loopbackCallbackURL(callback.URL),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -459,6 +453,10 @@ func readDispatchResult(t *testing.T, resultCh <-chan []byte) dispatchResult {
 	return dispatchResult{}
 }
 
+func loopbackCallbackURL(base string) string {
+	return base + "/api/v1/webhook/callback"
+}
+
 func websocketURL(raw string) string {
 	return "ws" + strings.TrimPrefix(raw, "http")
 }
@@ -471,10 +469,9 @@ func TestHandleFrameAccumulatesStaleFramesIntoSummary(t *testing.T) {
 
 	var buf bytes.Buffer
 	c, err := New(Config{
-		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
-		CallbackURL:            srv.URL,
-		AllowUnsafeCallbackURL: true,
-		Logger:                 slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		SubscribeURL: "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:  loopbackCallbackURL(srv.URL),
+		Logger:       slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -530,10 +527,9 @@ func TestHandleFrameVerificationChallengeBypassesFlush(t *testing.T) {
 
 	var buf bytes.Buffer
 	c, err := New(Config{
-		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
-		CallbackURL:            srv.URL,
-		AllowUnsafeCallbackURL: true,
-		Logger:                 slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		SubscribeURL: "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:  loopbackCallbackURL(srv.URL),
+		Logger:       slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -589,9 +585,8 @@ func TestDispatchSetsRelaySentinelHeader(t *testing.T) {
 	defer srv.Close()
 
 	c, err := New(Config{
-		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
-		CallbackURL:            srv.URL,
-		AllowUnsafeCallbackURL: true,
+		SubscribeURL: "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:  loopbackCallbackURL(srv.URL),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

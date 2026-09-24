@@ -53,11 +53,8 @@ const (
 type Config struct {
 	SubscribeURL string
 	CallbackURL  string
-	// AllowUnsafeCallbackURL is for tests or unusual embedded callers only. The
-	// production Connect agent should replay exclusively to the loopback webhook.
-	AllowUnsafeCallbackURL bool
-	HTTPClient             *http.Client
-	Logger                 *slog.Logger
+	HTTPClient   *http.Client
+	Logger       *slog.Logger
 }
 
 // Client streams events from the relay and replays them locally.
@@ -112,7 +109,7 @@ func New(cfg Config) (*Client, error) {
 	if err != nil || (cb.Scheme != "http" && cb.Scheme != "https") || cb.Host == "" {
 		return nil, fmt.Errorf("relayclient: CallbackURL must be http:// or https://: %q", cfg.CallbackURL)
 	}
-	if !cfg.AllowUnsafeCallbackURL && !isSafeLocalCallbackURL(cb) {
+	if !isSafeLocalCallbackURL(cb) {
 		return nil, fmt.Errorf("relayclient: CallbackURL must be a loopback /api/v1/webhook/callback URL: %q", cfg.CallbackURL)
 	}
 	httpClient := cfg.HTTPClient
