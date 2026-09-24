@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { TimelineEvent, VideoResponse } from "@/api/generated/trpc";
+import type { VideoResponse } from "@/api/generated/trpc";
+import {
+	makeTimelineEvent,
+	makeVideo,
+	makeVideoPart,
+	VIDEO_REMOVAL_STATES,
+	VIDEO_STATES,
+} from "@/test/fixtures";
 import {
 	buildPlaylistParts,
 	buildRecordingMarkers,
@@ -8,6 +15,7 @@ import {
 	chapterCuesForRecording,
 	continuousSourceForVideo,
 	findPartForOffset,
+	isPlayableVideo,
 	probeMediaSource,
 } from "./playback";
 
@@ -232,7 +240,7 @@ describe("recording markers", () => {
 	it("uses exact media offsets for title/category markers", () => {
 		const markers = buildRecordingMarkers(
 			[
-				event({
+				makeTimelineEvent({
 					media_offset_seconds: 75,
 					category: { id: "game", name: "Game" },
 					title: { id: 1, name: "Boss run" },
@@ -255,17 +263,17 @@ describe("recording markers", () => {
 	it("labels only the field that changed when timeline rows include current state", () => {
 		const markers = buildRecordingMarkers(
 			[
-				event({
+				makeTimelineEvent({
 					media_offset_seconds: 10,
 					category: { id: "game-a", name: "Game A" },
 					title: { id: 1, name: "Same title" },
 				}),
-				event({
+				makeTimelineEvent({
 					media_offset_seconds: 20,
 					category: { id: "game-b", name: "Game B" },
 					title: { id: 1, name: "Same title" },
 				}),
-				event({
+				makeTimelineEvent({
 					media_offset_seconds: 30,
 					category: { id: "game-b", name: "Game B" },
 					title: { id: 2, name: "New title" },
@@ -301,8 +309,14 @@ describe("recording markers", () => {
 				],
 			}),
 			[
-				event({ media_offset_seconds: 20, title: { id: 1, name: "Intro" } }),
-				event({ media_offset_seconds: 70, title: { id: 2, name: "Second" } }),
+				makeTimelineEvent({
+					media_offset_seconds: 20,
+					title: { id: 1, name: "Intro" },
+				}),
+				makeTimelineEvent({
+					media_offset_seconds: 70,
+					title: { id: 2, name: "Second" },
+				}),
 			],
 		);
 
@@ -321,8 +335,14 @@ describe("recording markers", () => {
 				],
 			}),
 			[
-				event({ media_offset_seconds: 20, title: { id: 1, name: "Intro" } }),
-				event({ media_offset_seconds: 70, title: { id: 2, name: "Second" } }),
+				makeTimelineEvent({
+					media_offset_seconds: 20,
+					title: { id: 1, name: "Intro" },
+				}),
+				makeTimelineEvent({
+					media_offset_seconds: 70,
+					title: { id: 2, name: "Second" },
+				}),
 			],
 		);
 
@@ -341,50 +361,19 @@ describe("recording markers", () => {
 });
 
 function video(partial: Partial<VideoResponse>): VideoResponse {
-	return {
-		id: 65,
-		job_id: "job",
-		filename: "vod",
-		display_name: "Streamer",
+	return makeVideo(64, {
 		title: "Opening",
-		status: "DONE",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p60",
 		is_audio_only: false,
-		broadcaster_id: "b1",
-		viewer_count: 0,
-		language: "en",
 		duration_seconds: 120,
 		start_download_at: "2026-01-01T00:00:00Z",
-		source: "live",
 		...partial,
-	};
+	});
 }
 
 function part(
 	partial: Partial<NonNullable<VideoResponse["parts"]>[number]> = {},
 ) {
-	const partIndex = partial.part_index ?? 1;
-	return {
-		id: partial.id ?? partIndex,
-		part_index: partIndex,
-		filename: "vod-part01.mp4",
-		quality: "1080p60",
-		codec: "avc1",
-		segment_format: "ts",
-		duration_seconds: 60,
-		size_bytes: 100,
-		start_media_seq: 1,
-		...partial,
-	};
-}
-
-function event(partial: Partial<TimelineEvent>): TimelineEvent {
-	return {
-		occurred_at: "2026-01-01T00:00:00Z",
-		...partial,
-	};
+	return makeVideoPart({ duration_seconds: 60, ...partial });
 }
 
 describe("probeMediaSource", () => {
@@ -426,5 +415,27 @@ describe("probeMediaSource", () => {
 		});
 
 		expect(await probeMediaSource(src, fetchImpl)).toBe("failed");
+	});
+});
+
+describe("isPlayableVideo", () => {
+	it("plays finished recordings that are still on disk", () => {
+		expect(isPlayableVideo(makeVideo(0))).toBe(true);
+		expect(isPlayableVideo(makeVideo(0, VIDEO_STATES.partial))).toBe(true);
+	});
+
+	it("refuses recordings that are unfinished, failed, removed or missing", () => {
+		for (const state of [
+			VIDEO_STATES.recording,
+			VIDEO_STATES.queued,
+			VIDEO_STATES.failed,
+			VIDEO_STATES.cancelled,
+			VIDEO_REMOVAL_STATES.removed,
+			VIDEO_REMOVAL_STATES.missing,
+		]) {
+			expect(isPlayableVideo(makeVideo(0, state))).toBe(false);
+		}
+		expect(isPlayableVideo(undefined)).toBe(false);
+		expect(isPlayableVideo(null)).toBe(false);
 	});
 });

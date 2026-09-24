@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import type { VideoResponse } from "@/api/generated/trpc";
 import { ViewAllLink } from "@/components/ui/view-all-link";
 import { usePlaybackSettings } from "@/features/settings/playback";
 import { VideoCard } from "@/features/videos/components/VideoCard";
@@ -11,16 +12,25 @@ import { isContinueWatchingVideo } from "@/features/videos/resume-policy";
 const CONTINUE_WATCHING_LIMIT = 5;
 
 export function ContinueWatching() {
+	const { data } = useContinueWatching(CONTINUE_WATCHING_LIMIT);
+	if (!data?.length) return null;
+	return <ContinueWatchingSection candidates={data} />;
+}
+
+function ContinueWatchingSection({
+	candidates,
+}: {
+	candidates: VideoResponse[];
+}) {
 	const policy = usePlaybackSettings();
 	const { t } = useTranslation();
 	const canManage = useCanManageVideos();
-	const { data } = useContinueWatching(CONTINUE_WATCHING_LIMIT);
 	const videos = useMemo(
 		() =>
-			(data ?? [])
+			candidates
 				.filter((video) => isContinueWatchingVideo(video, policy))
 				.slice(0, CONTINUE_WATCHING_LIMIT),
-		[data, policy],
+		[candidates, policy],
 	);
 	if (videos.length === 0) return null;
 	return (

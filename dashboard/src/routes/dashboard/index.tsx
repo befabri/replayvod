@@ -3,9 +3,8 @@ import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import {
-	ContinueWatching,
+	HomeVideoSections,
 	LastLiveStatistics,
-	LatestRecordings,
 	RunningDownloads,
 	ScheduleStatistics,
 	VideoStatistics,
@@ -43,8 +42,7 @@ function DashboardHome() {
 			<div className="mb-6">
 				<RunningDownloads limit={3} />
 			</div>
-			<ContinueWatching />
-			<LatestRecordings />
+			<HomeVideoSections />
 			<LiveStreamsCard />
 		</TitledLayout>
 	);

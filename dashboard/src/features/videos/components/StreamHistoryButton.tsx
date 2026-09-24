@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import type { TimelineEvent } from "@/api/generated/trpc";
+import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -11,6 +12,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
 	Tooltip,
 	TooltipContent,
@@ -48,12 +50,10 @@ export function StreamHistoryButton({
 	videoId,
 	videoStartDownloadAt,
 	t,
-	className,
 }: {
 	videoId: number;
 	videoStartDownloadAt: string;
 	t: TFunction;
-	className?: string;
 }) {
 	const [open, setOpen] = useState(false);
 
@@ -61,15 +61,15 @@ export function StreamHistoryButton({
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger
 				render={(triggerProps) => (
-					<button
-						type="button"
+					<Button
+						variant="ghost-muted"
+						size="icon-sm"
 						{...triggerProps}
-						className={className}
 						aria-label={t("videos.history.tooltip")}
 						title={t("videos.history.tooltip")}
 					>
-						<ListBulletsIcon className="size-4" />
-					</button>
+						<ListBulletsIcon />
+					</Button>
 				)}
 			/>
 			{open ? (
@@ -126,11 +126,7 @@ function StreamHistoryDialogContent({
 				</DialogDescription>
 			</DialogHeader>
 
-			{isLoading && (
-				<div className="text-muted-foreground text-sm py-4">
-					{t("common.loading")}
-				</div>
-			)}
+			{isLoading && <LoadingState className="py-4" />}
 
 			{!isLoading && events && events.length === 0 && (
 				<div className="text-muted-foreground text-sm py-4">

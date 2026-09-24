@@ -5,14 +5,16 @@ import {
 	TitleBreadcrumbParentLink,
 	TitledLayout,
 } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { EmptyPanel } from "@/components/ui/empty-panel";
-import { ExpandableText } from "@/components/ui/expandable-text";
-import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
+import {
+	CategoryHeader,
+	CategoryHeaderSkeleton,
+} from "@/features/categories/components/CategoryHeader";
 import { useCategoryDetail } from "@/features/categories/queries";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
-import { formatBytes } from "@/features/videos/format";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import { useInfiniteVideosByCategory } from "@/features/videos/queries";
 import { useInfiniteResource } from "@/hooks/useInfiniteResource";
@@ -48,40 +50,14 @@ function CategoryDetailPage() {
 				/>
 			}
 		>
-			{category.isLoading && (
-				<div className="text-muted-foreground mt-4">{t("common.loading")}</div>
-			)}
+			{category.isLoading && <CategoryHeaderSkeleton />}
 			{category.error && (
-				<div className="mt-4 rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
+				<Alert variant="destructive" className="mt-4">
 					{category.error.message}
-				</div>
+				</Alert>
 			)}
 
-			{category.data && (
-				<div className="mt-4 mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
-					<CategoryBoxArt
-						url={category.data.box_art_url}
-						name={category.data.name}
-						width={144}
-						height={192}
-						sizes="144px"
-						className="w-36 rounded-md shrink-0"
-					/>
-					<div className="flex-1 min-w-0">
-						<div className="text-muted-foreground mt-0.5">
-							{t("categories.detail_summary", {
-								count: category.data.video_count,
-								size: formatCategorySize(category.data.total_size),
-							})}
-						</div>
-						{category.data.description && (
-							<ExpandableText className="mt-3 max-w-2xl text-sm leading-6">
-								{category.data.description}
-							</ExpandableText>
-						)}
-					</div>
-				</div>
-			)}
+			{category.data && <CategoryHeader category={category.data} />}
 
 			<h2 className="text-xl font-medium mb-4">{t("nav.videos")}</h2>
 
@@ -105,8 +81,4 @@ function CategoryDetailPage() {
 			)}
 		</TitledLayout>
 	);
-}
-
-function formatCategorySize(bytes: number) {
-	return bytes > 0 ? formatBytes(bytes) : "0 B";
 }

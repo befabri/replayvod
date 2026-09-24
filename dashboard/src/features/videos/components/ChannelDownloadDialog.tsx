@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -186,9 +186,9 @@ function ScheduleTab({
 			<FiltersFieldset form={form} />
 
 			{create.isError && (
-				<div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+				<Alert variant="destructive">
 					{create.error?.message ?? t("schedules.create_failed")}
-				</div>
+				</Alert>
 			)}
 
 			<DialogFooter>

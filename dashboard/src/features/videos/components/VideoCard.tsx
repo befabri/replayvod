@@ -17,7 +17,10 @@ import {
 } from "@/features/videos/format";
 import { videoStatusLabel } from "@/features/videos/labels";
 import { resumeOffsetSeconds } from "@/features/videos/resume-policy";
-import { localThumbnailURL } from "@/features/videos/thumbnail";
+import {
+	firstSnapshotPath,
+	localThumbnailURL,
+} from "@/features/videos/thumbnail";
 import { clamp, cn } from "@/lib/utils";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
@@ -37,7 +40,7 @@ function cacheBustedURL(url: string, cacheBust: number): string {
 
 function firstSnapshotURL(video: VideoResponse, cacheBust = 0): string {
 	return cacheBustedURL(
-		localThumbnailURL(`thumbnails/${video.filename}-snap00.jpg`),
+		localThumbnailURL(firstSnapshotPath(video.filename)),
 		cacheBust,
 	);
 }
@@ -431,7 +434,6 @@ export function VideoCard({
 							videoId={video.id}
 							videoStartDownloadAt={video.start_download_at}
 							t={t}
-							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						/>
 						<WatchLaterButton
 							videoId={video.id}

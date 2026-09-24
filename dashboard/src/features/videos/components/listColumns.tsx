@@ -4,14 +4,36 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { isPlayableVideo } from "@/features/videos/playback";
 import { localThumbnailURL } from "@/features/videos/thumbnail";
+import { cn } from "@/lib/utils";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 import { WatchLaterButton } from "./WatchLaterButton";
+
+export const POSTER_SKELETON = <Skeleton className="h-16 w-28" />;
+
+const TITLE_SKELETON = (
+	<div className="space-y-1.5">
+		<Skeleton className="h-4 w-48" />
+		<Skeleton className="h-3 w-24" />
+	</div>
+);
+
+const CHANNEL_SKELETON = (
+	<div className="flex items-center gap-2.5">
+		<Skeleton className="size-6 shrink-0 rounded-full" />
+		<div className="space-y-1.5">
+			<Skeleton className="h-4 w-24" />
+			<Skeleton className="h-3 w-16" />
+		</div>
+	</div>
+);
 
 export function videoListColumns(
 	t: TFunction,
@@ -23,12 +45,21 @@ export function videoListColumns(
 			id: "thumbnail",
 			header: "Thumb",
 			enableSorting: false,
-			cell: ({ row }) => <VideoThumbnail video={row.original} t={t} />,
+			meta: { skeleton: POSTER_SKELETON },
+			cell: ({ row }) => (
+				<PosterCell
+					row={row.original}
+					label={videoTitle(row.original)}
+					watchable={isPlayableVideo(row.original)}
+					t={t}
+				/>
+			),
 		},
 		{
 			accessorKey: "display_name",
 			header: "Title",
 			enableSorting: true,
+			meta: { skeleton: TITLE_SKELETON },
 			cell: ({ row }) => <VideoTitleCell row={row.original} t={t} />,
 		},
 		{
@@ -36,6 +67,7 @@ export function videoListColumns(
 			accessorFn: (row) => channelLabel(row),
 			header: "Channel",
 			enableSorting: true,
+			meta: { skeleton: CHANNEL_SKELETON },
 			cell: ({ row }) => <VideoChannelCell row={row.original} />,
 		},
 		{
@@ -91,6 +123,7 @@ export function videoListColumns(
 			id: "actions",
 			header: "",
 			enableSorting: false,
+			meta: { skeleton: null },
 			cell: ({ row }) => {
 				const video = row.original;
 				const isDone = video.status === "DONE";
@@ -98,32 +131,16 @@ export function videoListColumns(
 				return (
 					<div className="flex items-center justify-end gap-1.5">
 						{isDone ? (
-							<>
-								<StreamHistoryButton
-									videoId={video.id}
-									videoStartDownloadAt={video.start_download_at}
-									t={t}
-									className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-								/>
-								<WatchLaterButton
-									videoId={video.id}
-									watchLater={video.user_state?.watch_later ?? false}
-								/>
-								<Link
-									to="/dashboard/watch/$videoId"
-									params={{ videoId: String(video.id) }}
-									search={{ t: undefined }}
-									className="text-primary text-xs hover:underline"
-								>
-									{t("videos.watch")}
-								</Link>
-							</>
-						) : (
-							<WatchLaterButton
+							<StreamHistoryButton
 								videoId={video.id}
-								watchLater={video.user_state?.watch_later ?? false}
+								videoStartDownloadAt={video.start_download_at}
+								t={t}
 							/>
-						)}
+						) : null}
+						<WatchLaterButton
+							videoId={video.id}
+							watchLater={video.user_state?.watch_later ?? false}
+						/>
 						{canRemove ? <RemoveVideoButton videoId={video.id} /> : null}
 					</div>
 				);
@@ -169,8 +186,43 @@ export function VideoThumbnail({
 	);
 }
 
+export const FOCUS_RING =
+	"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+
+export function PosterCell({
+	row,
+	label,
+	watchable,
+	t,
+}: {
+	row: VideoResponse;
+	label: string;
+	watchable: boolean;
+	t: TFunction;
+}) {
+	const poster = <VideoThumbnail video={row} t={t} />;
+	if (!watchable) {
+		return poster;
+	}
+	return (
+		<Link
+			to="/dashboard/watch/$videoId"
+			params={{ videoId: String(row.id) }}
+			search={{ t: undefined }}
+			className={cn("block shrink-0 rounded-md", FOCUS_RING)}
+			aria-label={t("videos.watch_recording", { title: label })}
+		>
+			{poster}
+		</Link>
+	);
+}
+
+function videoTitle(row: VideoResponse) {
+	return row.title?.trim() || row.display_name;
+}
+
 function VideoTitleCell({ row, t }: { row: VideoResponse; t: TFunction }) {
-	const label = row.title?.trim() || row.display_name;
+	const label = videoTitle(row);
 	const metaParts = [];
 	if (row.language) metaParts.push(row.language.toUpperCase());
 	if (row.viewer_count > 0) {
@@ -194,7 +246,10 @@ function VideoTitleCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 			to="/dashboard/watch/$videoId"
 			params={{ videoId: String(row.id) }}
 			search={{ t: undefined }}
-			className="block hover:text-link"
+			className={cn(
+				"block rounded-sm transition-colors hover:text-link",
+				FOCUS_RING,
+			)}
 		>
 			{body}
 		</Link>

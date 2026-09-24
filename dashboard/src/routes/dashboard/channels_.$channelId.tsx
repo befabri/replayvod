@@ -1,4 +1,3 @@
-import { DownloadIcon, TwitchLogoIcon } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
@@ -7,13 +6,14 @@ import {
 	TitleBreadcrumbParentLink,
 	TitledLayout,
 } from "@/components/layout/titled-layout";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import { EmptyPanel } from "@/components/ui/empty-panel";
-import { ChannelFavoriteButton } from "@/features/channels/components/ChannelFavoriteButton";
+import {
+	ChannelHeader,
+	ChannelHeaderSkeleton,
+} from "@/features/channels/components/ChannelHeader";
 import { useChannel } from "@/features/channels/queries";
 import { useLiveSet } from "@/features/streams-live";
-import { ChannelDownloadDialog } from "@/features/videos/components/ChannelDownloadDialog";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
@@ -55,66 +55,19 @@ function ChannelDetailPage() {
 				/>
 			}
 		>
-			{channel.isLoading && (
-				<div className="text-muted-foreground mt-4">{t("common.loading")}</div>
-			)}
+			{channel.isLoading && <ChannelHeaderSkeleton canDownload={canDownload} />}
 			{channel.error && (
-				<div className="mt-4 rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
+				<Alert variant="destructive" className="mt-4">
 					{channel.error.message}
-				</div>
+				</Alert>
 			)}
 
 			{channel.data && (
-				<div className="mt-4 flex gap-6 items-start mb-8">
-					<Avatar
-						src={channel.data.profile_image_url}
-						name={channel.data.broadcaster_name}
-						alt={channel.data.broadcaster_name}
-						size="3xl"
-						isLive={isLive}
-						liveRingClass="ring-background"
-					/>
-					<div className="flex-1 min-w-0">
-						<div className="text-muted-foreground mt-0.5">
-							@{channel.data.broadcaster_login}
-						</div>
-						{channel.data.description && (
-							<p className="text-sm mt-3 max-w-2xl">
-								{channel.data.description}
-							</p>
-						)}
-					</div>
-					<div className="flex items-center gap-2 shrink-0">
-						<ChannelFavoriteButton
-							broadcasterId={channel.data.broadcaster_id}
-							favorite={channel.data.user_state?.favorite ?? false}
-							withLabel
-						/>
-						<a
-							href={`https://twitch.tv/${channel.data.broadcaster_login}`}
-							target="_blank"
-							rel="noopener noreferrer"
-							className={buttonVariants({ variant: "outline" })}
-						>
-							<TwitchLogoIcon weight="fill" />
-							{t("channels.open_in_twitch")}
-						</a>
-						{canDownload && (
-							<ChannelDownloadDialog
-								broadcasterId={channel.data.broadcaster_id}
-								broadcasterName={channel.data.broadcaster_name}
-								broadcasterLogin={channel.data.broadcaster_login}
-								profileImageUrl={channel.data.profile_image_url}
-								isLive={isLive}
-							>
-								<Button variant="outline">
-									<DownloadIcon weight="regular" />
-									{t("videos.trigger_download")}
-								</Button>
-							</ChannelDownloadDialog>
-						)}
-					</div>
-				</div>
+				<ChannelHeader
+					channel={channel.data}
+					isLive={isLive}
+					canDownload={canDownload}
+				/>
 			)}
 
 			<h2 className="text-xl font-medium mb-4">{t("nav.videos")}</h2>

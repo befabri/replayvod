@@ -49,7 +49,7 @@ export function CategoryBoxArt({
 					alt={decorative ? "" : name}
 					width={width}
 					height={height}
-					className="w-full h-full object-cover"
+					className="w-full h-full object-cover text-transparent"
 					loading="lazy"
 					decoding="async"
 					onError={() => setErrored(true)}

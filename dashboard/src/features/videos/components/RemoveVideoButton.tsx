@@ -2,9 +2,9 @@ import { TrashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDeleteVideo } from "@/features/videos";
-import { cn } from "@/lib/utils";
 
 export function RemoveVideoButton({
 	videoId,
@@ -40,8 +40,9 @@ export function RemoveVideoButton({
 
 	return (
 		<>
-			<button
-				type="button"
+			<Button
+				variant={withLabel ? "destructive" : "ghost-destructive"}
+				size={withLabel ? "sm" : "icon-sm"}
 				onClick={(e) => {
 					e.stopPropagation();
 					e.preventDefault();
@@ -49,16 +50,11 @@ export function RemoveVideoButton({
 				}}
 				aria-label={t("videos.remove")}
 				title={t("videos.remove")}
-				className={cn(
-					withLabel
-						? "inline-flex items-center gap-1.5 text-xs text-destructive hover:underline"
-						: "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive",
-					className,
-				)}
+				className={className}
 			>
-				<TrashIcon className="size-4" />
+				<TrashIcon data-icon={withLabel ? "inline-start" : undefined} />
 				{withLabel ? t("videos.remove") : null}
-			</button>
+			</Button>
 			{open ? (
 				<ConfirmDialog
 					open={open}

@@ -1,8 +1,8 @@
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { useRestoreVideo } from "@/features/videos/queries";
-import { cn } from "@/lib/utils";
 
 export function RestoreVideoButton({
 	videoId,
@@ -36,8 +36,9 @@ export function RestoreVideoButton({
 	};
 
 	return (
-		<button
-			type="button"
+		<Button
+			variant={withLabel ? "outline" : "ghost-muted"}
+			size={withLabel ? "sm" : "icon-sm"}
 			onClick={(e) => {
 				e.stopPropagation();
 				e.preventDefault();
@@ -46,15 +47,12 @@ export function RestoreVideoButton({
 			disabled={restore.isPending}
 			aria-label={t("videos.restore")}
 			title={t("videos.restore")}
-			className={cn(
-				withLabel
-					? "inline-flex items-center gap-1.5 text-xs text-link hover:underline disabled:opacity-50"
-					: "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
-				className,
-			)}
+			className={className}
 		>
-			<ArrowCounterClockwiseIcon className="size-4" />
+			<ArrowCounterClockwiseIcon
+				data-icon={withLabel ? "inline-start" : undefined}
+			/>
 			{withLabel ? t("videos.restore") : null}
-		</button>
+		</Button>
 	);
 }

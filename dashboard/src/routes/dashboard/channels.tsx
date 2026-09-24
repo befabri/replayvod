@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,18 +14,26 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EmptyPanel } from "@/components/ui/empty-panel";
 import { FilterTabs } from "@/components/ui/filter-tabs";
-import { VirtualGrid } from "@/components/ui/virtual-grid";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { VirtualGrid, VirtualGridSkeleton } from "@/components/ui/virtual-grid";
 import { type ChannelResponse, useInfiniteChannels } from "@/features/channels";
 import { ChannelFavoriteButton } from "@/features/channels/components/ChannelFavoriteButton";
 import { useLiveSet } from "@/features/streams-live";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { useInfiniteResource } from "@/hooks/useInfiniteResource";
+import { cn } from "@/lib/utils";
 
 const SORT_MODES = ["name_asc", "name_desc"] as const;
 type SortMode = (typeof SORT_MODES)[number];
 
 const FILTER_MODES = ["all", "live", "downloaded", "favorites"] as const;
 type FilterMode = (typeof FILTER_MODES)[number];
+
+const CHANNEL_GRID = { minItemWidth: 220, gap: 8 } as const;
+const CHANNEL_TILE_CLASS =
+	"flex items-center gap-2 rounded-md bg-card px-2 py-2 shadow-sm";
+const LOADING_TILES = 24;
 
 export const Route = createFileRoute("/dashboard/channels")({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -93,7 +102,12 @@ function ChannelsPage() {
 	);
 	const renderChannel = useCallback(
 		(channel: ChannelResponse) => (
-			<div className="flex items-center gap-2 rounded-md bg-card px-2 py-2 shadow-sm transition-colors duration-75 hover:bg-accent hover:text-accent-foreground">
+			<div
+				className={cn(
+					CHANNEL_TILE_CLASS,
+					"transition-colors duration-75 hover:bg-accent hover:text-accent-foreground",
+				)}
+			>
 				<Link
 					to="/dashboard/channels/$channelId"
 					params={{ channelId: channel.broadcaster_id }}
@@ -139,29 +153,30 @@ function ChannelsPage() {
 				/>
 
 				{channels.isLoading && (
-					<div className="text-muted-foreground">{t("common.loading")}</div>
+					<VirtualGridSkeleton
+						count={LOADING_TILES}
+						renderItem={() => <ChannelTileSkeleton />}
+						{...CHANNEL_GRID}
+					/>
 				)}
 
 				{channels.error && (
-					<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
+					<Alert variant="destructive">
 						{t("channels.failed_to_load")}: {channels.error.message}
-					</div>
+					</Alert>
 				)}
 
 				{showEmpty && <EmptyPanel>{emptyMessage}</EmptyPanel>}
-				{showSearchingMore && (
-					<div className="text-muted-foreground">{t("common.loading")}</div>
-				)}
+				{showSearchingMore && <LoadingState />}
 
 				{visible.length > 0 && (
 					<VirtualGrid
 						items={visible}
 						getItemKey={getChannelKey}
 						renderItem={renderChannel}
-						minItemWidth={220}
 						estimateRowHeight={48}
-						gap={8}
 						overscan={8}
+						{...CHANNEL_GRID}
 					/>
 				)}
 				{shouldLoadMore && <div ref={loadMoreRef} className="h-1" />}
@@ -173,6 +188,15 @@ function ChannelsPage() {
 					)}
 			</div>
 		</TitledLayout>
+	);
+}
+
+function ChannelTileSkeleton() {
+	return (
+		<div className={cn(CHANNEL_TILE_CLASS, "gap-3")}>
+			<Skeleton className="size-8 shrink-0 rounded-full" />
+			<Skeleton className="h-4 w-2/3" />
+		</div>
 	);
 }
 

@@ -1,40 +1,42 @@
-import {
-	FunnelSimpleIcon,
-	RowsIcon,
-	SortAscendingIcon,
-	SquaresFourIcon,
-} from "@phosphor-icons/react";
+import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type {
-	VideoResponse,
-	VideoSource,
-	VideoStatus,
-} from "@/api/generated/trpc";
+import type { VideoResponse } from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { QueryBoundary } from "@/components/query-boundary";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { EmptyPanel } from "@/components/ui/empty-panel";
-import { FilterTabs } from "@/components/ui/filter-tabs";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@/components/ui/select";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePlaybackSettings } from "@/features/settings/playback";
-import {
-	useInfiniteVideoPages,
-	useStatistics,
-	type VideoOrder,
-	type VideoSort,
-} from "@/features/videos";
+import { useInfiniteVideoPages, useStatistics } from "@/features/videos";
 import { videoListColumns } from "@/features/videos/components/listColumns";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
+import {
+	VideoListFilterChips,
+	VideoScopeTabs,
+	VideoSortSelect,
+	VideoViewToggle,
+} from "@/features/videos/components/VideoListControls";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { formatBytes } from "@/features/videos/format";
+import {
+	isOneOf,
+	VIDEO_DURATION_FILTERS,
+	VIDEO_LIST_SORT_CONFIG,
+	VIDEO_LIST_SORT_KEYS,
+	VIDEO_LIST_STATUSES,
+	VIDEO_LIST_TABS,
+	VIDEO_LIST_VIEWS,
+	VIDEO_SOURCE_FILTERS,
+	type VideoDurationFilter,
+	type VideoListFilters,
+	type VideoListTab,
+} from "@/features/videos/list-search";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import {
 	isContinueWatchingVideo,
@@ -45,77 +47,7 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
-type ViewMode = "grid" | "table";
-type SortKey =
-	| "recently_watched"
-	| "newest"
-	| "oldest"
-	| "streamed_newest"
-	| "streamed_oldest"
-	| "channel_asc"
-	| "channel_desc"
-	| "longest"
-	| "largest";
-
-const SORT_CONFIG: Record<SortKey, { sort: VideoSort; order: VideoOrder }> = {
-	recently_watched: { sort: "last_watched", order: "desc" },
-	newest: { sort: "created_at", order: "desc" },
-	oldest: { sort: "created_at", order: "asc" },
-	streamed_newest: { sort: "broadcast_at", order: "desc" },
-	streamed_oldest: { sort: "broadcast_at", order: "asc" },
-	channel_asc: { sort: "channel", order: "asc" },
-	channel_desc: { sort: "channel", order: "desc" },
-	longest: { sort: "duration", order: "desc" },
-	largest: { sort: "size", order: "desc" },
-};
-
-const SORT_KEYS = Object.keys(SORT_CONFIG) as SortKey[];
-const STATUS_KEYS = [
-	"DONE",
-	"RUNNING",
-	"PENDING",
-	"FAILED",
-] as const satisfies readonly VideoStatus[];
-type StatusKey = (typeof STATUS_KEYS)[number];
-
-const TAB_KEYS = [
-	"all",
-	"continue_watching",
-	"this_week",
-	"unwatched",
-	"watch_later",
-] as const;
-type TabKey = (typeof TAB_KEYS)[number];
-
-const DURATION_FILTERS = ["short", "medium", "long", "marathon"] as const;
-type DurationFilter = (typeof DURATION_FILTERS)[number];
-const SOURCE_FILTERS = [
-	"live",
-	"vod",
-] as const satisfies readonly VideoSource[];
-type SourceFilter = (typeof SOURCE_FILTERS)[number];
 const THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
-const ANY = "any";
-
-const QUALITY_LADDER = [
-	"1080p60",
-	"1080p",
-	"720p60",
-	"720p",
-	"480p",
-	"360p",
-	"160p",
-	"chunked",
-	"audio_only",
-] as const;
-
-function isOneOf<T extends string>(
-	values: readonly T[],
-	raw: unknown,
-): raw is T {
-	return typeof raw === "string" && values.includes(raw as T);
-}
 
 function parseStringParam(raw: unknown): string | undefined {
 	return typeof raw === "string" && raw.length > 0 ? raw : undefined;
@@ -126,25 +58,26 @@ export function validateVideosSearch(search: Record<string, unknown>) {
 		tab:
 			search.tab === "favorites"
 				? "watch_later"
-				: isOneOf(TAB_KEYS, search.tab)
+				: isOneOf(VIDEO_LIST_TABS, search.tab)
 					? search.tab
 					: "all",
-		status: isOneOf(STATUS_KEYS, search.status) ? search.status : undefined,
-		view:
-			search.view === "table" || search.view === "grid"
-				? (search.view as ViewMode)
-				: "grid",
-		sort: isOneOf(SORT_KEYS, search.sort)
+		status: isOneOf(VIDEO_LIST_STATUSES, search.status)
+			? search.status
+			: undefined,
+		view: isOneOf(VIDEO_LIST_VIEWS, search.view) ? search.view : "grid",
+		sort: isOneOf(VIDEO_LIST_SORT_KEYS, search.sort)
 			? search.sort
 			: search.tab === "continue_watching"
 				? "recently_watched"
 				: "newest",
 		quality: parseStringParam(search.quality),
 		language: parseStringParam(search.language),
-		duration: isOneOf(DURATION_FILTERS, search.duration)
+		duration: isOneOf(VIDEO_DURATION_FILTERS, search.duration)
 			? search.duration
 			: undefined,
-		source: isOneOf(SOURCE_FILTERS, search.source) ? search.source : undefined,
+		source: isOneOf(VIDEO_SOURCE_FILTERS, search.source)
+			? search.source
+			: undefined,
 	};
 }
 
@@ -152,7 +85,7 @@ export type VideosSearch = ReturnType<typeof validateVideosSearch>;
 
 export function videosSearchForTabChange(
 	search: VideosSearch,
-	tab: TabKey,
+	tab: VideoListTab,
 ): VideosSearch {
 	return {
 		...search,
@@ -177,6 +110,37 @@ export const Route = createFileRoute("/dashboard/videos")({
 });
 
 function VideosPage() {
+	return (
+		<QueryBoundary fallback={<VideosPageLoading />}>
+			<VideosLibrary />
+		</QueryBoundary>
+	);
+}
+
+function VideosPageLoading() {
+	const { t } = useTranslation();
+	return (
+		<TitledLayout
+			title={t("videos.title")}
+			description={<VideosSummarySkeleton />}
+		>
+			<div className="space-y-6">
+				<Skeleton className="h-9 w-full max-w-xl" />
+				<VideoGridLoading className="mt-0" />
+			</div>
+		</TitledLayout>
+	);
+}
+
+function VideosSummarySkeleton() {
+	return (
+		<span className="flex h-5 items-center">
+			<Skeleton className="h-3.5 w-72 max-w-full" />
+		</span>
+	);
+}
+
+function VideosLibrary() {
 	const policy = usePlaybackSettings();
 	const { t, i18n } = useTranslation();
 	const {
@@ -191,10 +155,10 @@ function VideosPage() {
 	} = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const [filtersOpen, setFiltersOpen] = useState(false);
-	const { data: stats } = useStatistics();
+	const { data: stats, isPending: statsPending } = useStatistics();
 	const canManage = useCanManageVideos();
 
-	const sortConfig = SORT_CONFIG[sortKey];
+	const sortConfig = VIDEO_LIST_SORT_CONFIG[sortKey];
 
 	const videos = useInfiniteVideoPages(
 		PAGE_SIZE,
@@ -221,7 +185,7 @@ function VideosPage() {
 	const shouldLoadMore = resource.shouldLoadMore;
 	const loadMoreRef = resource.loadMoreRef;
 
-	const tabCounts: Partial<Record<TabKey, number>> = {
+	const tabCounts: Partial<Record<VideoListTab, number>> = {
 		all: stats?.total,
 		this_week: stats?.this_week,
 		unwatched: stats?.unwatched,
@@ -233,64 +197,6 @@ function VideosPage() {
 	const columns = useMemo(
 		() => videoListColumns(t, canManage, i18n.language),
 		[t, canManage, i18n.language],
-	);
-	const statusOptions = useMemo(
-		() =>
-			withSelectedOption(
-				[
-					{ value: ANY, label: t("videos.status_filter.any") },
-					...STATUS_KEYS.map((key) => ({
-						value: key,
-						label: t(`videos.status_filter.${key}` as const),
-					})),
-				],
-				status,
-			),
-		[status, t],
-	);
-	const qualityOptions = useMemo(
-		() =>
-			withSelectedOption(
-				[
-					{ value: ANY, label: t("videos.filter_any") },
-					...QUALITY_LADDER.map((q) => ({ value: q, label: q })),
-				],
-				quality,
-			),
-		[quality, t],
-	);
-	const languageOptions = useMemo(
-		() =>
-			withSelectedOption(
-				[
-					{ value: ANY, label: t("videos.filter_any") },
-					...[...seenLanguages]
-						.sort((a, b) => a.localeCompare(b))
-						.map((value) => ({ value, label: value.toUpperCase() })),
-				],
-				language,
-			),
-		[seenLanguages, language, t],
-	);
-	const durationOptions = useMemo(
-		() => [
-			{ value: ANY, label: t("videos.duration_any") },
-			{ value: "short", label: t("videos.duration_short") },
-			{ value: "medium", label: t("videos.duration_medium") },
-			{ value: "long", label: t("videos.duration_long") },
-			{ value: "marathon", label: t("videos.duration_marathon") },
-		],
-		[t],
-	);
-	const sourceOptions = useMemo(
-		() => [
-			{ value: ANY, label: t("videos.source_filter.any") },
-			...SOURCE_FILTERS.map((key) => ({
-				value: key,
-				label: t(`videos.source_filter.${key}` as const),
-			})),
-		],
-		[t],
 	);
 	const filteredVideos = useMemo(
 		() =>
@@ -353,29 +259,23 @@ function VideosPage() {
 			})
 		: undefined;
 
-	const setFilter = (patch: {
-		status?: StatusKey;
-		quality?: string;
-		language?: string;
-		duration?: DurationFilter;
-		source?: SourceFilter;
-	}) => {
+	const setFilter = (patch: VideoListFilters) => {
 		void navigate({ search: (s) => ({ ...s, ...patch }) });
 	};
 
 	return (
 		<TitledLayout
 			title={t("videos.title")}
-			description={summary}
+			description={statsPending ? <VideosSummarySkeleton /> : summary}
 			actions={
 				<>
-					<ViewToggle
+					<VideoViewToggle
 						current={view}
 						onChange={(next) => {
 							void navigate({ search: (s) => ({ ...s, view: next }) });
 						}}
 					/>
-					<SortSelect
+					<VideoSortSelect
 						current={sortKey}
 						onChange={(next) => {
 							void navigate({ search: (s) => ({ ...s, sort: next }) });
@@ -397,7 +297,7 @@ function VideosPage() {
 			}
 		>
 			<div className="space-y-6">
-				<ScopeTabs
+				<VideoScopeTabs
 					current={tab}
 					counts={tabCounts}
 					onChange={(next) => {
@@ -409,56 +309,11 @@ function VideosPage() {
 
 				{filtersOpen ? (
 					<div className="flex animate-in flex-col gap-3 fade-in-0 slide-in-from-top-1 duration-150 sm:flex-row sm:items-center sm:justify-between">
-						<div className="flex flex-wrap items-center gap-2.5">
-							<FilterChipSelect
-								label={t("videos.filter_status")}
-								value={status ?? ANY}
-								options={statusOptions}
-								onChange={(value) =>
-									setFilter({
-										status: isOneOf(STATUS_KEYS, value) ? value : undefined,
-									})
-								}
-							/>
-							<FilterChipSelect
-								label={t("videos.filter_quality")}
-								value={quality ?? ANY}
-								options={qualityOptions}
-								onChange={(value) =>
-									setFilter({ quality: value === ANY ? undefined : value })
-								}
-							/>
-							<FilterChipSelect
-								label={t("videos.filter_language")}
-								value={language ?? ANY}
-								options={languageOptions}
-								onChange={(value) =>
-									setFilter({ language: value === ANY ? undefined : value })
-								}
-							/>
-							<FilterChipSelect
-								label={t("videos.filter_duration")}
-								value={duration ?? ANY}
-								options={durationOptions}
-								onChange={(value) =>
-									setFilter({
-										duration: isOneOf(DURATION_FILTERS, value)
-											? value
-											: undefined,
-									})
-								}
-							/>
-							<FilterChipSelect
-								label={t("videos.filter_source")}
-								value={source ?? ANY}
-								options={sourceOptions}
-								onChange={(value) =>
-									setFilter({
-										source: isOneOf(SOURCE_FILTERS, value) ? value : undefined,
-									})
-								}
-							/>
-						</div>
+						<VideoListFilterChips
+							filters={{ status, quality, language, duration, source }}
+							languages={seenLanguages}
+							onChange={setFilter}
+						/>
 						<div className="text-xs tracking-[0.12em] text-muted-foreground uppercase">
 							{showingLabel}
 						</div>
@@ -469,13 +324,13 @@ function VideosPage() {
 					(view === "grid" ? (
 						<VideoGridLoading className="mt-0" />
 					) : (
-						<div className="text-muted-foreground">{t("common.loading")}</div>
+						<DataTable columns={columns} data={[]} loading />
 					))}
 
 				{videos.error && (
-					<div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive shadow-sm">
+					<Alert variant="destructive">
 						{t("videos.failed_to_load")}: {videos.error.message}
-					</div>
+					</Alert>
 				)}
 
 				{showEmpty && <EmptyPanel>{emptyMessage}</EmptyPanel>}
@@ -507,9 +362,7 @@ function VideosPage() {
 					(view === "grid" ? (
 						<VideoGridLoading count={3} />
 					) : (
-						<div className="rounded-xl border border-border bg-card/70 p-4 text-sm text-muted-foreground">
-							{t("common.loading")}
-						</div>
+						<LoadingState className="rounded-xl border border-border bg-card/70 p-4" />
 					))}
 
 				{hasScrolledThroughPages &&
@@ -547,128 +400,6 @@ function useLanguageFacet(
 	return seen;
 }
 
-function SortSelect({
-	current,
-	onChange,
-}: {
-	current: SortKey;
-	onChange: (key: SortKey) => void;
-}) {
-	const { t } = useTranslation();
-	const label = t(`videos.sort.${current}`);
-	return (
-		<Select value={current} onValueChange={(next) => onChange(next as SortKey)}>
-			<SelectTrigger variant="chip" className="min-w-[150px]">
-				<div className="flex items-center gap-2">
-					<SortAscendingIcon className="size-4 text-muted-foreground" />
-					<span className="truncate text-sm font-medium">{label}</span>
-				</div>
-			</SelectTrigger>
-			<SelectContent>
-				{SORT_KEYS.map((key) => (
-					<SelectItem key={key} value={key}>
-						{t(`videos.sort.${key}`)}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
-	);
-}
-
-function ViewToggle({
-	current,
-	onChange,
-}: {
-	current: ViewMode;
-	onChange: (mode: ViewMode) => void;
-}) {
-	const { t } = useTranslation();
-	const modes: Array<{ key: ViewMode; icon: React.ReactNode }> = [
-		{ key: "grid", icon: <SquaresFourIcon className="size-4" /> },
-		{ key: "table", icon: <RowsIcon className="size-4" /> },
-	];
-	return (
-		<fieldset className="inline-flex items-center rounded-md border border-border bg-card p-0.5">
-			<legend className="sr-only">{t("videos.view_label")}</legend>
-			{modes.map((mode) => {
-				const active = current === mode.key;
-				return (
-					<Button
-						key={mode.key}
-						variant="ghost"
-						size="sm"
-						aria-pressed={active}
-						onClick={() => onChange(mode.key)}
-						className={cn(
-							"h-8 rounded-md px-3 text-xs text-muted-foreground",
-							active &&
-								"bg-primary text-primary-foreground hover:bg-primary-hover hover:text-primary-foreground",
-						)}
-					>
-						{mode.icon}
-						{t(`videos.view.${mode.key}`)}
-					</Button>
-				);
-			})}
-		</fieldset>
-	);
-}
-
-function ScopeTabs({
-	current,
-	counts,
-	onChange,
-}: {
-	current: TabKey;
-	counts: Partial<Record<TabKey, number>>;
-	onChange: (key: TabKey) => void;
-}) {
-	const { t } = useTranslation();
-	return (
-		<FilterTabs
-			value={current}
-			onChange={(value) => onChange(value as TabKey)}
-			options={TAB_KEYS.map((key) => ({
-				value: key,
-				label: t(`videos.tabs.${key}`),
-				count: counts[key],
-			}))}
-		/>
-	);
-}
-
-function FilterChipSelect({
-	label,
-	value,
-	options,
-	onChange,
-}: {
-	label: string;
-	value: string;
-	options: Array<{ value: string; label: string }>;
-	onChange: (value: string) => void;
-}) {
-	const selected =
-		options.find((option) => option.value === value) ?? options[0];
-	return (
-		<Select value={value} onValueChange={(next) => onChange(String(next))}>
-			<SelectTrigger variant="chip" className="min-w-[138px]">
-				<span className="truncate text-sm">
-					<span className="text-muted-foreground">{label}:</span>{" "}
-					<span className="font-medium text-foreground">{selected?.label}</span>
-				</span>
-			</SelectTrigger>
-			<SelectContent>
-				{options.map((option) => (
-					<SelectItem key={option.value} value={option.value}>
-						{option.label}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
-	);
-}
-
 export function filterLoadedVideosForSearch(
 	rows: VideoResponse[],
 	search: Pick<
@@ -692,7 +423,7 @@ export function filterLoadedVideosForSearch(
 
 function matchesTabFilter(
 	video: VideoResponse,
-	tab: TabKey,
+	tab: VideoListTab,
 	nowMs: number,
 	policy: ResumePolicy,
 ) {
@@ -709,17 +440,9 @@ function matchesTabFilter(
 	return true;
 }
 
-function withSelectedOption(
-	options: Array<{ value: string; label: string }>,
-	selected: string | undefined,
-) {
-	if (!selected || options.some((o) => o.value === selected)) return options;
-	return [...options, { value: selected, label: selected }];
-}
-
 function matchesDurationFilter(
 	seconds: number | undefined,
-	filter: DurationFilter | undefined,
+	filter: VideoDurationFilter | undefined,
 ) {
 	if (!filter) return true;
 	if (!seconds || seconds <= 0) return false;

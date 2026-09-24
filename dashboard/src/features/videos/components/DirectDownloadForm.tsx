@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { useTriggerDownload } from "@/features/videos/queries";
@@ -47,12 +48,9 @@ export function DirectDownloadForm({
 			/>
 			<DirectDownloadFields controller={controller} />
 			{trigger.isError && (
-				<div
-					role="alert"
-					className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
-				>
+				<Alert variant="destructive">
 					{trigger.error.message || t("videos.trigger_failed")}
-				</div>
+				</Alert>
 			)}
 			<form.Subscribe
 				selector={(state) => [state.canSubmit, state.isSubmitting] as const}

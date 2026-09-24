@@ -3,10 +3,9 @@ import type { OnChangeFn, SortingState } from "@tanstack/react-table";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { DataTable } from "@/components/ui/data-table";
-import { FilterTabs } from "@/components/ui/filter-tabs";
 import { Pager } from "@/components/ui/pager";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
 	useHistoryCounts,
 	useInfiniteVideoPages,
@@ -20,13 +19,11 @@ import {
 	type HistoryView,
 	historyColumns,
 } from "@/features/videos/components/activityColumns";
+import { HistoryViewControls } from "@/features/videos/components/HistoryViewControls";
 import {
-	HISTORY_MEDIA_SCOPES,
-	HISTORY_OUTCOMES,
 	historyEmptyKey,
 	historyFilters,
 	historyTabCounts,
-	isHistoryMedia,
 	validateHistorySearch,
 } from "@/features/videos/history";
 import { useCanManageVideos } from "@/features/videos/permissions";
@@ -142,53 +139,23 @@ function HistoryContent({
 				{t("history.description")}
 			</p>
 
-			<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-				<FilterTabs
-					value={view.outcome}
-					onChange={(next) => {
-						onViewChange({ ...view, outcome: next as HistoryOutcome });
-					}}
-					options={HISTORY_OUTCOMES.map((key) => ({
-						value: key,
-						label: t(`history.outcome_${key}`),
-						count: counts[key],
-					}))}
-				/>
-				<div className="flex items-center gap-2 pb-3">
-					<span className="text-xs text-muted-foreground">
-						{t("history.media_label")}
-					</span>
-					<ToggleGroup
-						value={[view.media]}
-						onValueChange={(next) => {
-							const media = next[0];
-							if (isHistoryMedia(media)) {
-								onViewChange({ ...view, media });
-							}
-						}}
-					>
-						{HISTORY_MEDIA_SCOPES.map((scope) => (
-							<ToggleGroupItem key={scope} value={scope}>
-								{t(`history.scope_${scope}`)}
-							</ToggleGroupItem>
-						))}
-					</ToggleGroup>
-				</div>
-			</div>
+			<HistoryViewControls
+				view={view}
+				counts={counts}
+				onViewChange={onViewChange}
+			/>
 
-			{videos.isLoading && (
-				<div className="mt-6 text-muted-foreground">{t("common.loading")}</div>
-			)}
 			{videos.error && (
-				<div className="mt-6 rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
+				<Alert variant="destructive" className="mt-6">
 					{t("history.failed_to_load")}: {videos.error.message}
-				</div>
+				</Alert>
 			)}
-			{!videos.isLoading && !videos.error && (
+			{!videos.error && (
 				<div className="mt-6">
 					<DataTable
 						columns={columns}
 						data={current}
+						loading={videos.isLoading}
 						emptyMessage={t(historyEmptyKey(view))}
 						sorting={sorting}
 						onSortingChange={handleSortingChange}

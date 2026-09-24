@@ -63,6 +63,12 @@ export type ChapterCue = {
 	text: string;
 };
 
+export function isPlayableVideo<
+	T extends Pick<VideoResponse, "status" | "deleted_at">,
+>(video: T | null | undefined): video is T {
+	return !!video && video.status === "DONE" && !video.deleted_at;
+}
+
 export function buildRecordingPlaylist(
 	video: VideoResponse,
 	timeline: TimelineEvent[] | undefined,

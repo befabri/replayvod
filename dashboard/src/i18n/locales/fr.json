@@ -319,7 +319,6 @@
 			"FAILED": "Échoué",
 			"CANCELLED": "Annulé"
 		},
-		"watch": "Regarder",
 		"recorded": "Enregistré",
 		"triggered": "Téléchargement démarré",
 		"trigger_download": "Télécharger",

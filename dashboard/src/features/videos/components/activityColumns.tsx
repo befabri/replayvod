@@ -2,11 +2,13 @@ import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes } from "@/features/videos/format";
+import { isPlayableVideo } from "@/features/videos/playback";
 import { cn } from "@/lib/utils";
-import { VideoThumbnail } from "./listColumns";
+import { FOCUS_RING, POSTER_SKELETON, PosterCell } from "./listColumns";
 import { VideoRemovalActions } from "./VideoRemovalActions";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 
@@ -24,6 +26,17 @@ function channelColumn(t: TFunction): ColumnDef<VideoResponse> {
 		accessorKey: "display_name",
 		header: t("history.col_recording"),
 		cell: ({ row }) => <RecordingCell row={row.original} t={t} />,
+		meta: {
+			skeleton: (
+				<div className="flex items-center gap-3">
+					{POSTER_SKELETON}
+					<div className="space-y-1.5">
+						<Skeleton className="h-4 w-32" />
+						<Skeleton className="h-3 w-44" />
+					</div>
+				</div>
+			),
+		},
 	};
 }
 
@@ -36,7 +49,7 @@ export function RecordingCell({
 }) {
 	const title = row.title?.trim();
 	const subtitle = title && title !== channelLabel(row) ? title : null;
-	const watchable = !row.deleted_at && row.status === "DONE";
+	const watchable = isPlayableVideo(row);
 	return (
 		<div
 			className={cn(
@@ -57,37 +70,6 @@ export function RecordingCell({
 				) : null}
 			</div>
 		</div>
-	);
-}
-
-const FOCUS_RING =
-	"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
-
-function PosterCell({
-	row,
-	label,
-	watchable,
-	t,
-}: {
-	row: VideoResponse;
-	label: string;
-	watchable: boolean;
-	t: TFunction;
-}) {
-	const poster = <VideoThumbnail video={row} t={t} />;
-	if (!watchable) {
-		return poster;
-	}
-	return (
-		<Link
-			to="/dashboard/watch/$videoId"
-			params={{ videoId: String(row.id) }}
-			search={{ t: undefined }}
-			className={cn("block shrink-0 rounded-md", FOCUS_RING)}
-			aria-label={t("videos.watch_recording", { title: label })}
-		>
-			{poster}
-		</Link>
 	);
 }
 
@@ -247,6 +229,7 @@ function actionsColumn(canManage: boolean): ColumnDef<VideoResponse> {
 	return {
 		id: "actions",
 		header: "",
+		meta: { skeleton: null },
 		cell: ({ row }) => {
 			if (!canManage) return null;
 			return (

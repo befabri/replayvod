@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -11,7 +12,9 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyPanel } from "@/components/ui/empty-panel";
-import { VirtualGrid } from "@/components/ui/virtual-grid";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { VirtualGrid, VirtualGridSkeleton } from "@/components/ui/virtual-grid";
 import {
 	type CategoryResponse,
 	type CategorySort,
@@ -20,6 +23,7 @@ import {
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { useInfiniteResource } from "@/hooks/useInfiniteResource";
+import { cn } from "@/lib/utils";
 
 const SORT_MODES = [
 	"name_asc",
@@ -27,6 +31,11 @@ const SORT_MODES = [
 	"video_count_desc",
 ] as const satisfies readonly CategorySort[];
 type SortMode = (typeof SORT_MODES)[number];
+
+const CATEGORY_GRID = { minItemWidth: 140, gap: 12 } as const;
+const CATEGORY_TILE_CLASS = "group flex flex-col gap-1.5";
+const CATEGORY_ART_CLASS = "rounded-md border-4 border-background";
+const LOADING_TILES = 12;
 
 export const Route = createFileRoute("/dashboard/categories")({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -61,13 +70,17 @@ function CategoriesPage() {
 			}
 		>
 			{categories.isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
+				<VirtualGridSkeleton
+					count={LOADING_TILES}
+					renderItem={() => <CategoryTileSkeleton />}
+					{...CATEGORY_GRID}
+				/>
 			)}
 
 			{categories.error && (
-				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
+				<Alert variant="destructive">
 					{t("categories.failed_to_load")}: {categories.error.message}
-				</div>
+				</Alert>
 			)}
 
 			{visible.length === 0 &&
@@ -79,11 +92,7 @@ function CategoriesPage() {
 			{resource.shouldLoadMore && (
 				<div ref={resource.loadMoreRef} className="h-1" />
 			)}
-			{categories.isFetchingNextPage && (
-				<div className="mt-4 text-muted-foreground text-sm">
-					{t("common.loading")}
-				</div>
-			)}
+			{categories.isFetchingNextPage && <LoadingState className="mt-4" />}
 			{resource.showEnd && <VideoGridEnd labelKey="categories.end_of_list" />}
 		</TitledLayout>
 	);
@@ -99,15 +108,19 @@ function CategoryGrid({ categories }: { categories: CategoryResponse[] }) {
 			<Link
 				to="/dashboard/categories/$categoryId"
 				params={{ categoryId: category.id }}
-				className="group flex flex-col gap-1.5"
+				className={CATEGORY_TILE_CLASS}
 			>
 				<CategoryBoxArt
 					url={category.box_art_url}
 					name={category.name}
+					decorative
 					width={180}
 					height={240}
 					sizes="(max-width: 768px) calc(50vw - 1.5rem), 180px"
-					className="rounded-md border-4 border-background group-hover:border-primary transition-colors duration-75"
+					className={cn(
+						CATEGORY_ART_CLASS,
+						"group-hover:border-primary transition-colors duration-75",
+					)}
 				/>
 				<div className="text-sm font-medium truncate group-hover:text-link transition-colors duration-75">
 					{category.name}
@@ -122,11 +135,19 @@ function CategoryGrid({ categories }: { categories: CategoryResponse[] }) {
 			items={categories}
 			getItemKey={getCategoryKey}
 			renderItem={renderCategory}
-			minItemWidth={140}
 			estimateRowHeight={230}
-			gap={12}
 			overscan={6}
+			{...CATEGORY_GRID}
 		/>
+	);
+}
+
+function CategoryTileSkeleton() {
+	return (
+		<div className={CATEGORY_TILE_CLASS}>
+			<Skeleton className={cn("aspect-[3/4] w-full", CATEGORY_ART_CLASS)} />
+			<Skeleton className="my-0.5 h-4 w-3/4" />
+		</div>
 	);
 }
 
