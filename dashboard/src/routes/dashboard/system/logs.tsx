@@ -185,13 +185,15 @@ function ApiLogsView() {
 						loading={isLoading}
 						emptyMessage={t("logs.api_empty")}
 					/>
-					<Pager
-						page={page}
-						total={data?.total ?? 0}
-						hasNext={(page + 1) * PAGE_SIZE < (data?.total ?? 0)}
-						onPrev={() => setPage((p) => Math.max(0, p - 1))}
-						onNext={() => setPage((p) => p + 1)}
-					/>
+					{data && (
+						<Pager
+							page={page}
+							total={data.total}
+							hasNext={(page + 1) * PAGE_SIZE < data.total}
+							onPrev={() => setPage((p) => Math.max(0, p - 1))}
+							onNext={() => setPage((p) => p + 1)}
+						/>
+					)}
 				</PageFlip>
 			)}
 		</>
