@@ -85,6 +85,10 @@ func (r *fakeVideoStateRepo) ListChannelsByIDs(_ context.Context, _ []string) ([
 	return nil, nil
 }
 
+func (r *fakeVideoStateRepo) ListTagsForVideos(context.Context, []int64) (map[int64][]repository.Tag, error) {
+	return nil, nil
+}
+
 func (r *fakeVideoStateRepo) ListPrimaryCategoriesForVideos(_ context.Context, _ []int64) (map[int64]repository.Category, error) {
 	return nil, nil
 }

@@ -90,6 +90,10 @@ func (snapshotVideoRepo) ListChannelsByIDs(context.Context, []string) ([]reposit
 	return nil, nil
 }
 
+func (snapshotVideoRepo) ListTagsForVideos(context.Context, []int64) (map[int64][]repository.Tag, error) {
+	return nil, nil
+}
+
 func (snapshotVideoRepo) ListPrimaryCategoriesForVideos(context.Context, []int64) (map[int64]repository.Category, error) {
 	return nil, nil
 }

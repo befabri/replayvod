@@ -122,3 +122,55 @@ func testStreamMetadataLinks(t *testing.T, h Harness) {
 		}
 	}
 }
+
+func testVideoTagsComeFromTheirBroadcast(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "bc-a")
+	for _, id := range []string{"s-tagged", "s-untagged"} {
+		if _, err := repo.UpsertStream(ctx, &repository.StreamInput{ID: id, BroadcasterID: "bc-a", Type: "live", Language: "en", StartedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var tagIDs []int64
+	for _, name := range []string{"beta", "élan", "Zulu", "alpha", "Élan", "Alpha"} {
+		tag, err := repo.UpsertTag(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tagIDs = append(tagIDs, tag.ID)
+	}
+	for _, id := range append(tagIDs, tagIDs[0]) {
+		if err := repo.LinkStreamTag(ctx, "s-tagged", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	video := func(jobID string, streamID *string) int64 {
+		t.Helper()
+		v, err := repo.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "bc-a", Status: repository.VideoStatusDone,
+			Quality: repository.QualityHigh, BroadcasterID: "bc-a", StreamID: streamID, Language: "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.ID
+	}
+	tagged, untagged := "s-tagged", "s-untagged"
+	first, restarted := video("tags-first", &tagged), video("tags-restarted", &tagged)
+	quiet, archive := video("tags-quiet", &untagged), video("tags-archive", nil)
+
+	got, err := repo.ListTagsForVideos(ctx, []int64{first, restarted, quiet, archive, 99999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("videos with tags = %v, want only the two recordings of the tagged broadcast", got)
+	}
+	for _, id := range []int64{first, restarted} {
+		assertStringSlice(t, tagNames(got[id]), []string{"Alpha", "Zulu", "alpha", "beta", "Élan", "élan"})
+	}
+	if empty, err := repo.ListTagsForVideos(ctx, nil); err != nil || len(empty) != 0 {
+		t.Fatalf("empty batch = %v, %v", empty, err)
+	}
+}

@@ -95,3 +95,18 @@ func validateSQLiteTimestamp(src any) error {
 	var ts sqlitetype.Time
 	return ts.Scan(src)
 }
+
+func (a *SQLiteAdapter) ListTagsForVideos(ctx context.Context, videoIDs []int64) (map[int64][]repository.Tag, error) {
+	out := make(map[int64][]repository.Tag, len(videoIDs))
+	if len(videoIDs) == 0 {
+		return out, nil
+	}
+	rows, err := a.queries.ListTagsForVideos(ctx, videoIDs)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list tags for videos: %w", err)
+	}
+	for _, row := range rows {
+		out[row.VideoID] = append(out[row.VideoID], *sqliteTagToDomain(row.Tag))
+	}
+	return out, nil
+}

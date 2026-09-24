@@ -362,6 +362,10 @@ type Repository interface {
 	UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error
 	LinkStreamTag(ctx context.Context, streamID string, tagID int64) error
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIDs []int64) (map[int64]Category, error)
+	// ListTagsForVideos returns the tags of each video's broadcast, ordered by
+	// name bytewise, independent of DB locale. Videos without a linked broadcast
+	// are absent.
+	ListTagsForVideos(ctx context.Context, videoIDs []int64) (map[int64][]Tag, error)
 	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]CategorySpan, error)
 	CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 	ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error

@@ -7,6 +7,16 @@ INSERT INTO video_categories (video_id, category_id) VALUES (?, ?) ON CONFLICT D
 -- name: LinkStreamTag :exec
 INSERT INTO stream_tags (stream_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING;
 
+-- name: ListTagsForVideos :many
+-- A recording carries the tags Twitch reported on its broadcast. An archive
+-- of a broadcast never seen live has no stream row, so it has no tags.
+SELECT v.id AS video_id, sqlc.embed(t)
+FROM videos v
+INNER JOIN stream_tags st ON st.stream_id = v.stream_id
+INNER JOIN tags t ON t.id = st.tag_id
+WHERE v.id IN (sqlc.slice('video_ids'))
+ORDER BY v.id, t.name COLLATE BINARY, t.id;
+
 -- name: CloseOtherOpenVideoCategorySpans :exec
 -- Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
 -- upsert. Called first inside the same tx as InsertVideoCategorySpan;

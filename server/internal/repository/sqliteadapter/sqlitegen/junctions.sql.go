@@ -264,6 +264,60 @@ func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds [
 	return items, nil
 }
 
+const listTagsForVideos = `-- name: ListTagsForVideos :many
+SELECT v.id AS video_id, t.id, t.name, t.created_at
+FROM videos v
+INNER JOIN stream_tags st ON st.stream_id = v.stream_id
+INNER JOIN tags t ON t.id = st.tag_id
+WHERE v.id IN (/*SLICE:video_ids*/?)
+ORDER BY v.id, t.name COLLATE BINARY, t.id
+`
+
+type ListTagsForVideosRow struct {
+	VideoID int64 `json:"video_id"`
+	Tag     Tag   `json:"tag"`
+}
+
+// A recording carries the tags Twitch reported on its broadcast. An archive
+// of a broadcast never seen live has no stream row, so it has no tags.
+func (q *Queries) ListTagsForVideos(ctx context.Context, videoIds []int64) ([]ListTagsForVideosRow, error) {
+	query := listTagsForVideos
+	var queryParams []interface{}
+	if len(videoIds) > 0 {
+		for _, v := range videoIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:video_ids*/?", strings.Repeat(",?", len(videoIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:video_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTagsForVideosRow{}
+	for rows.Next() {
+		var i ListTagsForVideosRow
+		if err := rows.Scan(
+			&i.VideoID,
+			&i.Tag.ID,
+			&i.Tag.Name,
+			&i.Tag.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resumeVideoCategorySpan = `-- name: ResumeVideoCategorySpan :exec
 INSERT INTO video_category_spans (video_id, category_id, started_at)
 SELECT ?1, latest.category_id, ?2

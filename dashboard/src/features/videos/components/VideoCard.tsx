@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { usePlaybackSettings } from "@/features/settings/playback";
 import {
 	channelLabel,
@@ -29,6 +30,8 @@ import { WatchLaterButton } from "./WatchLaterButton";
 const HOVER_SWAP_INTERVAL_MS = 900;
 
 const HOVER_INTENT_DELAY_MS = 700;
+
+const MAX_CARD_TAGS = 3;
 
 const STORED_PREVIEW_RETRY_DELAY_MS = 5000;
 const STORED_PREVIEW_MAX_RETRIES = 3;
@@ -506,6 +509,29 @@ export function VideoCard({
 						</div>
 					</div>
 				</div>
+				{video.tags?.length ? (
+					<ul
+						className="flex items-center gap-1 overflow-hidden"
+						aria-label={t("videos.tags")}
+						title={video.tags.map((tag) => tag.name).join(", ")}
+						data-testid="video-card-tags"
+					>
+						{video.tags.slice(0, MAX_CARD_TAGS).map((tag) => (
+							<li key={tag.id} className="min-w-0 max-w-32">
+								<Badge variant="muted" className="max-w-full">
+									<span className="truncate">{tag.name}</span>
+								</Badge>
+							</li>
+						))}
+						{video.tags.length > MAX_CARD_TAGS ? (
+							<li className="shrink-0">
+								<Badge variant="muted">
+									+{video.tags.length - MAX_CARD_TAGS}
+								</Badge>
+							</li>
+						) : null}
+					</ul>
+				) : null}
 			</div>
 		</div>
 	);

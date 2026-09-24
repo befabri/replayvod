@@ -3,11 +3,13 @@ import type {
 	TimelineEvent,
 	VideoPartResponse,
 	VideoResponse,
+	VideoTag,
 	VideoUserStateResponse,
 } from "@/api/generated/trpc";
 import type { TrpcHandlers } from "@/test/trpc-mock";
 import { categoryAt } from "./categories";
 import { channelAt } from "./channels";
+import { TAGS } from "./tags";
 
 export const VOD_TITLES: readonly string[] = [
 	"Ranked grind until diamond",
@@ -44,6 +46,19 @@ function stamp(date: Date): string {
 
 export function videoThumbnail(index: number): string {
 	return `thumbnails/fixture-${(index % THUMBNAIL_COUNT) + 1}.svg`;
+}
+
+function videoTags(index: number): VideoTag[] | undefined {
+	const count = index % 5;
+	if (count === 0) {
+		return undefined;
+	}
+	return Array.from(
+		{ length: count },
+		(_, i) => TAGS[(index + i * 3) % TAGS.length],
+	)
+		.map(({ id, name }) => ({ id, name }))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function makeUserState(
@@ -86,6 +101,7 @@ export function makeVideo(
 		profile_image_url: channel.profileImageUrl,
 		primary_category_id: category.id,
 		primary_category_name: category.name,
+		tags: videoTags(index),
 		viewer_count: 120 + ((index * 431) % 9000),
 		language: index % 3 === 0 ? "en" : "fr",
 		duration_seconds: durationSeconds,

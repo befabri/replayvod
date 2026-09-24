@@ -145,6 +145,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Channel_ListUserStatesForChannels", testListChannelUserStatesForChannels)
 	run("Stream_LifecycleAndListing", testStreamLifecycleAndListing)
 	run("Stream_MetadataLinks", testStreamMetadataLinks)
+	run("Video_TagsComeFromTheirBroadcast", testVideoTagsComeFromTheirBroadcast)
 	run("Tag_Tags", testTags)
 	run("Category_LookupAndSearchCache", testCategoryLookupAndSearchCache)
 	run("Category_PruneSearchCache", testPruneCategorySearchCache)

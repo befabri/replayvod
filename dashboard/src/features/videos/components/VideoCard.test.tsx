@@ -382,3 +382,33 @@ describe("VideoCard status and playability", () => {
 		expect(screen.getByLabelText("videos.watch_recording")).toBeTruthy();
 	});
 });
+
+describe("VideoCard tags", () => {
+	const tags = ["Chill", "English", "IRL", "Retro", "Speedrun"].map(
+		(name, index) => ({ id: index + 1, name }),
+	);
+
+	it("fits three tags on the card and counts the rest", () => {
+		render(
+			<VideoCard video={video({ status: "DONE", tags })} canManage={false} />,
+		);
+		const row = screen.getByTestId("video-card-tags");
+		expect(row.getAttribute("aria-label")).toBe("videos.tags");
+		expect(
+			Array.from(row.querySelectorAll("li"), (item) => item.textContent),
+		).toEqual(["Chill", "English", "IRL", "+2"]);
+		expect(row.getAttribute("title")).toBe(
+			"Chill, English, IRL, Retro, Speedrun",
+		);
+	});
+
+	it("leaves out the row when the broadcast had no tags", () => {
+		render(
+			<VideoCard
+				video={video({ status: "DONE", tags: undefined })}
+				canManage={false}
+			/>,
+		);
+		expect(screen.queryByTestId("video-card-tags")).toBeNull();
+	});
+});

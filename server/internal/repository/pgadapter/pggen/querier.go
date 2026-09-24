@@ -280,6 +280,9 @@ type Querier interface {
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
 	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
 	ListTags(ctx context.Context) ([]Tag, error)
+	// A recording carries the tags Twitch reported on its broadcast. An archive
+	// of a broadcast never seen live has no stream row, so it has no tags.
+	ListTagsForVideos(ctx context.Context, dollar_1 []int64) ([]ListTagsForVideosRow, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	// One row per title span ordered by when the stream first set that
 	// title. Still-open spans expose (NOW() - started_at) as their

@@ -75,21 +75,24 @@ type VideoResponse struct {
 	IsAudioOnly   bool   `json:"is_audio_only"`
 	BroadcasterID string `json:"broadcaster_id"`
 	// BroadcasterLogin and channel metadata may be absent; fall back to DisplayName.
-	BroadcasterLogin         string     `json:"broadcaster_login,omitempty"`
-	BroadcasterName          string     `json:"broadcaster_name,omitempty"`
-	ProfileImageURL          *string    `json:"profile_image_url,omitempty"`
-	PrimaryCategoryID        *string    `json:"primary_category_id,omitempty"`
-	PrimaryCategoryName      *string    `json:"primary_category_name,omitempty"`
-	PrimaryCategoryBoxArtURL *string    `json:"primary_category_box_art_url,omitempty"`
-	StreamID                 *string    `json:"stream_id,omitempty"`
-	ViewerCount              int64      `json:"viewer_count"`
-	Language                 string     `json:"language"`
-	DurationSeconds          *float64   `json:"duration_seconds,omitempty"`
-	SizeBytes                *int64     `json:"size_bytes,omitempty"`
-	Thumbnail                *string    `json:"thumbnail,omitempty"`
-	Error                    *string    `json:"error,omitempty"`
-	StartDownloadAt          time.Time  `json:"start_download_at"`
-	DownloadedAt             *time.Time `json:"downloaded_at,omitempty"`
+	BroadcasterLogin         string  `json:"broadcaster_login,omitempty"`
+	BroadcasterName          string  `json:"broadcaster_name,omitempty"`
+	ProfileImageURL          *string `json:"profile_image_url,omitempty"`
+	PrimaryCategoryID        *string `json:"primary_category_id,omitempty"`
+	PrimaryCategoryName      *string `json:"primary_category_name,omitempty"`
+	PrimaryCategoryBoxArtURL *string `json:"primary_category_box_art_url,omitempty"`
+	// Tags are the ones Twitch reported on the recorded broadcast. An archive
+	// of a broadcast never seen live has none.
+	Tags            []VideoTag `json:"tags,omitempty"`
+	StreamID        *string    `json:"stream_id,omitempty"`
+	ViewerCount     int64      `json:"viewer_count"`
+	Language        string     `json:"language"`
+	DurationSeconds *float64   `json:"duration_seconds,omitempty"`
+	SizeBytes       *int64     `json:"size_bytes,omitempty"`
+	Thumbnail       *string    `json:"thumbnail,omitempty"`
+	Error           *string    `json:"error,omitempty"`
+	StartDownloadAt time.Time  `json:"start_download_at"`
+	DownloadedAt    *time.Time `json:"downloaded_at,omitempty"`
 	// DeletedAt marks a tombstone; DeletionKind is retention, manual or missing.
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 	DeletionKind *string    `json:"deletion_kind,omitempty"`
@@ -108,6 +111,22 @@ type VideoResponse struct {
 	PlaybackArtifact *VideoPlaybackAssetResponse `json:"playback_artifact,omitempty"`
 	// UserState is scoped to the authenticated user.
 	UserState *VideoUserStateResponse `json:"user_state,omitempty"`
+}
+
+type VideoTag struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func toVideoTags(tags []repository.Tag) []VideoTag {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make([]VideoTag, len(tags))
+	for i, t := range tags {
+		out[i] = VideoTag{ID: t.ID, Name: t.Name}
+	}
+	return out
 }
 
 type VideoUserStateResponse struct {
@@ -276,6 +295,7 @@ func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repo
 	}
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vs)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vs)
+	tags := h.video.TagsByVideoIDs(ctx, vs)
 	var failedIDs []int64
 	for _, v := range vs {
 		if v.Status == repository.VideoStatusFailed && v.DeletedAt == nil {
@@ -289,6 +309,7 @@ func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repo
 	out := make([]VideoResponse, len(vs))
 	for i := range vs {
 		out[i] = toVideoResponse(&vs[i], channels[vs[i].BroadcasterID], primaryCategories[vs[i].ID])
+		out[i].Tags = toVideoTags(tags[vs[i].ID])
 		out[i].UserState = toVideoUserStateResponse(userStates[vs[i].ID])
 		out[i].HasMedia = vs[i].DeletedAt == nil && (vs[i].Status == repository.VideoStatusDone || len(parts[vs[i].ID]) > 0)
 	}
@@ -624,6 +645,7 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, []repository.Video{*v})
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, []repository.Video{*v})
 	resp := toVideoResponse(v, channels[v.BroadcasterID], primaryCategories[v.ID])
+	resp.Tags = toVideoTags(h.video.TagsByVideoIDs(ctx, []repository.Video{*v})[v.ID])
 	if user := middleware.GetUser(ctx); user != nil {
 		if state, err := h.video.UserState(ctx, user.ID, v.ID); err != nil {
 			if !errors.Is(err, repository.ErrNotFound) {
@@ -989,6 +1011,7 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([
 	}
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vids)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vids)
+	tags := h.video.TagsByVideoIDs(ctx, vids)
 	userStates, err := h.video.UserStatesByVideoID(ctx, userID, vids)
 	if err != nil {
 		return nil, err
@@ -1011,6 +1034,7 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([
 			continue
 		}
 		resp := toVideoResponse(v, channels[v.BroadcasterID], primaryCategories[v.ID])
+		resp.Tags = toVideoTags(tags[v.ID])
 		resp.UserState = toVideoUserStateResponse(userStates[v.ID])
 		if snap.Quality != "" {
 			resp.Quality = formatQualityLabel(snap.Quality, snap.FPS)

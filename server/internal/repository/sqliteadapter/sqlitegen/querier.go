@@ -273,6 +273,9 @@ type Querier interface {
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
 	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
 	ListTags(ctx context.Context) ([]Tag, error)
+	// A recording carries the tags Twitch reported on its broadcast. An archive
+	// of a broadcast never seen live has no stream row, so it has no tags.
+	ListTagsForVideos(ctx context.Context, videoIds []int64) ([]ListTagsForVideosRow, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	// julianday('now') is UTC per SQLite docs; matches pg's NOW() at UTC,
 	// which the adapter forces in its connection setup. The

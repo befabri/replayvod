@@ -7,6 +7,16 @@ INSERT INTO video_categories (video_id, category_id) VALUES ($1, $2) ON CONFLICT
 -- name: LinkStreamTag :exec
 INSERT INTO stream_tags (stream_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;
 
+-- name: ListTagsForVideos :many
+-- A recording carries the tags Twitch reported on its broadcast. An archive
+-- of a broadcast never seen live has no stream row, so it has no tags.
+SELECT v.id AS video_id, sqlc.embed(t)
+FROM videos v
+INNER JOIN stream_tags st ON st.stream_id = v.stream_id
+INNER JOIN tags t ON t.id = st.tag_id
+WHERE v.id = ANY($1::bigint[])
+ORDER BY v.id, t.name COLLATE "C", t.id;
+
 -- name: UpsertVideoCategorySpan :exec
 -- Category analogue of UpsertVideoTitleSpan; see that comment for the
 -- close-then-insert rationale.

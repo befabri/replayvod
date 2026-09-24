@@ -272,6 +272,7 @@
 			"vod": "Archives"
 		},
 		"archive_badge": "Archive",
+		"tags": "Tags",
 		"streamed_on": "Streamed {{date}}",
 		"archived_on": "Archived {{date}}",
 		"no_match_loaded": "No matches in loaded videos yet. More results are loading.",

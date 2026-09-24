@@ -207,6 +207,47 @@ func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds [
 	return items, nil
 }
 
+const listTagsForVideos = `-- name: ListTagsForVideos :many
+SELECT v.id AS video_id, t.id, t.name, t.created_at
+FROM videos v
+INNER JOIN stream_tags st ON st.stream_id = v.stream_id
+INNER JOIN tags t ON t.id = st.tag_id
+WHERE v.id = ANY($1::bigint[])
+ORDER BY v.id, t.name COLLATE "C", t.id
+`
+
+type ListTagsForVideosRow struct {
+	VideoID int64 `json:"video_id"`
+	Tag     Tag   `json:"tag"`
+}
+
+// A recording carries the tags Twitch reported on its broadcast. An archive
+// of a broadcast never seen live has no stream row, so it has no tags.
+func (q *Queries) ListTagsForVideos(ctx context.Context, dollar_1 []int64) ([]ListTagsForVideosRow, error) {
+	rows, err := q.db.Query(ctx, listTagsForVideos, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTagsForVideosRow{}
+	for rows.Next() {
+		var i ListTagsForVideosRow
+		if err := rows.Scan(
+			&i.VideoID,
+			&i.Tag.ID,
+			&i.Tag.Name,
+			&i.Tag.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resumeVideoCategorySpan = `-- name: ResumeVideoCategorySpan :exec
 WITH latest AS (
     SELECT category_id

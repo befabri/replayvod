@@ -44,6 +44,33 @@ export const Resumable = meta.story({
 	},
 });
 
+export const Tagged = meta.story({
+	args: {
+		video: makeVideo(4, {
+			tags: [
+				{ id: 1, name: "PlayingWithViewers" },
+				{ id: 2, name: "CompetitiveMultiplayer" },
+				{ id: 3, name: "FirstPlaythrough" },
+				{ id: 4, name: "English" },
+			],
+		}),
+	},
+	play: async ({ canvas }) => {
+		const list = canvas.getByRole("list", { name: i18n.t("videos.tags") });
+		await expect(list).toBeVisible();
+		await expect(within(list).getByText("+1")).toBeVisible();
+		for (const item of within(list).getAllByRole("listitem").slice(0, 3)) {
+			const badge = item.querySelector('[data-slot="badge"]');
+			const text = badge?.firstElementChild;
+			if (!badge || !text) throw new Error("Tag badge is missing");
+			await expect(badge.getBoundingClientRect().right).toBeLessThanOrEqual(
+				item.getBoundingClientRect().right + 1,
+			);
+			await expect(text.scrollWidth).toBeGreaterThan(text.clientWidth);
+		}
+	},
+});
+
 export const InWatchLater = meta.story({
 	args: { video: makeVideo(2, VIDEO_STATES.watchLater) },
 });

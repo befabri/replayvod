@@ -108,6 +108,26 @@ func (s *Service) PrimaryCategoriesByVideoIDs(ctx context.Context, videos []repo
 	return out
 }
 
+// TagsByVideoIDs returns the tags of each video's broadcast; videos without
+// tags and read failures leave entries absent.
+func (s *Service) TagsByVideoIDs(ctx context.Context, videos []repository.Video) map[int64][]repository.Tag {
+	ids := make([]int64, 0, len(videos))
+	for _, v := range videos {
+		if v.StreamID != nil {
+			ids = append(ids, v.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	tags, err := s.repo.ListTagsForVideos(ctx, ids)
+	if err != nil {
+		s.log.Warn("resolve tags for video response", "error", err)
+		return nil
+	}
+	return tags
+}
+
 type Statistics struct {
 	Totals   *repository.VideoStatsTotals
 	ByStatus []repository.VideoStatsByStatus

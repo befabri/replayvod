@@ -128,6 +128,18 @@ export function VideoInfo({
 					</Badge>
 				)}
 			</div>
+			{video.tags?.length ? (
+				<ul
+					className="mt-2 flex flex-wrap items-center gap-1.5"
+					aria-label={t("videos.tags")}
+				>
+					{video.tags.map((tag) => (
+						<li key={tag.id}>
+							<Badge variant="muted">{tag.name}</Badge>
+						</li>
+					))}
+				</ul>
+			) : null}
 
 			<div className="mt-5 flex items-center gap-4 border-y border-foreground/10 py-4">
 				<Link

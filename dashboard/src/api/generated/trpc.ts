@@ -1409,6 +1409,11 @@ export interface VideoResponse {
   primary_category_id?: string;
   primary_category_name?: string;
   primary_category_box_art_url?: string;
+  /**
+   * Tags are the ones Twitch reported on the recorded broadcast. An archive
+   * of a broadcast never seen live has none.
+   */
+  tags?: VideoTag[];
   stream_id?: string;
   viewer_count: number;
   language: string;
@@ -1451,6 +1456,11 @@ export interface VideoSearchInput {
 export type VideoSource = "live" | "vod";
 
 export type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
+
+export interface VideoTag {
+  id: number;
+  name: string;
+}
 
 export interface VideoUserStateResponse {
   watch_later: boolean;
