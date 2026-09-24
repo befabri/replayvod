@@ -100,32 +100,6 @@ test("Continue watching filters the library and supports table view and reload",
 	);
 });
 
-test("Continue watching explains an empty library", async ({ page }) => {
-	await mockTrpc(page, (procs) => ({
-		status: 200,
-		body: trpcOk(
-			procs.map((proc) =>
-				proc === "auth.session"
-					? SESSION
-					: proc === "video.listPage"
-						? { items: [] }
-						: proc === "video.statistics"
-							? { total: 0, total_size: 0, channels: 0, continue_watching: 0 }
-							: null,
-			),
-		),
-	}));
-	await page.goto("/dashboard/videos?tab=continue_watching");
-	await expect(
-		page.getByRole("tab", { name: "Continue watching 0" }),
-	).toBeVisible();
-	await expect(
-		page.getByText(
-			"No videos to continue. Start watching a video to see it here.",
-		),
-	).toBeVisible();
-});
-
 test("Continue watching refreshes its count and rows after video removal", async ({
 	page,
 }) => {

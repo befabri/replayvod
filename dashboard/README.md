@@ -56,7 +56,7 @@ dashboard/
 │   ├── integrations/       # provider setup (Query, tRPC context, …)
 │   ├── i18n/
 │   │   ├── index.ts        # i18next bootstrap
-│   │   └── locales/{en,fr} # translation JSON
+│   │   └── locales/        # en.json and fr.json
 │   ├── lib/                # small utilities (cn(), date helpers, …)
 │   ├── test/               # shared fixtures, tRPC mock, story helpers
 │   ├── env.ts              # Zod-validated `import.meta.env`
@@ -123,7 +123,7 @@ current list.
 
 ## Internationalisation
 
-Strings live in `src/i18n/locales/{en,fr}/`. A parity test
+Strings live in `src/i18n/locales/en.json` and `fr.json`. A parity test
 (`src/i18n/locales/parity.test.ts`) fails if a key is added to one locale
 without the other.
 
@@ -151,8 +151,8 @@ Stories sit next to the component they document as `*.stories.tsx`, under
 `UI/…` for `src/components/ui` and `Features/<Feature>/…` for feature
 components, and are written as CSF Factories (`preview.meta`, `meta.story`).
 `npm run test:storybook` runs every story in Chromium twice, dark in English
-and light in French, with its `play` function and an axe check. Accessibility
-violations fail the run.
+and light in French, with an axe check and, when the story has one, its `play`
+function. Accessibility violations fail the run.
 
 ## Build output
 

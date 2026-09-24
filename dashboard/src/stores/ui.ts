@@ -25,10 +25,6 @@ export function closeSidebar() {
 	uiStore.setState((s) => ({ ...s, sidebarOpen: false }));
 }
 
-export function toggleSidebar() {
-	uiStore.setState((s) => ({ ...s, sidebarOpen: !s.sidebarOpen }));
-}
-
 export function setSidebarCollapsed(collapsed: boolean) {
 	if (typeof window !== "undefined")
 		window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");

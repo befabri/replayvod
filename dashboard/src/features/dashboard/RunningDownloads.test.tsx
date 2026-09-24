@@ -7,7 +7,7 @@ import type {
 	ActiveDownloadResponse,
 	VideoResponse,
 } from "@/api/generated/trpc";
-import { makeActiveDownload, makeVideo } from "@/test/fixtures";
+import { makeActiveDownload, makeUserState, makeVideo } from "@/test/fixtures";
 
 // Mutable state the mocked useLiveActiveDownloads returns; each test sets it.
 const live = vi.hoisted(() => ({
@@ -100,8 +100,26 @@ describe("RunningDownloads", () => {
 		render(createElement(RunningDownloads));
 		expect(screen.getAllByText("Streamer").length).toBeGreaterThan(0);
 		expect(screen.queryByText("fallback-name")).toBeNull();
-		expect(screen.getByLabelText("videos.watch_later.label")).toBeTruthy();
+		expect(
+			screen
+				.getByLabelText("videos.watch_later.label")
+				.getAttribute("aria-pressed"),
+		).toBe("false");
 		expect(screen.getByText("dashboard.active_count:1")).toBeTruthy();
+	});
+
+	it("shows a saved watch later choice on its row", () => {
+		live.data = [
+			makeActiveDownload({
+				video: video({ user_state: makeUserState({ watch_later: true }) }),
+			}),
+		];
+		render(createElement(RunningDownloads));
+		expect(
+			screen
+				.getByLabelText("videos.watch_later.label")
+				.getAttribute("aria-pressed"),
+		).toBe("true");
 	});
 
 	it("marks a running archive instead of showing the live dot", () => {

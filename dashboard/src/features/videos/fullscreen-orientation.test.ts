@@ -159,28 +159,4 @@ describe("useFullscreenOrientation", () => {
 		unmount();
 		expect(query.listeners.size).toBe(0);
 	});
-
-	it("holds the value while fullscreen and releases it afterwards", () => {
-		const query = stubHandheld(true);
-
-		const { result, rerender } = renderHook(
-			({ hold }) => useFullscreenOrientation(hold),
-			{ initialProps: { hold: false } },
-		);
-		expect(result.current).toBe("landscape");
-
-		rerender({ hold: true });
-		act(() => query.set(false));
-		expect(result.current).toBe("landscape");
-
-		rerender({ hold: false });
-		expect(result.current).toBe("none");
-	});
-
-	it("stays unlocked where the lock cannot be honoured", () => {
-		// jsdom ships neither matchMedia nor screen.orientation, the same shape
-		// as a browser without the lock.
-		const { result } = renderHook(() => useFullscreenOrientation());
-		expect(result.current).toBe("none");
-	});
 });

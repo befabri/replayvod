@@ -28,7 +28,6 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/ui/timestamp", () => ({
-	Timestamp: ({ iso }: { iso: string }) => createElement("span", null, iso),
 	TimestampValue: ({ iso }: { iso: string }) =>
 		createElement("span", null, iso),
 }));

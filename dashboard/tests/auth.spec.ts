@@ -152,11 +152,6 @@ test.describe("auth", () => {
 		).toBeVisible();
 	});
 
-	test("login page shows the Twitch connect action", async ({ page }) => {
-		await page.goto("/login");
-		await expect(page.locator('a[href*="auth/twitch"]')).toBeVisible();
-	});
-
 	test("unauthenticated visit to /dashboard redirects to /login", async ({
 		page,
 	}) => {

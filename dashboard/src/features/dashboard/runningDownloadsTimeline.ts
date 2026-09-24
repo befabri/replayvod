@@ -108,16 +108,6 @@ function activeMetadataAt(
 	return { category, title };
 }
 
-export function contentSegments(
-	markers: MetadataMarker[],
-	scaleSeconds: number,
-): ContentSegment[] {
-	return contentSegmentsFromOrderedMarkers(
-		sortMetadataMarkers(markers),
-		scaleSeconds,
-	);
-}
-
 export function contentSegmentsFromOrderedMarkers(
 	ordered: MetadataMarker[],
 	scaleSeconds: number,

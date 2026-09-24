@@ -29,11 +29,3 @@ export function setTheme(theme: Theme) {
 		return { theme };
 	});
 }
-
-export function toggleTheme() {
-	setTheme(themeStore.state.theme === "dark" ? "light" : "dark");
-}
-
-export function initTheme() {
-	applyTheme(themeStore.state.theme);
-}

@@ -8,9 +8,10 @@ import {
 } from "@/test/fixtures";
 import {
 	clampMetadataMarkers,
-	contentSegments,
+	contentSegmentsFromOrderedMarkers,
 	type MetadataMarker,
 	metadataMarkers,
+	orderedMetadataMarkers,
 	recordingElapsedSeconds,
 } from "./runningDownloadsTimeline";
 
@@ -111,11 +112,34 @@ describe("running download timeline helpers", () => {
 			"Game B",
 		]);
 	});
+
+	it("orders markers along the media axis rather than by when they happened", () => {
+		// The first change has no media offset, so it falls back to the wall
+		// clock (60s), which runs ahead of the media clock. The later change
+		// carries an exact media offset (40s) and must still draw first.
+		const markers = orderedMetadataMarkers(
+			[
+				makeTimelineEvent({
+					occurred_at: "2026-01-01T00:01:00Z",
+					category: { id: "c1", name: "One" },
+				}),
+				makeTimelineEvent({
+					occurred_at: "2026-01-01T00:01:30Z",
+					media_offset_seconds: 40,
+					category: { id: "c2", name: "Two" },
+				}),
+			],
+			"2026-01-01T00:00:00Z",
+		);
+
+		expect(markers.map((marker) => marker.offsetSeconds)).toEqual([40, 60]);
+		expect(markers.map((marker) => marker.label)).toEqual(["Two", "One"]);
+	});
 });
 
-describe("contentSegments", () => {
+describe("contentSegmentsFromOrderedMarkers", () => {
 	it("returns one full-span segment when there are no changes", () => {
-		expect(contentSegments([], 90)).toEqual([
+		expect(contentSegmentsFromOrderedMarkers([], 90)).toEqual([
 			{ key: "seg-0", startSeconds: 0, endSeconds: 90 },
 		]);
 	});
@@ -125,7 +149,7 @@ describe("contentSegments", () => {
 			metaMarker(0, { category: { id: "c1", name: "Rust" }, title: "early" }),
 			metaMarker(30, { title: "boss fight" }),
 		];
-		expect(contentSegments(markers, 60)).toEqual([
+		expect(contentSegmentsFromOrderedMarkers(markers, 60)).toEqual([
 			{
 				key: "k0:0",
 				startSeconds: 0,
@@ -147,34 +171,13 @@ describe("contentSegments", () => {
 		const markers: MetadataMarker[] = [
 			metaMarker(20, { category: { id: "c1", name: "Rust" } }),
 		];
-		expect(contentSegments(markers, 60)).toEqual([
+		expect(contentSegmentsFromOrderedMarkers(markers, 60)).toEqual([
 			{ key: "seg-init", startSeconds: 0, endSeconds: 20 },
 			{
 				key: "k20:0",
 				startSeconds: 20,
 				endSeconds: 60,
 				category: { id: "c1", name: "Rust" },
-			},
-		]);
-	});
-
-	it("sorts markers by offset before segmenting", () => {
-		const markers: MetadataMarker[] = [
-			metaMarker(40, { category: { id: "c2", name: "Two" } }),
-			metaMarker(0, { category: { id: "c1", name: "One" } }),
-		];
-		expect(contentSegments(markers, 60)).toEqual([
-			{
-				key: "k0:0",
-				startSeconds: 0,
-				endSeconds: 40,
-				category: { id: "c1", name: "One" },
-			},
-			{
-				key: "k40:1",
-				startSeconds: 40,
-				endSeconds: 60,
-				category: { id: "c2", name: "Two" },
 			},
 		]);
 	});

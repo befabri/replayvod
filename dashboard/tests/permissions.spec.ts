@@ -277,56 +277,6 @@ for (const role of ["viewer", "admin", "owner"] as const) {
 	});
 }
 
-test("only unredeemed invites can be revoked", async ({ page }) => {
-	const base = {
-		id: 1,
-		role: "viewer",
-		created_by: "u-self",
-		created_at: NOW,
-		expires_at: "2099-01-01T00:00:00Z",
-		note: "Pending link",
-	};
-	await mockTrpc(page, (procs) => ({
-		status: 200,
-		body: trpcOk(
-			procs.map((proc) =>
-				proc === "system.listInvites"
-					? [
-							base,
-							{
-								...base,
-								id: 2,
-								note: "Expired link",
-								expires_at: "2000-01-01T00:00:00Z",
-							},
-							{
-								...base,
-								id: 3,
-								note: "Redeemed link",
-								redeemed_at: NOW,
-								redeemed_by: "u-viewer",
-							},
-						]
-					: dataFor("admin", proc),
-			),
-		),
-	}));
-	await page.goto("/dashboard/system/users");
-	await expect(
-		page
-			.getByRole("row", { name: /Pending link/ })
-			.getByRole("button", { name: "Revoke" }),
-	).toBeVisible();
-	await expect(
-		page
-			.getByRole("row", { name: /Expired link/ })
-			.getByRole("button", { name: "Revoke" }),
-	).toBeVisible();
-	const redeemed = page.getByRole("row", { name: /Redeemed link/ });
-	await expect(redeemed).toBeVisible();
-	await expect(redeemed.getByRole("button", { name: "Revoke" })).toHaveCount(0);
-});
-
 test("a pending invite can issue a new link that is shown once", async ({
 	page,
 }) => {

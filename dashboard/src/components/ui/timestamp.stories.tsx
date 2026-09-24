@@ -1,6 +1,6 @@
 import preview from "#.storybook/preview";
 import { FIXTURE_NOW } from "@/test/fixtures";
-import { Timestamp } from "./timestamp";
+import { TimestampValue } from "./timestamp";
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -21,8 +21,12 @@ const RANGES = [
 
 const meta = preview.meta({
 	title: "UI/Timestamp",
-	component: Timestamp,
-	args: { iso: ago(7 * MINUTE) },
+	component: TimestampValue,
+	args: { iso: ago(7 * MINUTE), locale: "en" },
+	argTypes: { locale: { control: false } },
+	render: (args, { globals }) => (
+		<TimestampValue {...args} locale={globals.locale} />
+	),
 });
 
 export const JustNow = meta.story({
@@ -47,13 +51,13 @@ export const OlderThanAWeek = meta.story({
 
 export const AllRanges = meta.story({
 	argTypes: { iso: { control: false } },
-	render: (args) => (
+	render: (args, { globals }) => (
 		<dl className="grid w-fit grid-cols-[auto_auto] gap-x-6 gap-y-2 text-sm">
 			{RANGES.map((range) => (
 				<div key={range.label} className="contents">
 					<dt className="text-muted-foreground">{range.label}</dt>
 					<dd>
-						<Timestamp {...args} iso={range.iso} />
+						<TimestampValue {...args} iso={range.iso} locale={globals.locale} />
 					</dd>
 				</div>
 			))}

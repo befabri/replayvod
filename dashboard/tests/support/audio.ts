@@ -6,7 +6,7 @@ import type { Route } from "@playwright/test";
 // A four second AAC clip and a byte-range responder for it, shared by the
 // watch page specs so a real <audio> element can load, play, and fail.
 export const audioDurationSeconds = 4;
-export const audioFixture = Buffer.from(
+const audioFixture = Buffer.from(
 	[
 		"AAAAHGZ0eXBNNEEgAAACAE00QSBpc29taXNvMgAABbNtb292AAAAbG12aGQAAAAAAAAAAAAAAAAAAAPoAAAPoAABAAABAAAA",
 		"AAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC",

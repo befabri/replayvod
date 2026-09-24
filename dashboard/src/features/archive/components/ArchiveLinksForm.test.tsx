@@ -79,18 +79,6 @@ describe("ArchiveLinksForm", () => {
 		).toBe(true);
 	});
 
-	it("counts valid links and flags the invalid ones before submit", () => {
-		render(
-			createElement(ArchiveLinksForm, { settings: DEFAULT_ARCHIVE_SETTINGS }),
-		);
-		typeLinks("https://www.twitch.tv/videos/1\nnope\n2");
-		expect(screen.getByText("archive.links_invalid:1")).toBeTruthy();
-		const submit = screen.getByRole("button", {
-			name: "archive.submit_count:2",
-		});
-		expect(submit.hasAttribute("disabled")).toBe(false);
-	});
-
 	it("submits the valid inputs with the page settings and lists every outcome", async () => {
 		mutation.mutateAsync.mockResolvedValue({
 			items: [

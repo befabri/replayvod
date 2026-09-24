@@ -16,7 +16,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoResponse } from "@/api/generated/trpc";
-import { makeVideo } from "@/test/fixtures";
+import { makeUserState, makeVideo } from "@/test/fixtures";
 
 const useVideoSnapshotsMock = vi.hoisted(() =>
 	vi.fn(() => ({ data: [] as string[] })),
@@ -191,10 +191,21 @@ describe("VideoCard resume progress", () => {
 });
 
 describe("VideoCard stored preview thumbnail", () => {
-	it("shows watch later on running videos", () => {
-		render(<VideoCard video={video()} canManage={false} />);
+	// The label is the same in both states, so the saved choice is only
+	// visible through aria-pressed.
+	it.each([
+		["unsaved", undefined, "false"],
+		["saved", makeUserState({ watch_later: true }), "true"],
+	])("shows the %s watch later state on running videos", (_, userState, pressed) => {
+		render(
+			<VideoCard video={video({ user_state: userState })} canManage={false} />,
+		);
 
-		expect(screen.getByLabelText("videos.watch_later.label")).toBeTruthy();
+		expect(
+			screen
+				.getByLabelText("videos.watch_later.label")
+				.getAttribute("aria-pressed"),
+		).toBe(pressed);
 	});
 
 	it("does not mount stored preview fallback images while the card is off-screen", () => {

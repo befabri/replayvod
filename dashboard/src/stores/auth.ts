@@ -73,10 +73,6 @@ export async function logout(): Promise<void> {
 	clearUser();
 }
 
-export function setLoading(isLoading: boolean) {
-	authStore.setState((s) => ({ ...s, isLoading }));
-}
-
 const roleLevel: Record<Role, number> = {
 	viewer: 1,
 	admin: 2,

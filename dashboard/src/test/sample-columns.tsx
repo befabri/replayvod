@@ -3,20 +3,21 @@ import type { VideoResponse } from "@/api/generated/trpc";
 import { Avatar } from "@/components/ui/avatar";
 import { QualityTag } from "@/components/ui/quality-tag";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { channelLabel } from "@/features/videos/labels";
 
 export const sampleVideoColumns: ColumnDef<VideoResponse>[] = [
 	{
 		id: "channel",
-		accessorFn: (video) => video.broadcaster_name ?? video.display_name,
+		accessorFn: (video) => channelLabel(video),
 		header: "Channel",
 		cell: ({ row }) => (
 			<span className="flex items-center gap-2 font-medium">
 				<Avatar
 					src={row.original.profile_image_url}
-					name={row.original.broadcaster_name}
+					name={channelLabel(row.original)}
 					size="sm"
 				/>
-				{row.original.broadcaster_name}
+				{channelLabel(row.original)}
 			</span>
 		),
 	},

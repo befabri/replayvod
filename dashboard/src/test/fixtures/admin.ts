@@ -86,7 +86,7 @@ export function makeSessions(): SessionInfo[] {
 }
 
 export function makeWhitelistEntries(): WhitelistEntryInfo[] {
-	return ["141981764", "26490481", "71092938", "12826", "403106339"].map(
+	return ["2001", "2002", "2003", "2004", "2005"].map(
 		(twitch_user_id, index) => ({
 			twitch_user_id,
 			added_at: at(-(index + 1) * 3 * DAY_MS),
