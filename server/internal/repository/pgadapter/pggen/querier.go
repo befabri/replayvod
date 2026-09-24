@@ -358,6 +358,10 @@ type Querier interface {
 	// Startup owns abandoned executions, including paused or unavailable one-shots.
 	RecoverInterruptedTasks(ctx context.Context) error
 	RedeemInvite(ctx context.Context, arg RedeemInviteParams) (int64, error)
+	// Twitch hands a renamed account's old login to someone else, so another row
+	// still holding it is stale. Park it on a placeholder no Twitch login can
+	// take; that account's next sign-in restores its current login.
+	ReleaseUserLogin(ctx context.Context, arg ReleaseUserLoginParams) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	RequestJobStop(ctx context.Context, id string) error
 	RequestMediaPublicationDelete(ctx context.Context, key string) error

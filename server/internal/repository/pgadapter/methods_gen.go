@@ -1124,6 +1124,13 @@ func (a *PGAdapter) RedeemInvite(ctx context.Context, tokenHash, redeemedBy stri
 	return affected > 0, nil
 }
 
+func (a *PGAdapter) ReleaseUserLogin(ctx context.Context, login, id string) error {
+	if err := a.queries.ReleaseUserLogin(ctx, pggen.ReleaseUserLoginParams{Login: login, ID: id}); err != nil {
+		return fmt.Errorf("pg release user login %s: %w", login, err)
+	}
+	return nil
+}
+
 func (a *PGAdapter) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
 	return a.queries.RemoveFromWhitelist(ctx, twitchUserID)
 }

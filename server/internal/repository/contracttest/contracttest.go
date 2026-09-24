@@ -160,6 +160,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Settings_Lookup", testSettingsLookup)
 	run("Task_Listing", testTaskListing)
 	run("User_UpsertKeepsAssignedRole", testUserUpsertKeepsAssignedRole)
+	run("User_ReleaseLoginFreesRenamedAccount", testUserReleaseLoginFreesRenamedAccount)
 	run("Channel_ColumnsRoundTrip", testChannelColumnsRoundTrip)
 	run("Category_ColumnsRoundTrip", testCategoryColumnsRoundTrip)
 	run("Video_ColumnsRoundTrip", testVideoColumnsRoundTrip)

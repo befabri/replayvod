@@ -83,6 +83,9 @@ type Repository interface {
 	// Call it on the transaction repository before other reads to avoid a
 	// stale SQLite snapshot.
 	GetUserForUpdate(ctx context.Context, id string) (*User, error)
+	// ReleaseUserLogin moves login off every account except id, so the
+	// account Twitch now gives that login can take it.
+	ReleaseUserLogin(ctx context.Context, login, id string) error
 	// UpsertUser refreshes profile fields and sets Role only on insert.
 	UpsertUser(ctx context.Context, u *User) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)

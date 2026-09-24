@@ -1129,6 +1129,13 @@ func (a *SQLiteAdapter) RedeemInvite(ctx context.Context, tokenHash, redeemedBy 
 	return affected > 0, nil
 }
 
+func (a *SQLiteAdapter) ReleaseUserLogin(ctx context.Context, login, id string) error {
+	if err := a.queries.ReleaseUserLogin(ctx, sqlitegen.ReleaseUserLoginParams{Login: login, ID: id}); err != nil {
+		return fmt.Errorf("sqlite release user login %s: %w", login, err)
+	}
+	return nil
+}
+
 func (a *SQLiteAdapter) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
 	return a.queries.RemoveFromWhitelist(ctx, twitchUserID)
 }

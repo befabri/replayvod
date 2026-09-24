@@ -153,6 +153,11 @@ func (s *Service) upsertOAuthUser(ctx context.Context, repo repository.Repositor
 	default:
 		return nil, fmt.Errorf("lookup user: %w", err)
 	}
+	// Twitch just vouched that this login is ours, so an account still
+	// holding it was renamed and must not block the sign-in.
+	if err := repo.ReleaseUserLogin(ctx, u.Login, u.ID); err != nil {
+		return nil, fmt.Errorf("release login: %w", err)
+	}
 	upserted, err := repo.UpsertUser(ctx, &u)
 	if err != nil {
 		return nil, fmt.Errorf("upsert user: %w", err)

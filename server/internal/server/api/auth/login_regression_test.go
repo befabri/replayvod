@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,28 +112,27 @@ func TestHandleOAuthCallback_InviteUsesRoleReturnedByUpsert(t *testing.T) {
 	}
 }
 
-func TestHandleOAuthCallback_UserLookupFailureDoesNotChangeAccount(t *testing.T) {
-	ctx := context.Background()
-	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
-	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "twitch-1", Login: "streamer", DisplayName: "Old Name", Role: "owner"}); err != nil {
-		t.Fatal(err)
-	}
-	wantErr := errors.New("transient user lookup failure")
-	svc := New(userLookupFailureRepo{Repository: repo, err: wantErr}, nil, newStubbedTwitch(t, stubUserJSON), Config{}, discardLog())
-	result, err := svc.HandleOAuthCallback(ctx, "code", "https://app/callback", "verifier", "")
-	if !errors.Is(err, wantErr) || result != nil {
-		t.Errorf("login = (%+v, %v), want lookup error and no result", result, err)
-	}
-	stored, err := repo.GetUser(ctx, "twitch-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Role != "owner" || stored.DisplayName != "Old Name" {
-		t.Errorf("failed lookup changed the account: %+v", stored)
-	}
+// upsertFailureRepo fails user saves while fail is set, including inside
+// transactions.
+type upsertFailureRepo struct {
+	repository.Repository
+	fail *atomic.Bool
 }
 
-func TestHandleOAuthCallback_InviteSignupConflictRollsBackAndCanRetry(t *testing.T) {
+func (r upsertFailureRepo) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
+	if r.fail.Load() {
+		return nil, errors.New("user save unavailable")
+	}
+	return r.Repository.UpsertUser(ctx, u)
+}
+
+func (r upsertFailureRepo) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	return r.Repository.WithTx(ctx, func(tx repository.Repository) error {
+		return fn(upsertFailureRepo{Repository: tx, fail: r.fail})
+	})
+}
+
+func TestHandleOAuthCallback_InviteSignupFailureRollsBackAndCanRetry(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		name := "new user"
 		if existing {
@@ -147,15 +147,11 @@ func TestHandleOAuthCallback_InviteSignupConflictRollsBackAndCanRetry(t *testing
 					t.Fatal(err)
 				}
 			}
-			// A Twitch rename can leave another local row holding the
-			// invitee's login until that account next signs in.
-			holder := &repository.User{ID: "previous-name-holder", Login: "streamer", DisplayName: "Previous", Role: "viewer"}
-			if _, err := repo.UpsertUser(ctx, holder); err != nil {
-				t.Fatal(err)
-			}
-			svc := New(repo, nil, newStubbedTwitch(t, stubUserJSON), Config{WhitelistEnabled: true}, discardLog())
+			var fail atomic.Bool
+			fail.Store(true)
+			svc := New(upsertFailureRepo{Repository: repo, fail: &fail}, nil, newStubbedTwitch(t, stubUserJSON), Config{WhitelistEnabled: true}, discardLog())
 			if result, err := svc.HandleOAuthCallback(ctx, "code", "https://app/callback", "verifier", raw); err == nil || result != nil {
-				t.Fatalf("conflicting signup = (%+v, %v), want failure", result, err)
+				t.Fatalf("failed signup = (%+v, %v), want failure", result, err)
 			}
 			inv, err := repo.GetInviteByTokenHash(ctx, invite.HashToken(raw))
 			if err != nil {
@@ -175,10 +171,7 @@ func TestHandleOAuthCallback_InviteSignupConflictRollsBackAndCanRetry(t *testing
 			} else if !errors.Is(err, repository.ErrNotFound) {
 				t.Errorf("failed signup left a user: %+v, %v", stored, err)
 			}
-			holder.Login = "renamed-holder"
-			if _, err := repo.UpsertUser(ctx, holder); err != nil {
-				t.Fatal(err)
-			}
+			fail.Store(false)
 			result, err := svc.HandleOAuthCallback(ctx, "code", "https://app/callback", "verifier", raw)
 			if err != nil {
 				t.Fatalf("retry with the same invite: %v", err)
@@ -192,6 +185,52 @@ func TestHandleOAuthCallback_InviteSignupConflictRollsBackAndCanRetry(t *testing
 			inv, err = repo.GetInviteByTokenHash(ctx, invite.HashToken(raw))
 			if err != nil || inv.RedeemedAt == nil || inv.RedeemedBy == nil || *inv.RedeemedBy != "twitch-1" {
 				t.Errorf("successful retry did not redeem the invite: %+v, %v", inv, err)
+			}
+		})
+	}
+}
+
+// A Twitch rename frees the old login for someone else, while the renamed
+// account's row keeps holding it until that account signs in again. The
+// login's new owner must still be able to sign in.
+func TestHandleOAuthCallback_LoginFreedByTwitchRenameCanSignIn(t *testing.T) {
+	for _, withInvite := range []bool{false, true} {
+		name := "ordinary login"
+		if withInvite {
+			name = "invited signup"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+			if _, err := repo.UpsertUser(ctx, &repository.User{ID: "renamed-account", Login: "streamer", DisplayName: "Previous", Role: "admin"}); err != nil {
+				t.Fatal(err)
+			}
+			raw := ""
+			cfg := Config{}
+			if withInvite {
+				raw = seedInvite(t, repo, "viewer", time.Hour)
+				cfg.WhitelistEnabled = true
+			}
+			svc := New(repo, nil, newStubbedTwitch(t, stubUserJSON), cfg, discardLog())
+			result, err := svc.HandleOAuthCallback(ctx, "code", "https://app/callback", "verifier", raw)
+			if err != nil {
+				t.Fatalf("sign-in with a login a rename freed: %v", err)
+			}
+			if result.User.ID != "twitch-1" || result.User.Login != "streamer" {
+				t.Errorf("signed-in user = %+v, want twitch-1 holding streamer", result.User)
+			}
+			stored, err := repo.GetUser(ctx, "renamed-account")
+			if err != nil || stored.Login != "~renamed-account" || stored.Role != "admin" || stored.DisplayName != "Previous" {
+				t.Fatalf("renamed account = %+v, %v; want only its login parked", stored, err)
+			}
+
+			renamed := New(repo, nil, newStubbedTwitch(t, `{"data":[{"id":"renamed-account","login":"new-name","display_name":"New Name"}]}`), Config{}, discardLog())
+			if _, err := renamed.HandleOAuthCallback(ctx, "code", "https://app/callback", "verifier", ""); err != nil {
+				t.Fatalf("renamed account signs in again: %v", err)
+			}
+			stored, err = repo.GetUser(ctx, "renamed-account")
+			if err != nil || stored.Login != "new-name" || stored.Role != "admin" {
+				t.Fatalf("renamed account after its sign-in = %+v, %v; want its current login back", stored, err)
 			}
 		})
 	}

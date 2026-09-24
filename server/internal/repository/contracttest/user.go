@@ -132,3 +132,39 @@ func testUserUpsertKeepsAssignedRole(t *testing.T, h Harness) {
 		t.Fatalf("upsert clobbered the assigned role: %+v, %v", promoted, err)
 	}
 }
+
+// testUserReleaseLoginFreesRenamedAccount checks that a login Twitch has
+// reassigned moves off the stale account without touching anything else, so
+// the new owner can save it despite the unique login.
+func testUserReleaseLoginFreesRenamedAccount(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	stale := &repository.User{ID: "renamed", Login: "streamer", DisplayName: "Old Streamer", Role: "admin"}
+	bystander := &repository.User{ID: "bystander", Login: "bystander", DisplayName: "Bystander", Role: "viewer"}
+	for _, u := range []*repository.User{stale, bystander} {
+		if _, err := repo.UpsertUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.ReleaseUserLogin(ctx, "streamer", "new-owner"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "new-owner", Login: "streamer", DisplayName: "Streamer", Role: "viewer"}); err != nil {
+		t.Fatalf("save the login's new owner: %v", err)
+	}
+	got, err := repo.GetUser(ctx, "renamed")
+	if err != nil || got.Login != "~renamed" || got.DisplayName != "Old Streamer" || got.Role != "admin" {
+		t.Fatalf("released account = %+v, %v", got, err)
+	}
+	if got, err := repo.GetUser(ctx, "bystander"); err != nil || got.Login != "bystander" {
+		t.Fatalf("unrelated account = %+v, %v", got, err)
+	}
+	// The owner's own row keeps its login, and releasing an unheld login is a no-op.
+	for _, login := range []string{"streamer", "nobody-has-this"} {
+		if err := repo.ReleaseUserLogin(ctx, login, "new-owner"); err != nil {
+			t.Fatalf("release %s: %v", login, err)
+		}
+	}
+	if got, err := repo.GetUser(ctx, "new-owner"); err != nil || got.Login != "streamer" {
+		t.Fatalf("owner = %+v, %v", got, err)
+	}
+}

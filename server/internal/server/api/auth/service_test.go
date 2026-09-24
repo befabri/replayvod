@@ -321,7 +321,7 @@ func TestHandleOAuthCallback_UserLookupFailurePreservesRoleAndInvite(t *testing.
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
-			if _, err := repo.UpsertUser(ctx, &repository.User{ID: "twitch-1", Login: "streamer", DisplayName: "Streamer", Role: "admin"}); err != nil {
+			if _, err := repo.UpsertUser(ctx, &repository.User{ID: "twitch-1", Login: "streamer", DisplayName: "Old Name", Role: "admin"}); err != nil {
 				t.Fatal(err)
 			}
 			raw := ""
@@ -335,8 +335,8 @@ func TestHandleOAuthCallback_UserLookupFailurePreservesRoleAndInvite(t *testing.
 				t.Errorf("login on failed user lookup = (%+v, %v), want no login and lookup error", result, err)
 			}
 			stored, err := repo.GetUser(ctx, "twitch-1")
-			if err != nil || stored.Role != "admin" {
-				t.Fatalf("failed lookup changed persisted role: %+v, %v", stored, err)
+			if err != nil || stored.Role != "admin" || stored.DisplayName != "Old Name" {
+				t.Fatalf("failed lookup changed the account: %+v, %v", stored, err)
 			}
 			if withInvite {
 				inv, err := repo.GetInviteByTokenHash(ctx, invite.HashToken(raw))

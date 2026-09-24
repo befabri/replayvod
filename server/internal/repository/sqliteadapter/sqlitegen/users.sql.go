@@ -131,6 +131,23 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
+const releaseUserLogin = `-- name: ReleaseUserLogin :exec
+UPDATE users SET login = '~' || id, updated_at = datetime('now') WHERE login = ? AND id <> ?
+`
+
+type ReleaseUserLoginParams struct {
+	Login string `json:"login"`
+	ID    string `json:"id"`
+}
+
+// Twitch hands a renamed account's old login to someone else, so another row
+// still holding it is stale. Park it on a placeholder no Twitch login can
+// take; that account's next sign-in restores its current login.
+func (q *Queries) ReleaseUserLogin(ctx context.Context, arg ReleaseUserLoginParams) error {
+	_, err := q.db.ExecContext(ctx, releaseUserLogin, arg.Login, arg.ID)
+	return err
+}
+
 const updateUserRole = `-- name: UpdateUserRole :exec
 UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?
 `
