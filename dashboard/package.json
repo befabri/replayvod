@@ -15,7 +15,7 @@
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check",
-    "routes": "npx tsr generate",
+    "routes": "node -e \"import('vite').then((vite) => vite.resolveConfig({}, 'serve'))\"",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
