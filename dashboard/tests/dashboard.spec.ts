@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { USER_SETTINGS } from "../src/test/playback-settings";
 import {
 	mockTrpc,
 	procsOf,
@@ -216,25 +217,27 @@ test("Latest Recordings shows loading, reports failure, and recovers on retry", 
 		const procs = procsOf(route.request().url());
 		if (!procs.includes("video.listPage")) return route.fallback();
 		await gate;
+		// Only the recordings list fails. Queries batched with it, such as the
+		// settings every card needs, still answer, so the retry can recover.
 		await route.fulfill({
-			status: failed ? 500 : 200,
+			status: 200,
 			contentType: "application/json",
 			body: JSON.stringify(
-				failed
-					? procs.map(() => ({
-							error: {
-								message: "offline",
-								code: -32603,
-								data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 },
-							},
-						}))
-					: trpcOk(
-							procs.map((proc) =>
-								proc === "video.listPage"
-									? { items: [videoRecording(90, 3600)] }
-									: null,
-							),
-						),
+				procs.map((proc) => {
+					if (proc === "auth.session") return { result: { data: SESSION } };
+					if (proc === "settings.get") return { result: { data: USER_SETTINGS } };
+					if (proc !== "video.listPage") return { result: { data: null } };
+					if (!failed) {
+						return { result: { data: { items: [videoRecording(90, 3600)] } } };
+					}
+					return {
+						error: {
+							message: "offline",
+							code: -32603,
+							data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 },
+						},
+					};
+				}),
 			),
 		});
 	});

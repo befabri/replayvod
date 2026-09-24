@@ -69,9 +69,11 @@ test.describe("storage readiness", () => {
 	});
 
 	test("viewers see the warning without the owner details", async ({ page }) => {
+		const requested: string[] = [];
 		await mockTrpc(page, (procs) => ({
 			status: 200,
 			body: trpcOk(procs.map((proc) => {
+				requested.push(proc);
 				switch (proc) {
 					case "auth.session":
 						return { user_id: "u2", login: "bob", display_name: "Bob", email: "", profile_image_url: "", role: "viewer" };
@@ -79,8 +81,15 @@ test.describe("storage readiness", () => {
 						return { ...USER_SETTINGS, user_id: "u2" };
 					case "video.listPage":
 						return { items: [] };
+					case "auth.sessions":
+						return [];
 					case "storage.status":
 						return { state: "unreachable", checked_at: "2026-09-08T12:00:00Z" };
+					// Answered as if the server leaked them: the request check below
+					// fails if the banner ever fetches owner details for a viewer, and
+					// the Reason checks fail if it ever shows them.
+					case "storage.details":
+						return details("unreachable");
 					default:
 						return null;
 				}
@@ -91,6 +100,15 @@ test.describe("storage readiness", () => {
 		await expect(banner).toBeVisible({ timeout: 30_000 });
 		await expect(banner).toContainText("recordings cannot play");
 		await expect(banner.getByRole("link", { name: "Open storage settings" })).toHaveCount(0);
+		await expect(banner).not.toContainText("Reason");
+
+		// The next page's requests queue behind anything the banner asked for
+		// when it appeared, so once the sessions list is requested a details
+		// request would already be on record.
+		await page.getByRole("button", { name: "Open user menu" }).click();
+		await page.getByRole("menuitem", { name: "Sessions" }).click();
+		await expect.poll(() => requested).toContain("auth.sessions");
+		expect(requested).not.toContain("storage.details");
 		await expect(banner).not.toContainText("Reason");
 	});
 });

@@ -210,6 +210,9 @@ test.describe("admin permissions", () => {
 		await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
 		await expect(page.getByRole("button", { name: "Reject" })).toBeVisible();
 		expect(seen.has("schedule.requests")).toBe(true);
+		// The page knows the role on its first render, so a fresh load never
+		// asks for the viewer's own requests before switching to the queue.
+		expect(seen.has("schedule.myRequests")).toBe(false);
 	});
 
 	test("shows a failed review queue load", async ({ page }) => {

@@ -105,7 +105,8 @@ describe("resolveSession", () => {
 
 		expect(user?.login).toBe("alice");
 		expect(user?.role).toBe("owner");
-		// Pure: the protected layout hydrates the store after mount, not the guard.
+		// Pure: the dashboard route's guard hydrates the store from the result
+		// before its layout renders; other guards only read it.
 		expect(authStore.state.user).toBeNull();
 		expect(authStore.state.isAuthenticated).toBe(false);
 	});
