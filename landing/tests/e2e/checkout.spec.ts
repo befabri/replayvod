@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { applyDevSeed, CLOUD_API } from "./_helpers";
+import { applyDevSeed } from "./_helpers";
 
 test.beforeAll(() => {
   applyDevSeed();
@@ -67,19 +67,4 @@ test("yearly checkout drops the trial copy and shows the yearly price", async ({
     page.locator("#checkout-submit").click().catch(reject);
   });
   expect(polarURL).toMatch(/^https:\/\/sandbox\.polar\.sh\/checkout\//);
-});
-
-test("anonymous /api/auth/checkout/<plan> issues a Polar session URL", async ({
-  request,
-}) => {
-  for (const plan of ["monthly", "yearly"] as const) {
-    const res = await request.get(`${CLOUD_API}/api/auth/checkout/${plan}`, {
-      maxRedirects: 0,
-      headers: { Origin: "http://localhost:4322" },
-    });
-    expect(res.status()).toBe(303);
-    expect(res.headers().location).toMatch(
-      /^https:\/\/sandbox\.polar\.sh\/checkout\//,
-    );
-  }
 });

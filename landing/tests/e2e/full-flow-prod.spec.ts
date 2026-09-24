@@ -28,6 +28,14 @@ const PROD_EMAIL = "bfabri@pm.me";
 
 test.use({ baseURL: PROD_LANDING });
 
+// A plain `npx playwright test` must never drive production with the
+// owner's account; running this spec is an explicit choice, and only the
+// exact value 1 counts, so REPLAYVOD_PROD_E2E=0 or =false stays safe.
+test.skip(
+  process.env.REPLAYVOD_PROD_E2E !== "1",
+  "drives production; set REPLAYVOD_PROD_E2E=1 to run it",
+);
+
 test("full flow on prod: real login → /account token → prod relay round-trip", async ({
   page,
   request,

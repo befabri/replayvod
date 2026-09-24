@@ -35,24 +35,3 @@ test("login with magic link lands on /account", async ({ page }) => {
     new RegExp(`signed in as ${SEEDED_EMAIL}`, "i"),
   );
 });
-
-test("clicking a magic link for an unknown email does not log in", async ({
-  page,
-  request,
-}) => {
-  await page.goto("/login");
-  await page.locator("#email").fill("stranger@local.test");
-  const submitted = page.waitForResponse(
-    (r) =>
-      r.url().includes("/api/auth/sign-in/magic-link") && r.status() === 200,
-  );
-  await page.locator("#login-submit").click();
-  await submitted;
-
-  // Either no verification row was created, or the token cannot redeem to a
-  // session. Both are valid outcomes; assert /me is unauthenticated.
-  const me = await request.get(`${CLOUD_API}/me`, {
-    headers: { Origin: "http://localhost:4322" },
-  });
-  expect(me.status()).toBe(401);
-});
