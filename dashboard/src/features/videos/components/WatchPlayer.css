@@ -1,8 +1,8 @@
 /* WatchPlayer theme overrides — what the utility classes in WatchPlayer.tsx
    cannot express. Everything the audio card lays out itself now lives on the
    elements as Tailwind; what stays here is the third-party surface (Vidstack's
-   internals), the range input's vendor pseudo-elements, the SVG waveform
-   internals, and one container-relative width.
+   internals), the range input's vendor pseudo-elements and the SVG waveform
+   internals.
 */
 
 /* Vidstack's own variables — overriding them here cascades through its
@@ -44,15 +44,6 @@
 /* Vidstack renders the provider element itself. */
 .rv-watch-player-audio [data-media-provider] {
 	display: contents;
-}
-
-/* The poster is measured against the card, not the window: the watch page
-   hands this player anything from a narrow aside column to the full content
-   width. Room for a long recording's time readout is reserved before the
-   poster gets any, and it stops growing once it is as tall as the controls row
-   plus the waveform lane beside it. */
-.rv-audio-thumbnail {
-	width: min(19cqw, calc(100cqw - 44rem), calc(9.4rem * 16 / 9));
 }
 
 /* Range inputs style their track and thumb through vendor pseudo-elements,

@@ -14,6 +14,7 @@ import {
 	type ReactNode,
 	StrictMode,
 } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatPlaybackTime } from "@/features/videos/format";
 import type { RecordingPlaylist } from "@/features/videos/playback";
@@ -146,6 +147,7 @@ vi.mock("@vidstack/react", async () => {
 	type MockMediaPlayerProps = {
 		children?: ReactNode;
 		src?: unknown;
+		poster?: string;
 		onCanPlay?: () => void;
 		onEnded?: () => void;
 		onError?: () => void;
@@ -153,6 +155,9 @@ vi.mock("@vidstack/react", async () => {
 		onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
 		onPause?: () => void;
 		onPlay?: () => void;
+		onStarted?: () => void;
+		onMediaSeekRequest?: () => void;
+		onSeeked?: () => void;
 		onFullscreenChange?: (active: boolean) => void;
 		fullscreenOrientation?: string;
 	};
@@ -161,6 +166,7 @@ vi.mock("@vidstack/react", async () => {
 			{
 				children,
 				src,
+				poster,
 				onCanPlay,
 				onEnded,
 				onError,
@@ -168,6 +174,9 @@ vi.mock("@vidstack/react", async () => {
 				onKeyDown,
 				onPause,
 				onPlay,
+				onStarted,
+				onMediaSeekRequest,
+				onSeeked,
 				onFullscreenChange,
 				fullscreenOrientation,
 			},
@@ -180,6 +189,7 @@ vi.mock("@vidstack/react", async () => {
 					"data-testid": "media-player",
 					"data-src": sourceSrc(src),
 					"data-type": sourceType(src),
+					"data-poster": poster,
 					"data-fullscreen-orientation": fullscreenOrientation,
 					onKeyDown,
 					tabIndex: 0,
@@ -221,6 +231,21 @@ vi.mock("@vidstack/react", async () => {
 						},
 					},
 					"play",
+				),
+				React.createElement(
+					"button",
+					{ type: "button", onClick: onStarted },
+					"started",
+				),
+				React.createElement(
+					"button",
+					{ type: "button", onClick: onMediaSeekRequest },
+					"seek request",
+				),
+				React.createElement(
+					"button",
+					{ type: "button", onClick: onSeeked },
+					"seeked",
 				),
 				React.createElement(
 					"button",
@@ -963,6 +988,120 @@ describe("WatchPlayer multipart boundaries", () => {
 	});
 });
 
+describe("WatchPlayer poster", () => {
+	const poster = "/api/v1/thumbnails/poster.jpg";
+
+	it("shows the recording poster until playback first starts", () => {
+		render(
+			<WatchPlayer playlist={multipartPlaylist()} thumbnailUrl={poster} />,
+		);
+		expect(screen.getByTestId("player-poster").getAttribute("src")).toBe(
+			poster,
+		);
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(false);
+
+		fireEvent.click(screen.getByRole("button", { name: "started" }));
+
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(true);
+	});
+
+	// Vidstack clears `started` on every source change. The poster follows the
+	// first start only, so a paused seek into another part shows its frame.
+	it("keeps the poster dismissed after a paused seek into another part", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer playlist={multipartPlaylist()} thumbnailUrl={poster} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "started" }));
+
+		fireEvent.click(screen.getByRole("button", { name: /Second title/ }));
+
+		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
+			"/part-2.mp4",
+		);
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(true);
+	});
+
+	// A seek never fires Vidstack's `started`. Without its own dismissal the
+	// poster would keep covering the frame a paused viewer scrubbed to.
+	it("shows the frame a paused viewer seeks to once it is ready", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer playlist={multipartPlaylist()} thumbnailUrl={poster} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+
+		fireEvent.keyDown(screen.getByTestId("media-player"), {
+			key: "ArrowRight",
+		});
+		expect(vidstackMock.player.currentTime).toBeGreaterThan(0);
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(false);
+
+		fireEvent.click(screen.getByRole("button", { name: "seeked" }));
+
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(true);
+	});
+
+	it("shows the frame after a seek from the player's own controls", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer playlist={multipartPlaylist()} thumbnailUrl={poster} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+
+		fireEvent.click(screen.getByRole("button", { name: "seek request" }));
+		fireEvent.click(screen.getByRole("button", { name: "seeked" }));
+
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(true);
+	});
+
+	// Resuming or following a ?t= link seeks before anyone presses play. That
+	// seek is the page's, not the viewer's, so the poster stays until playback.
+	it("keeps the poster over the position the page resumes at", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer
+				playlist={multipartPlaylist()}
+				thumbnailUrl={poster}
+				initialOffsetSeconds={30}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(30);
+
+		fireEvent.click(screen.getByRole("button", { name: "seeked" }));
+
+		expect(
+			screen.getByTestId("player-poster").hasAttribute("data-dismissed"),
+		).toBe(false);
+	});
+
+	it("renders no poster when the recording has no thumbnail", () => {
+		render(<WatchPlayer playlist={multipartPlaylist()} />);
+		expect(screen.queryByTestId("player-poster")).toBeNull();
+	});
+
+	it("drops a poster whose image fails to load", () => {
+		render(
+			<WatchPlayer playlist={multipartPlaylist()} thumbnailUrl={poster} />,
+		);
+		fireEvent.error(screen.getByTestId("player-poster"));
+		expect(screen.queryByTestId("player-poster")).toBeNull();
+	});
+});
+
 describe("WatchPlayer timeline popovers", () => {
 	function popoverOf(button: HTMLElement) {
 		const popover = button.querySelector("span");
@@ -1329,6 +1468,27 @@ describe("WatchPlayer watch progress persistence", () => {
 		audio.currentTime = 31;
 		fireEvent.canPlay(audio);
 		expect(audio.currentTime).toBe(31);
+		expect(audio.paused).toBe(true);
+	});
+
+	// A media element starts loading as soon as it has a source, before React
+	// commits it and listens. Readiness, errors or the end that fire in that
+	// gap are lost for good, so the element only gets its source once mounted.
+	it("gives the audio element its source only once it is mounted", () => {
+		const markup = renderToString(
+			<WatchPlayer playlist={audioPlaylist()} initialOffsetSeconds={30} />,
+		);
+		expect(markup).toMatch(/<audio\b/);
+		expect(markup).not.toMatch(/<audio\b[^>]*\ssrc=/);
+
+		render(
+			<WatchPlayer playlist={audioPlaylist()} initialOffsetSeconds={30} />,
+		);
+		const audio = getAudioElement();
+		expect(audio.getAttribute("src")).toBe("/part-1.m4a");
+
+		fireEvent.loadedMetadata(audio);
+		expect(audio.currentTime).toBe(30);
 		expect(audio.paused).toBe(true);
 	});
 });

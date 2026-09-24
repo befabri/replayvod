@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import type { ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { useRelatedRecordings } from "../queries";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 
@@ -64,7 +65,7 @@ export function RelatedRecordings({ videoId }: { videoId: number }) {
 						{previous && (
 							<RelatedLink
 								videoId={previous.id}
-								className="text-link hover:underline"
+								className={buttonVariants({ variant: "link", size: "inline" })}
 							>
 								{t("watch.related_previous")}
 							</RelatedLink>
@@ -72,7 +73,10 @@ export function RelatedRecordings({ videoId }: { videoId: number }) {
 						{next && (
 							<RelatedLink
 								videoId={next.id}
-								className="ml-auto text-link hover:underline"
+								className={cn(
+									buttonVariants({ variant: "link", size: "inline" }),
+									"ml-auto",
+								)}
 							>
 								{t("watch.related_next")}
 							</RelatedLink>

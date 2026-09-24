@@ -5,6 +5,7 @@ import {
 	QueryClientProvider,
 } from "@tanstack/react-query";
 import { createTRPCClient } from "@trpc/client";
+import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import type { ReactNode } from "react";
 import { browserCredentialTransportAllowed } from "@/api/credential-transport";
 import { dashboardLinks } from "@/api/links";
@@ -33,7 +34,12 @@ export function getContext() {
 		},
 	});
 
-	return { queryClient };
+	const trpc = createTRPCOptionsProxy<AppRouter>({
+		client: trpcClient,
+		queryClient,
+	});
+
+	return { queryClient, trpc };
 }
 
 export default function TanstackQueryProvider({

@@ -43,6 +43,13 @@ import {
 	type MediaFailureKind,
 	MediaUnavailablePanel,
 } from "@/features/videos/components/MediaUnavailablePanel";
+import {
+	AUDIO_PLAYER_BODY,
+	AUDIO_PLAYER_CARD,
+	AudioThumbnail,
+	PlayerPoster,
+	VIDEO_PLAYER_FRAME,
+} from "@/features/videos/components/PlayerFrame";
 import { ResumeNotice } from "@/features/videos/components/ResumeNotice";
 import {
 	TimelineChangeContent,
@@ -145,6 +152,8 @@ export function WatchPlayer({
 	const [audioPlaybackRate, setAudioPlaybackRate] = useState(1);
 	const [audioVolume, setAudioVolume] = useState(1);
 	const [resumeNoticeDismissed, setResumeNoticeDismissed] = useState(false);
+	const [posterDismissed, setPosterDismissed] = useState(false);
+	const viewerSeekPendingRef = useRef(false);
 
 	const usesContinuousSource =
 		playlist.continuousSource != null && !forcePartSequencer;
@@ -228,10 +237,13 @@ export function WatchPlayer({
 				playlist.totalDurationSeconds,
 			);
 			if (!target) return;
-			if (!options?.initial) viewerEngagedRef.current = true;
+			const mode = options?.mode ?? "commit";
+			if (!options?.initial) {
+				viewerEngagedRef.current = true;
+				if (mode === "commit") viewerSeekPendingRef.current = true;
+			}
 			const player = isAudioSource ? audioRef.current : playerRef.current;
 			const resume = options?.resume ?? (player ? !player.paused : false);
-			const mode = options?.mode ?? "commit";
 			const trigger = options?.trigger;
 			const sourceReady = readySourceKeyRef.current === currentSourceKey;
 			const sourceKey = currentSourceKey ?? "";
@@ -354,6 +366,8 @@ export function WatchPlayer({
 		wasPlayingRef.current = false;
 		viewerEngagedRef.current = false;
 		setResumeNoticeDismissed(false);
+		setPosterDismissed(false);
+		viewerSeekPendingRef.current = false;
 		prevUsesContinuousRef.current = playlist.continuousSource != null;
 	}, [playlist.videoId]);
 
@@ -406,6 +420,31 @@ export function WatchPlayer({
 		player.playbackRate = pending.playbackRate;
 		if (pending.resume) void playPlaybackController(player).catch(() => {});
 	}, [currentSourceKey, isAudioSource]);
+
+	const attachAudio = useCallback(
+		(audio: HTMLAudioElement | null) => {
+			audioRef.current = audio;
+			if (
+				audio &&
+				currentSourceKey &&
+				audio.getAttribute("src") !== currentSourceKey
+			) {
+				audio.src = currentSourceKey;
+			}
+		},
+		[currentSourceKey],
+	);
+
+	const handleViewerSeekRequest = useCallback(() => {
+		viewerEngagedRef.current = true;
+		viewerSeekPendingRef.current = true;
+	}, []);
+
+	const handleSeeked = useCallback(() => {
+		if (!viewerSeekPendingRef.current) return;
+		viewerSeekPendingRef.current = false;
+		setPosterDismissed(true);
+	}, []);
 
 	const emitWatchProgress = useCallback(
 		(positionSeconds: number, completed = false, force = false) => {
@@ -814,6 +853,9 @@ export function WatchPlayer({
 
 	const mediaProvider = (
 		<MediaProvider>
+			{thumbnailUrl && (
+				<PlayerPoster src={thumbnailUrl} dismissed={posterDismissed} />
+			)}
 			{chapterCues.length > 0 && (
 				<Track
 					key={`${usesContinuousSource ? "recording" : currentPart.partIndex}:${chapterCues.map((cue) => `${cue.startTime}:${cue.text}`).join("|")}`}
@@ -842,13 +884,12 @@ export function WatchPlayer({
 		return (
 			<section
 				aria-label={`Audio Player - ${playlist.title}`}
-				className="rv-watch-player-audio @container relative z-20 flex aspect-auto h-auto min-h-0 w-full flex-col items-stretch overflow-visible rounded-xl border border-border bg-card text-card-foreground shadow-sm"
+				className={AUDIO_PLAYER_CARD}
 			>
 				{/* biome-ignore lint/a11y/useMediaCaption: Archived audio-only recordings do not have caption tracks. */}
 				<audio
 					key={reloadNonce}
-					ref={audioRef}
-					src={currentSourceKey}
+					ref={attachAudio}
 					crossOrigin={isCrossOrigin ? "use-credentials" : undefined}
 					preload="metadata"
 					className="hidden"
@@ -886,7 +927,7 @@ export function WatchPlayer({
 						setAudioVolume(event.currentTarget.volume);
 					}}
 				/>
-				<div className="flex w-full min-w-0 items-stretch gap-4 px-4 pt-3 pb-[1.1rem] @max-[40rem]:px-3 @max-[40rem]:pt-[0.9rem]">
+				<div className={AUDIO_PLAYER_BODY}>
 					{thumbnailUrl ? <AudioThumbnail src={thumbnailUrl} /> : null}
 					<div
 						className="flex min-w-0 flex-auto flex-col"
@@ -923,6 +964,7 @@ export function WatchPlayer({
 				key={reloadNonce}
 				ref={playerRef}
 				src={currentSource}
+				poster={thumbnailUrl ?? undefined}
 				title={playlist.title}
 				crossOrigin={isCrossOrigin ? "use-credentials" : null}
 				fullscreenOrientation={fullscreenOrientation}
@@ -937,8 +979,11 @@ export function WatchPlayer({
 					flushWatchProgressRef.current();
 				}}
 				onPlay={handlePlay}
+				onMediaSeekRequest={handleViewerSeekRequest}
+				onSeeked={handleSeeked}
+				onStarted={() => setPosterDismissed(true)}
 				onTimeUpdate={handleEventTimeUpdate}
-				className="rounded-lg overflow-hidden bg-black shadow-sm"
+				className={VIDEO_PLAYER_FRAME}
 			>
 				<MediaStateBridge
 					onCanPlay={handleCanPlay}
@@ -972,25 +1017,6 @@ function playPlaybackController(
 function pausePlaybackController(player: PlaybackController, trigger?: Event) {
 	const pause = player.pause as (trigger?: Event) => Promise<void> | void;
 	void pause.call(player, trigger);
-}
-
-function AudioThumbnail({ src }: { src: string }) {
-	const [failedSrc, setFailedSrc] = useState<string | null>(null);
-	if (src === failedSrc) return null;
-
-	return (
-		<div
-			className="rv-audio-thumbnail relative hidden aspect-video flex-none self-center overflow-hidden rounded-[0.75rem] bg-[rgb(255_255_255/0.06)] @min-[50rem]:block"
-			data-testid="audio-thumbnail"
-		>
-			<img
-				src={src}
-				alt=""
-				className="absolute inset-0 h-full w-full object-cover"
-				onError={() => setFailedSrc(src)}
-			/>
-		</div>
-	);
 }
 
 const AUDIO_BUTTON_BASE =

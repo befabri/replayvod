@@ -414,6 +414,7 @@
 		"remove_permanent_confirm_body": "Les fichiers ont déjà disparu. Ceci supprime les aperçus restants et les métadonnées des parties, l'enregistrement ne pourra donc plus être restauré. Il reste dans l'historique comme supprimé."
 	},
 	"watch": {
+		"failed_to_load": "Impossible de charger l’enregistrement",
 		"related_title": "Enregistrements associés",
 		"related_waiting": "En attente du retour du streamer",
 		"related_active": "La poursuite de l’enregistrement est active",

@@ -1,12 +1,15 @@
 import {
 	keepPreviousData,
+	notifyManager,
+	type QueryClient,
 	useInfiniteQuery,
 	useMutation,
 	useQuery,
 	useQueryClient,
+	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import type {
 	ActiveDownloadResponse,
 	SetWatchLaterInput,
@@ -138,30 +141,67 @@ export function useRelatedRecordings(id: number) {
 	);
 }
 
+function videoOptions(trpc: ReturnType<typeof useTRPC>, id: number) {
+	return trpc.video.getById.queryOptions(
+		{ id },
+		{
+			meta: { errorLabel: "watch.failed_to_load" },
+			refetchInterval: (query) => {
+				const v = query.state.data;
+				if (v?.deleted_at) return false;
+				if (v?.status !== "DONE") return false;
+				const status = v.playback_artifact?.status;
+				if (
+					status === "ready" ||
+					status === "failed" ||
+					status === "unavailable"
+				) {
+					return false;
+				}
+				return (v.parts?.length ?? 0) >= 2 ? 4_000 : false;
+			},
+		},
+	);
+}
+
+export function isVideoId(id: number) {
+	return Number.isSafeInteger(id) && id > 0;
+}
+
 export function useVideo(id: number) {
 	const trpc = useTRPC();
-	return useQuery(
-		trpc.video.getById.queryOptions(
-			{ id },
-			{
-				enabled: id > 0,
-				refetchInterval: (query) => {
-					const v = query.state.data;
-					if (v?.deleted_at) return false;
-					if (v?.status !== "DONE") return false;
-					const status = v.playback_artifact?.status;
-					if (
-						status === "ready" ||
-						status === "failed" ||
-						status === "unavailable"
-					) {
-						return false;
-					}
-					return (v.parts?.length ?? 0) >= 2 ? 4_000 : false;
-				},
-			},
-		),
+	return useQuery({ ...videoOptions(trpc, id), enabled: isVideoId(id) });
+}
+
+export function useSuspenseVideo(id: number) {
+	const trpc = useTRPC();
+	return useSuspenseQuery(videoOptions(trpc, id));
+}
+
+export function prefetchVideo(
+	queryClient: QueryClient,
+	trpc: ReturnType<typeof useTRPC>,
+	id: number,
+	{ preload = false }: { preload?: boolean } = {},
+) {
+	if (!isVideoId(id)) return;
+	const options = videoOptions(trpc, id);
+	if (queryClient.getQueryData(options.queryKey) !== undefined) return;
+	void queryClient.prefetchQuery(
+		preload ? { ...options, retry: false } : options,
 	);
+}
+
+export function useCachedVideo(id: number): VideoResponse | undefined {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const subscribe = useCallback(
+		(onChange: () => void) =>
+			queryClient.getQueryCache().subscribe(notifyManager.batchCalls(onChange)),
+		[queryClient],
+	);
+	const read = () => findCachedVideo(queryClient, videoCaches(trpc), id);
+	return useSyncExternalStore(subscribe, read, read);
 }
 
 export type AudioWaveform = {

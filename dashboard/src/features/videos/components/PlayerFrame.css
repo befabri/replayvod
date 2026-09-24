@@ -1,0 +1,26 @@
+/* The video player's frame, drawn the same way by the watch page skeleton and
+   by the player itself. Vidstack's video layout puts its own border and radius
+   on the player once it attaches, read from these two variables, and its rules
+   are unlayered, so a utility class loses to them. Drawing every stage of the
+   frame from the same variables keeps the poster from shrinking by the border
+   and rescaling mid-handoff. Vidstack drops its frame in fullscreen. */
+.rv-video-frame {
+	--video-border: 1px solid rgb(255 255 255 / 0.1);
+	--video-border-radius: var(--radius);
+	border: var(--video-border);
+	border-radius: var(--video-border-radius);
+}
+
+.rv-video-frame[data-fullscreen] {
+	border: 0;
+	border-radius: 0;
+}
+
+/* The poster is measured against the card, not the window: the watch page
+   hands this player anything from a narrow aside column to the full content
+   width. Room for a long recording's time readout is reserved before the
+   poster gets any, and it stops growing once it is as tall as the controls row
+   plus the waveform lane beside it. */
+.rv-audio-thumbnail {
+	width: min(19cqw, calc(100cqw - 44rem), calc(9.4rem * 16 / 9));
+}

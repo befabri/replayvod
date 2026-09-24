@@ -2,7 +2,10 @@ export type { StatisticsResponse, VideoResponse } from "@/api/generated/trpc";
 export { channelLabel, spanDurationLabel } from "./labels";
 export {
 	type AudioWaveform,
+	isVideoId,
+	prefetchVideo,
 	useAudioWaveform,
+	useCachedVideo,
 	useCancelDownload,
 	useContinueWatching,
 	useDeleteVideo,

@@ -17,9 +17,12 @@ import type {
 } from "@/api/generated/trpc";
 import { type AppRouter, TRPCProvider, useTRPC } from "@/api/trpc";
 import { patchEntity } from "@/lib/query";
+import { makeVideo, VIDEO_STATES } from "@/test/fixtures";
 import { USER_SETTINGS } from "@/test/playback-settings";
 import { videoCaches, videoUserStatePatch } from "./cache";
 import {
+	prefetchVideo,
+	useCachedVideo,
 	useCancelDownload,
 	useDeleteVideo,
 	useLiveVideoChanges,
@@ -45,25 +48,13 @@ afterEach(() => {
 });
 
 function video(partial: Partial<VideoResponse>): VideoResponse {
-	return {
-		id: partial.id ?? 1,
-		job_id: partial.job_id ?? `job-${partial.id ?? 1}`,
-		filename: partial.filename ?? `video-${partial.id ?? 1}.mp4`,
-		display_name: partial.display_name ?? "Channel",
-		title: partial.title ?? "Video",
-		status: partial.status ?? "DONE",
-		completion_kind: partial.completion_kind ?? "complete",
-		truncated: partial.truncated ?? false,
-		quality: partial.quality ?? "1080p",
-		is_audio_only: partial.is_audio_only ?? false,
-		broadcaster_id: partial.broadcaster_id ?? "bc-1",
-		viewer_count: partial.viewer_count ?? 0,
-		language: partial.language ?? "en",
-		start_download_at: partial.start_download_at ?? "2026-01-01T00:00:00Z",
-		source: "live",
-		user_state: partial.user_state,
+	return makeVideo((partial.id ?? 1) - 1, {
+		quality: "1080p",
+		language: "en",
+		duration_seconds: undefined,
+		start_download_at: "2026-01-01T00:00:00Z",
 		...partial,
-	};
+	});
 }
 
 function pages(items: VideoResponse[]): InfiniteData<VideoListPageResponse> {
@@ -381,6 +372,104 @@ describe("related recording cache lifecycle", () => {
 		expect(result.current.video.data).toBeUndefined();
 		rerender({ id: 999 });
 		expect(result.current.related.data).toBeUndefined();
+	});
+});
+
+describe("watch page preloading", () => {
+	it("hands the watch page a recording the library already loaded", () => {
+		const { wrapper, queryClient } = hookHarness(() => new Promise(() => {}));
+		const listed = video({ id: 7, thumbnail: "thumbnails/listed.jpg" });
+		queryClient.setQueryData(
+			listPageKey({ limit: 50 }),
+			pages([video({ id: 6 }), listed]),
+		);
+		queryClient.setQueryData(
+			[["video", "relatedRecordings"], { input: { id: 1 }, type: "query" }],
+			related(),
+		);
+
+		const { result, rerender } = renderHook(({ id }) => useCachedVideo(id), {
+			wrapper,
+			initialProps: { id: 7 },
+		});
+		expect(result.current).toBe(listed);
+
+		// Related-recording items carry an id and a job_id too, but none of the
+		// fields the poster needs, so they must never pass for a recording.
+		rerender({ id: 2 });
+		expect(result.current).toBeUndefined();
+	});
+
+	// The skeleton stays on screen while settings or the detail load. Whatever
+	// reaches the cache in the meantime must reach it too, or it keeps a plain
+	// box, or the wrong player shape, until the page replaces it.
+	it("picks up a recording that reaches the cache after the loading state mounts", async () => {
+		const { wrapper, queryClient } = hookHarness(() => new Promise(() => {}));
+		const { result } = renderHook(() => useCachedVideo(7), { wrapper });
+		expect(result.current).toBeUndefined();
+
+		const listed = video({ id: 7, ...VIDEO_STATES.audioOnly });
+		queryClient.setQueryData(listPageKey({ limit: 50 }), pages([listed]));
+		await advance();
+
+		expect(result.current).toBe(listed);
+	});
+
+	// Moving between related recordings must never wait on the destination's
+	// playback data, so the loader only starts the request.
+	it("starts loading the recording without holding navigation", async () => {
+		let reply!: (value: VideoResponse) => void;
+		const { wrapper, calls, queryClient } = hookHarness(
+			() => new Promise<VideoResponse>((resolve) => (reply = resolve)),
+		);
+		const { result: trpc } = renderHook(() => useTRPC(), { wrapper });
+
+		expect(prefetchVideo(queryClient, trpc.current, 5)).toBeUndefined();
+		await advance();
+		expect(calls).toEqual(["video.getById"]);
+
+		reply(video({ id: 5, ...VIDEO_STATES.audioOnly }));
+		await advance();
+		const { result } = renderHook(() => useVideo(5), { wrapper });
+		expect(result.current.data?.is_audio_only).toBe(true);
+		expect(calls).toEqual(["video.getById"]);
+	});
+
+	it("skips ids that cannot exist", async () => {
+		const { wrapper, calls, queryClient } = hookHarness((_, { id }) =>
+			video({ id }),
+		);
+		const { result: trpc } = renderHook(() => useTRPC(), { wrapper });
+
+		for (const id of [Number.NaN, 0, -3, 1.5]) {
+			prefetchVideo(queryClient, trpc.current, id);
+		}
+		await advance();
+
+		expect(calls).toEqual([]);
+	});
+
+	// Hovering a card preloads the watch page. It must not ask again for a
+	// recording it already has, and a failing id must not keep retrying in
+	// the background for a page the user may never open.
+	it("keeps hover preloads to one request per recording", async () => {
+		const { wrapper, calls, queryClient } = hookHarness((_, { id }) => {
+			if (id === 9) throw new Error("gone");
+			return video({ id });
+		});
+		queryClient.setQueryDefaults([["video", "getById"]], {
+			retry: 3,
+			staleTime: 0,
+		});
+		const { result: trpc } = renderHook(() => useTRPC(), { wrapper });
+
+		prefetchVideo(queryClient, trpc.current, 5, { preload: true });
+		await advance();
+		prefetchVideo(queryClient, trpc.current, 5, { preload: true });
+		prefetchVideo(queryClient, trpc.current, 9, { preload: true });
+		await advance(60_000);
+
+		expect(calls).toEqual(["video.getById", "video.getById"]);
 	});
 });
 
