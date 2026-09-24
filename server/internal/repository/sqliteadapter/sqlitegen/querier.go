@@ -80,6 +80,9 @@ type Querier interface {
 	// outcome.
 	DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff sqlitetype.Time) error
 	DeleteOldSnapshots(ctx context.Context, fetchedAt sqlitetype.Time) error
+	// Retention sweep. The handler rejects a delivery older than the replay window
+	// before it dedupes, so deleting a row cannot let its event run again.
+	DeleteOldWebhookEvents(ctx context.Context, receivedAt sqlitetype.Time) error
 	// Only a queued archive can be dropped outright: nothing has been captured, so
 	// there is no media and no tombstone to keep. Child rows cascade.
 	DeleteQueuedArchiveVideo(ctx context.Context, id int64) (int64, error)

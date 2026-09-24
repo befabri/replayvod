@@ -141,6 +141,7 @@ type taskBodyRepo struct {
 	calls       []string
 	err         error
 	fetchCutoff time.Time
+	eventCutoff time.Time
 }
 
 func (r *taskBodyRepo) record(name string) error {
@@ -163,6 +164,11 @@ func (r *taskBodyRepo) DeleteOldFetchLogs(_ context.Context, cutoff time.Time) e
 
 func (r *taskBodyRepo) ClearWebhookEventPayload(context.Context, time.Time) error {
 	return r.record("ClearWebhookEventPayload")
+}
+
+func (r *taskBodyRepo) DeleteOldWebhookEvents(_ context.Context, cutoff time.Time) error {
+	r.eventCutoff = cutoff
+	return r.record("DeleteOldWebhookEvents")
 }
 
 func (r *taskBodyRepo) DeleteOldEventLogs(context.Context, time.Time) error {
@@ -248,6 +254,7 @@ func TestBuildStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.T) 
 				SessionCleanupIntervalMinutes:         120,
 				FetchLogsRetentionDays:                14,
 				WebhookEventPayloadRetentionDays:      7,
+				WebhookEventRetentionDays:             60,
 				EventLogsRetentionDays:                30,
 				RecordingWebhookDeliveryRetentionDays: 11,
 				EventsubReconcileIntervalMinutes:      15,
@@ -277,6 +284,7 @@ func TestBuildStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.T) 
 		"session_cleanup":                        120 * 60,
 		"fetch_logs_retention":                   dailySeconds,
 		"webhook_payload_trim":                   dailySeconds,
+		"webhook_events_retention":               dailySeconds,
 		"event_logs_retention":                   dailySeconds,
 		"recording_webhook_deliveries_retention": dailySeconds,
 		taskEventSubReconcileChannels:            15 * 60,
@@ -336,6 +344,12 @@ func TestBuildStandardTasks_ConfigGatedTasksByInterval(t *testing.T) {
 			name:         "webhook_payload_trim",
 			mutate:       func(sc *config.SchedulerConfig) { sc.WebhookEventPayloadRetentionDays = 3 },
 			taskName:     "webhook_payload_trim",
+			wantInterval: dailySeconds,
+		},
+		{
+			name:         "webhook_events_retention",
+			mutate:       func(sc *config.SchedulerConfig) { sc.WebhookEventRetentionDays = 45 },
+			taskName:     "webhook_events_retention",
 			wantInterval: dailySeconds,
 		},
 		{
@@ -492,6 +506,7 @@ func TestBuildStandardTasks_ConfigTaskBodiesCallExpectedRepoMethods(t *testing.T
 				SessionCleanupIntervalMinutes:         60,
 				FetchLogsRetentionDays:                14,
 				WebhookEventPayloadRetentionDays:      7,
+				WebhookEventRetentionDays:             60,
 				EventLogsRetentionDays:                30,
 				RecordingWebhookDeliveryRetentionDays: 11,
 			},
@@ -507,6 +522,7 @@ func TestBuildStandardTasks_ConfigTaskBodiesCallExpectedRepoMethods(t *testing.T
 		{"session_cleanup", "DeleteExpiredSessions"},
 		{"fetch_logs_retention", "DeleteOldFetchLogs"},
 		{"webhook_payload_trim", "ClearWebhookEventPayload"},
+		{"webhook_events_retention", "DeleteOldWebhookEvents"},
 		{"event_logs_retention", "DeleteOldEventLogs"},
 		{"recording_webhook_deliveries_retention", "DeleteOldRecordingWebhookDeliveries"},
 	}
@@ -525,6 +541,10 @@ func TestBuildStandardTasks_ConfigTaskBodiesCallExpectedRepoMethods(t *testing.T
 				t.Fatalf("%s calls = %v, want [%s]", tc.taskName, repo.calls, tc.method)
 			}
 		})
+	}
+	// Row retention must not borrow the shorter payload window.
+	if want := time.Now().AddDate(0, 0, -60); repo.eventCutoff.Sub(want).Abs() > time.Minute {
+		t.Fatalf("webhook event cutoff = %v, want about %v", repo.eventCutoff, want)
 	}
 }
 

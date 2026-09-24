@@ -132,6 +132,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("EventLog_DeleteOldSkipsWarnAndError", testEventLogDeleteOldSkipsWarnAndError)
 	run("FetchLog_DeleteOldPrunesByFetchedAt", testDeleteOldFetchLogsPrunesByFetchedAt)
 	run("WebhookEvent_ClearPayloadKeepsAuditRows", testClearWebhookEventPayloadKeepsAuditRows)
+	run("WebhookEvent_DeleteOldRemovesOnlyExpiredRows", testDeleteOldWebhookEventsRemovesOnlyExpiredRows)
 
 	run("VideoMetadataChange_RoundTripsMediaOffset", testVideoMetadataChangeRoundTripsMediaOffset)
 

@@ -88,6 +88,9 @@ type Querier interface {
 	// Retention: the dashboard chart wants maybe 30 days of history; older
 	// snapshots get pruned by the scheduler task.
 	DeleteOldSnapshots(ctx context.Context, fetchedAt time.Time) error
+	// Retention sweep. The handler rejects a delivery older than the replay window
+	// before it dedupes, so deleting a row cannot let its event run again.
+	DeleteOldWebhookEvents(ctx context.Context, receivedAt time.Time) error
 	// See sqlite/videos.sql DeleteQueuedArchiveVideo.
 	DeleteQueuedArchiveVideo(ctx context.Context, id int64) (int64, error)
 	DeleteSchedule(ctx context.Context, id int64) error

@@ -2,6 +2,7 @@ package contracttest
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -107,5 +108,42 @@ func testClearWebhookEventPayloadKeepsAuditRows(t *testing.T, h Harness) {
 	}
 	if len(payloadOf(fresh)) != 0 {
 		t.Fatal("future cutoff kept a payload")
+	}
+}
+
+func testDeleteOldWebhookEventsRemovesOnlyExpiredRows(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	now := time.Now().UTC()
+	for _, id := range []string{"rows-stale", "rows-fresh"} {
+		created, err := repo.CreateWebhookEvent(ctx, &repository.WebhookEventInput{
+			EventID: id, MessageType: repository.WebhookMessageNotification, MessageTimestamp: now, Payload: json.RawMessage(`{}`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id == "rows-stale" {
+			h.BackdateWebhookEventReceived(t, created.ID, now.Add(-48*time.Hour).Truncate(time.Second))
+		}
+	}
+	if err := repo.DeleteOldWebhookEvents(ctx, now.Add(-72*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := repo.CountWebhookEvents(ctx); err != nil || n != 2 {
+		t.Fatalf("rows after a cutoff older than every row = %d, %v", n, err)
+	}
+	if err := repo.DeleteOldWebhookEvents(ctx, now.Add(-24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetWebhookEventByEventID(ctx, "rows-stale"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("stale row = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.GetWebhookEventByEventID(ctx, "rows-fresh"); err != nil {
+		t.Fatalf("fresh row: %v", err)
+	}
+	if err := repo.DeleteOldWebhookEvents(ctx, now.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("repeated sweep: %v", err)
+	}
+	if n, err := repo.CountWebhookEvents(ctx); err != nil || n != 1 {
+		t.Fatalf("rows after sweep = %d, %v", n, err)
 	}
 }

@@ -504,5 +504,8 @@ type Repository interface {
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
 	MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error
 	ClearWebhookEventPayload(ctx context.Context, before time.Time) error
+	// DeleteOldWebhookEvents deletes the audit rows of events received before
+	// the cutoff.
+	DeleteOldWebhookEvents(ctx context.Context, before time.Time) error
 	CountWebhookEvents(ctx context.Context) (int64, error)
 }

@@ -212,6 +212,10 @@ func (a *PGAdapter) DeleteOldRecordingWebhookDeliveries(ctx context.Context, bef
 	return nil
 }
 
+func (a *PGAdapter) DeleteOldWebhookEvents(ctx context.Context, before time.Time) error {
+	return a.queries.DeleteOldWebhookEvents(ctx, before)
+}
+
 func (a *PGAdapter) DeleteQueuedArchiveVideo(ctx context.Context, id int64) error {
 	n, err := a.queries.DeleteQueuedArchiveVideo(ctx, id)
 	if err != nil {

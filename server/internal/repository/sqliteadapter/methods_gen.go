@@ -213,6 +213,10 @@ func (a *SQLiteAdapter) DeleteOldRecordingWebhookDeliveries(ctx context.Context,
 	return nil
 }
 
+func (a *SQLiteAdapter) DeleteOldWebhookEvents(ctx context.Context, before time.Time) error {
+	return a.queries.DeleteOldWebhookEvents(ctx, sqliteTime(before))
+}
+
 func (a *SQLiteAdapter) DeleteQueuedArchiveVideo(ctx context.Context, id int64) error {
 	n, err := a.queries.DeleteQueuedArchiveVideo(ctx, id)
 	if err != nil {

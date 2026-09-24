@@ -32,5 +32,10 @@ UPDATE webhook_events
 SET payload = NULL
 WHERE received_at < $1 AND payload IS NOT NULL;
 
+-- name: DeleteOldWebhookEvents :exec
+-- Retention sweep. The handler rejects a delivery older than the replay window
+-- before it dedupes, so deleting a row cannot let its event run again.
+DELETE FROM webhook_events WHERE received_at < $1;
+
 -- name: CountWebhookEvents :one
 SELECT COUNT(*) FROM webhook_events;

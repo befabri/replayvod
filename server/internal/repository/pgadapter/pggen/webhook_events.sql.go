@@ -88,6 +88,17 @@ func (q *Queries) CreateWebhookEvent(ctx context.Context, arg CreateWebhookEvent
 	return i, err
 }
 
+const deleteOldWebhookEvents = `-- name: DeleteOldWebhookEvents :exec
+DELETE FROM webhook_events WHERE received_at < $1
+`
+
+// Retention sweep. The handler rejects a delivery older than the replay window
+// before it dedupes, so deleting a row cannot let its event run again.
+func (q *Queries) DeleteOldWebhookEvents(ctx context.Context, receivedAt time.Time) error {
+	_, err := q.db.Exec(ctx, deleteOldWebhookEvents, receivedAt)
+	return err
+}
+
 const getWebhookEventByEventID = `-- name: GetWebhookEventByEventID :one
 SELECT id, event_id, message_type, event_type, subscription_id, broadcaster_id, message_timestamp, payload, status, error, received_at, processed_at FROM webhook_events WHERE event_id = $1
 `

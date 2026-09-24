@@ -178,6 +178,8 @@ type SchedulerConfig struct {
 	FetchLogsRetentionDays int `toml:"fetch_logs_retention_days"`
 	// WebhookEventPayloadRetentionDays expires payloads while retaining webhook event rows.
 	WebhookEventPayloadRetentionDays int `toml:"webhook_event_payload_retention_days"`
+	// WebhookEventRetentionDays deletes webhook event rows; zero keeps them forever.
+	WebhookEventRetentionDays int `toml:"webhook_event_retention_days"`
 	// EventLogsRetentionDays applies to debug and info logs; warning and error logs have longer
 	// retention.
 	EventLogsRetentionDays int `toml:"event_logs_retention_days"`

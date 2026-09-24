@@ -79,6 +79,7 @@ Intervals control how often tasks run. Retention values control how long data is
 | `session_cleanup_interval_minutes` | `120` | Interval between expired user session cleanups. |
 | `fetch_logs_retention_days` | `14` | Days to keep Twitch API request logs. |
 | `webhook_event_payload_retention_days` | `7` | Days to keep stored EventSub payloads. |
+| `webhook_event_retention_days` | `30` | Days to keep EventSub delivery history. `0` keeps it forever. |
 | `event_logs_retention_days` | `14` | Days to keep debug and info event logs. |
 | `recordings_retention_interval_minutes` | `60` | Interval between checks for recordings past their auto-delete deadline. `0` disables automatic deletion. |
 | `storage_scan_interval_minutes` | `1440` | Interval between checks for missing or restored media. `0` disables scanning. |

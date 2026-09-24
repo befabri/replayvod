@@ -37,6 +37,7 @@ func getDefaultAppConfig() AppConfig {
 			TokenCleanupIntervalMinutes:           60,
 			FetchLogsRetentionDays:                14,
 			WebhookEventPayloadRetentionDays:      7,
+			WebhookEventRetentionDays:             30,
 			EventLogsRetentionDays:                14,
 			RecordingWebhookDeliveryRetentionDays: 30,
 			SessionCleanupIntervalMinutes:         120,

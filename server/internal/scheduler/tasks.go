@@ -94,6 +94,17 @@ func BuildStandardTasks(cfg *config.Config, repo repository.Repository, deps Sta
 		})
 	}
 
+	if d := sc.WebhookEventRetentionDays; d > 0 {
+		tasks = append(tasks, Task{
+			Name:            "webhook_events_retention",
+			Description:     fmt.Sprintf("Delete webhook_events older than %d day(s)", d),
+			IntervalSeconds: 24 * 60 * 60,
+			Run: func(ctx context.Context) error {
+				return repo.DeleteOldWebhookEvents(ctx, retentionCutoff(time.Now(), d))
+			},
+		})
+	}
+
 	if d := sc.EventLogsRetentionDays; d > 0 {
 		tasks = append(tasks, Task{
 			Name:            "event_logs_retention",
