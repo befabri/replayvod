@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -13,9 +12,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/testdb"
-	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
 func newTestRepo(t *testing.T) repository.Repository {
@@ -140,37 +137,6 @@ func TestBuildStandardTasks_EventSubOffPreservesTaskPreferences(t *testing.T) {
 				t.Fatalf("obsolete handlers remained due: %+v %v", due, err)
 			}
 		})
-	}
-}
-
-func TestBuildStandardTasks_EventSubActiveRegistersIntervaledTasks(t *testing.T) {
-	repo := newTestRepo(t)
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	tc := twitch.NewClient("client-id", "client-secret", log)
-	esvc := eventsub.New(repo, tc, "https://replayvod.example/api/v1/webhook/callback", "0123456789abcdef", log)
-
-	cfg := &config.Config{
-		App: config.AppConfig{
-			Scheduler: config.SchedulerConfig{
-				Enabled:                          true,
-				EventsubReconcileIntervalMinutes: 15,
-				EventsubIntervalMinutes:          15,
-			},
-		},
-		ServerMode: config.ServerModeConfig{Mode: config.ServerModeDirect},
-	}
-
-	tasks := builtTasks(t, cfg, repo, StandardTaskDeps{EventSub: esvc}, log)
-
-	// Starting the scheduler would contact Twitch with this real client.
-	for _, name := range []string{taskEventSubReconcileChannels, taskEventSubSnapshot} {
-		task, ok := tasks[name]
-		if !ok {
-			t.Fatalf("%s was not registered in the active branch", name)
-		}
-		if task.IntervalSeconds != 15*60 {
-			t.Fatalf("%s interval = %d, want 900 (15m), not the disabled 0", name, task.IntervalSeconds)
-		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
 )
 
@@ -114,9 +116,8 @@ func TestAuthenticationTransports(t *testing.T) {
 				checkContext := func(ctx context.Context) {
 					t.Helper()
 					called = true
-					gotTokens := GetTokens(ctx)
-					if GetUser(ctx) != repo.user || GetSession(ctx) != repo.sess || gotTokens == nil || gotTokens.AccessToken != tokens.AccessToken {
-						t.Fatalf("authenticated context missing user, session or tokens")
+					if GetUser(ctx) != repo.user || GetSession(ctx) != repo.sess {
+						t.Fatalf("authenticated context missing user or session")
 					}
 				}
 				if transport == "http" {
@@ -192,5 +193,47 @@ func TestAuthenticationTransports(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+type helixRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f helixRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestAuthenticatedRequestsCallTwitchAsTheSignedInUser follows a signed-in
+// request out to Helix: user-scoped calls must carry the session's decrypted
+// access token, which only reaches the Twitch client through the token
+// provider the authenticator binds to the request.
+func TestAuthenticatedRequestsCallTwitchAsTheSignedInUser(t *testing.T) {
+	log := slog.New(slog.DiscardHandler)
+	repo := &authRepo{user: &repository.User{ID: "user", Role: RoleOwner}}
+	mgr, err := session.NewManager(repo, "0123456789abcdef0123456789abcdef", false, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	created := httptest.NewRecorder()
+	tokens := &session.TwitchTokens{AccessToken: "session-access", RefreshToken: "refresh", ExpiresAt: time.Now().UTC().Add(time.Hour)}
+	if err := mgr.Create(r.Context(), created, repo.user.ID, tokens, r); err != nil {
+		t.Fatal(err)
+	}
+	r.AddCookie(created.Result().Cookies()[0])
+
+	var authorization []string
+	client := twitch.NewClient("client-id", "client-secret", log)
+	client.SetHTTPClient(&http.Client{Transport: helixRoundTrip(func(req *http.Request) (*http.Response, error) {
+		authorization = append(authorization, req.URL.Host+" "+req.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}, nil
+	})})
+	auth := NewAuthenticator(mgr, repo, NewSessionTokenProvider(mgr, client, log), log)
+
+	w := httptest.NewRecorder()
+	auth.HTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, _, err := client.GetFollowedStreams(r.Context(), &twitch.GetFollowedStreamsParams{UserID: repo.user.ID}); err != nil {
+			t.Errorf("GetFollowedStreams: %v", err)
+		}
+	})).ServeHTTP(w, r)
+	if len(authorization) != 1 || authorization[0] != "api.twitch.tv Bearer session-access" {
+		t.Fatalf("Twitch requests = %q, want one Helix call with the session's access token", authorization)
 	}
 }

@@ -1,9 +1,5 @@
 package middleware
 
-import (
-	"net/http"
-)
-
 const (
 	RoleViewer = "viewer"
 	RoleAdmin  = "admin"
@@ -15,7 +11,7 @@ const (
 // instead of a bare string. Defined once here, in the package that owns the
 // role constants, and referenced from both DTOs so the generated output keeps a
 // single Role type. The values alias the Role* constants above, which remain
-// the source the HTTP role checks use.
+// the source HasMinRole ranks.
 type Role string
 
 const (
@@ -34,26 +30,4 @@ var roleLevel = map[string]int{
 // order. Unknown roles rank below viewer.
 func HasMinRole(role, minRole string) bool {
 	return roleLevel[role] >= roleLevel[minRole]
-}
-
-func RequireRole(minRole string) func(http.Handler) http.Handler {
-	minLevel := roleLevel[minRole]
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := GetUser(r.Context())
-			if user == nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-				return
-			}
-
-			userLevel := roleLevel[user.Role]
-			if userLevel < minLevel {
-				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }

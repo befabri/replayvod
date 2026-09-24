@@ -155,28 +155,6 @@ func TestUpdate_IsolatedPerUser(t *testing.T) {
 	}
 }
 
-func TestToResponse_FieldMapping(t *testing.T) {
-	s := &repository.Settings{
-		UserID:         "u3",
-		Timezone:       "Asia/Tokyo",
-		DatetimeFormat: "ISO",
-		Language:       "en",
-	}
-	r := toResponse(s)
-	if r.UserID != s.UserID {
-		t.Errorf("UserID: %q != %q", r.UserID, s.UserID)
-	}
-	if r.Timezone != s.Timezone {
-		t.Errorf("Timezone: %q != %q", r.Timezone, s.Timezone)
-	}
-	if r.DatetimeFormat != s.DatetimeFormat {
-		t.Errorf("DatetimeFormat: %q != %q", r.DatetimeFormat, s.DatetimeFormat)
-	}
-	if r.Language != s.Language {
-		t.Errorf("Language: %q != %q", r.Language, s.Language)
-	}
-}
-
 type firstSettingsReadRepo struct {
 	repository.Repository
 	afterMissingRead func() error

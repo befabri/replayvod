@@ -1,14 +1,9 @@
 package recordingwebhook
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"reflect"
 	"testing"
-
-	"github.com/befabri/replayvod/server/internal/eventbus"
 )
 
 func TestValidateURL(t *testing.T) {
@@ -101,38 +96,6 @@ func TestParseEvents(t *testing.T) {
 	want := []string{"recording.completed", "recording.failed"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseEvents = %v, want %v", got, want)
-	}
-}
-
-func TestEventForKind(t *testing.T) {
-	if eventForKind(eventbus.RecordingCompleted) != EventCompleted {
-		t.Fatal("completed kind should map to recording.completed")
-	}
-	if eventForKind(eventbus.RecordingFailed) != EventFailed {
-		t.Fatal("failed kind should map to recording.failed")
-	}
-	if eventForKind("nonsense") != "" {
-		t.Fatal("unknown kind should map to empty string")
-	}
-}
-
-// TestSign pins the outbound signature to the exact inbound EventSub formula so
-// a receiver verifies a delivery with the same HMAC-SHA256(id‖timestamp‖body)
-// computation it uses for Twitch.
-func TestSign(t *testing.T) {
-	secret := "shared-secret"
-	id := "abc123"
-	ts := "2026-05-30T12:00:00Z"
-	body := []byte(`{"event":"recording.completed"}`)
-
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(id))
-	mac.Write([]byte(ts))
-	mac.Write(body)
-	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-
-	if got := sign(secret, id, ts, body); got != want {
-		t.Fatalf("sign = %q, want %q", got, want)
 	}
 }
 

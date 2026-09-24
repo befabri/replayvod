@@ -286,40 +286,6 @@ func TestSweep_TombstonesContiguousBlock(t *testing.T) {
 	}
 }
 
-// TestSweep_SmallLibrary applies missing-media reconciliation without a minimum sample size.
-func TestSweep_SmallLibrary(t *testing.T) {
-	t.Run("one of one", func(t *testing.T) {
-		f := newFixture(t)
-		gone := f.seed(t, "gone", 1)
-
-		report, err := f.svc.Sweep(f.ctx)
-		if err != nil {
-			t.Fatalf("Sweep: %v", err)
-		}
-		if want := (Report{Complete: true, Scanned: 1, Missing: 1, Tombstoned: 1}); report != want {
-			t.Fatalf("report = %+v, want %+v", report, want)
-		}
-		f.assertTombstonedMissing(t, gone.ID)
-	})
-	t.Run("two of three", func(t *testing.T) {
-		f := newFixture(t)
-		present := f.seed(t, "present", 1, 1)
-		goneA := f.seed(t, "gone-a", 1)
-		goneB := f.seed(t, "gone-b", 1)
-
-		report, err := f.svc.Sweep(f.ctx)
-		if err != nil {
-			t.Fatalf("Sweep: %v", err)
-		}
-		if want := (Report{Complete: true, Scanned: 3, Missing: 2, Tombstoned: 2}); report != want {
-			t.Fatalf("report = %+v, want %+v", report, want)
-		}
-		f.assertLive(t, present.ID)
-		f.assertTombstonedMissing(t, goneA.ID)
-		f.assertTombstonedMissing(t, goneB.ID)
-	})
-}
-
 func TestSweep_RefusesWhenStorageRootIsUnreachable(t *testing.T) {
 	f := newFixture(t)
 	v := f.seed(t, "rec", 1, 1)

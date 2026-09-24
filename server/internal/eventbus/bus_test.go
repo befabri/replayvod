@@ -181,37 +181,25 @@ func TestPublishAfterUnsubscribeSkipsClosedChannel(t *testing.T) {
 
 func TestNewWiresEveryTopicWithItsBufferSize(t *testing.T) {
 	buses := New()
-	if buses == nil {
-		t.Fatal("New returned nil")
-	}
 	ctx := t.Context()
-
-	if buses.EventLogs == nil {
-		t.Fatal("EventLogs topic is nil")
+	cases := []struct {
+		topic string
+		got   int
+		want  int
+	}{
+		{"EventLogs", cap(buses.EventLogs.Subscribe(ctx)), 32},
+		{"StreamLive", cap(buses.StreamLive.Subscribe(ctx)), 16},
+		{"StreamStatus", cap(buses.StreamStatus.Subscribe(ctx)), 32},
+		{"TaskStatus", cap(buses.TaskStatus.Subscribe(ctx)), 32},
+		{"RecordingTerminal", cap(buses.RecordingTerminal.Subscribe(ctx)), 16},
+		{"StorageStatus", cap(buses.StorageStatus.Subscribe(ctx)), 8},
+		{"ArchiveQueue", cap(buses.ArchiveQueue.Subscribe(ctx)), 32},
+		{"VideoChanges", cap(buses.VideoChanges.Subscribe(ctx)), 1},
 	}
-	if got := cap(buses.EventLogs.Subscribe(ctx)); got != 32 {
-		t.Errorf("EventLogs buffer cap = %d, want 32", got)
-	}
-
-	if buses.StreamLive == nil {
-		t.Fatal("StreamLive topic is nil")
-	}
-	if got := cap(buses.StreamLive.Subscribe(ctx)); got != 16 {
-		t.Errorf("StreamLive buffer cap = %d, want 16", got)
-	}
-
-	if buses.StreamStatus == nil {
-		t.Fatal("StreamStatus topic is nil")
-	}
-	if got := cap(buses.StreamStatus.Subscribe(ctx)); got != 32 {
-		t.Errorf("StreamStatus buffer cap = %d, want 32", got)
-	}
-
-	if buses.TaskStatus == nil {
-		t.Fatal("TaskStatus topic is nil")
-	}
-	if got := cap(buses.TaskStatus.Subscribe(ctx)); got != 32 {
-		t.Errorf("TaskStatus buffer cap = %d, want 32", got)
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s buffer cap = %d, want %d", tc.topic, tc.got, tc.want)
+		}
 	}
 }
 

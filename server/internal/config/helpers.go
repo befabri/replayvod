@@ -25,21 +25,6 @@ func (c *Config) GetPostgresDSN() string {
 	return u.String()
 }
 
-func (c *Config) RedactedConfig() Config {
-	redacted := *c
-	redacted.Env.PostgresPassword = "[REDACTED]"
-	redacted.Env.SessionSecret = "[REDACTED]"
-	redacted.Env.TwitchSecret = "[REDACTED]"
-	redacted.Env.HMACSecret = "[REDACTED]"
-	redacted.Env.RelaySubscribeURL = "[REDACTED]"
-	redacted.Env.RelayIngestURL = redactRelayURLToken(redacted.Env.RelayIngestURL)
-	redacted.Env.WebhookCallbackURL = redactRelayURLToken(redacted.Env.WebhookCallbackURL)
-	redacted.ServerMode.RelaySubscribeURL = "[REDACTED]"
-	redacted.ServerMode.RelayIngestURL = redactRelayURLToken(redacted.ServerMode.RelayIngestURL)
-	redacted.ServerMode.WebhookCallbackURL = redactRelayURLToken(redacted.ServerMode.WebhookCallbackURL)
-	return redacted
-}
-
 func (c *Config) ServerModeCallbackURL() string {
 	return c.ServerMode.CallbackURL()
 }
@@ -162,24 +147,8 @@ func (c *Config) SignedDownloadURLTTL() time.Duration {
 	return time.Duration(h) * time.Hour
 }
 
-func redactRelayURLToken(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw
-	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) < 2 || parts[0] != "u" || !isRelayToken(parts[1]) {
-		return raw
-	}
-	parts[1] = "REDACTED"
-	u.Path = "/" + strings.Join(parts, "/")
-	u.RawPath = ""
-	return u.String()
-}
-
 // isRelayToken mirrors TOKEN_PATTERN in relay/src/index.ts. Keep the two in
-// sync — any URL whose /u/<token> segment passes this check is treated as a
-// relay URL and has its token redacted in logs.
+// sync so relay URL validation accepts exactly the tokens the relay issues.
 func isRelayToken(value string) bool {
 	if len(value) < 16 || len(value) > 128 {
 		return false

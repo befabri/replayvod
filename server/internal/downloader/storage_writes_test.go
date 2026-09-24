@@ -103,10 +103,7 @@ func TestUploadRepeatsAfterStorageChangesDuringSave(t *testing.T) {
 	if uploadErr != nil || store.calls != 2 {
 		t.Fatalf("upload recovery: err=%v calls=%d", uploadErr, store.calls)
 	}
-	path, err := trusted.LocalPath("videos/media.mp4")
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(trusted.Root, "videos/media.mp4")
 	if got, err := os.ReadFile(path); err != nil || string(got) != body {
 		t.Fatalf("retry did not reopen the complete scratch input: %q err=%v", got, err)
 	}

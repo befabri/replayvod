@@ -51,7 +51,7 @@ func TestGetGames_PostsAPICalypseQueryWithTwitchAuth(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("client-id", tokenProvider, nil)
-	client.SetBaseURL(server.URL)
+	client.baseURL = server.URL
 	games, err := client.GetGames(context.Background(), []int64{42, 42, 0, -1})
 	if err != nil {
 		t.Fatalf("GetGames: %v", err)
@@ -103,8 +103,8 @@ func TestGetGames_RetriesRateLimit(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("client-id", tokenProvider, nil)
-	client.SetBaseURL(server.URL)
-	client.SetRetryBaseDelay(0)
+	client.baseURL = server.URL
+	client.retryBaseDelay = 0
 	games, err := client.GetGames(context.Background(), []int64{7})
 	if err != nil {
 		t.Fatalf("GetGames: %v", err)
@@ -125,7 +125,7 @@ func TestGetGames_NonRetryableStatusReturnsError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("client-id", tokenProvider, nil)
-	client.SetBaseURL(server.URL)
+	client.baseURL = server.URL
 	_, err := client.GetGames(context.Background(), []int64{7})
 	var igdbErr *Error
 	if !errors.As(err, &igdbErr) {
@@ -146,8 +146,8 @@ func TestGetGames_DecodeErrorDoesNotRetry(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("client-id", tokenProvider, nil)
-	client.SetBaseURL(server.URL)
-	client.SetRetryBaseDelay(0)
+	client.baseURL = server.URL
+	client.retryBaseDelay = 0
 	_, err := client.GetGames(context.Background(), []int64{7})
 	if err == nil {
 		t.Fatal("GetGames error = nil, want decode error")

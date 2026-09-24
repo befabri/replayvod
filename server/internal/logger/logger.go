@@ -40,10 +40,6 @@ func ParseLogLevel(level string) slog.Level {
 	}
 }
 
-func SetupLogger(output io.Writer, serviceName string, logToFile bool, logDir string) *slog.Logger {
-	return SetupLoggerWithLevel(output, serviceName, logToFile, logDir, slog.LevelDebug)
-}
-
 func SetupLoggerWithLevel(output io.Writer, serviceName string, logToFile bool, logDir string, level slog.Level) *slog.Logger {
 	var handlers []slog.Handler
 

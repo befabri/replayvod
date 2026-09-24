@@ -6,54 +6,6 @@ import (
 	"time"
 )
 
-func TestRedactedConfigRedactsSensitiveEnvironmentFields(t *testing.T) {
-	cfg := &Config{Env: Environment{
-		PostgresPassword:      "pg-secret",
-		SessionSecret:         "session-secret",
-		TwitchSecret:          "twitch-secret",
-		HMACSecret:            "hmac-secret",
-		RelayIngestURL:        "https://relay.example/u/token-secret-123456",
-		RelaySubscribeURL:     "wss://relay.example/u/token-secret/subscribe",
-		WebhookCallbackURL:    "https://replayvod.example/api/v1/webhook/callback",
-		RelayLocalCallbackURL: "http://127.0.0.1:8080/api/v1/webhook/callback",
-	}}
-
-	redacted := cfg.RedactedConfig()
-
-	assertRedacted := func(name, got string) {
-		t.Helper()
-		if got != "[REDACTED]" {
-			t.Fatalf("%s = %q, want [REDACTED]", name, got)
-		}
-	}
-
-	assertRedacted("PostgresPassword", redacted.Env.PostgresPassword)
-	assertRedacted("SessionSecret", redacted.Env.SessionSecret)
-	assertRedacted("TwitchSecret", redacted.Env.TwitchSecret)
-	assertRedacted("HMACSecret", redacted.Env.HMACSecret)
-	assertRedacted("RelaySubscribeURL", redacted.Env.RelaySubscribeURL)
-
-	if redacted.Env.RelayIngestURL != "https://relay.example/u/REDACTED" {
-		t.Fatalf("RelayIngestURL = %q, want relay token redacted", redacted.Env.RelayIngestURL)
-	}
-
-	if redacted.Env.RelayLocalCallbackURL != cfg.Env.RelayLocalCallbackURL {
-		t.Fatalf("RelayLocalCallbackURL was redacted; local callback URL is not a bearer secret")
-	}
-}
-
-func TestRedactedConfigLeavesNonRelayWebhookCallbackURLReadable(t *testing.T) {
-	cfg := &Config{Env: Environment{
-		WebhookCallbackURL: "https://replayvod.example/api/v1/webhook/callback",
-	}}
-
-	redacted := cfg.RedactedConfig()
-
-	if redacted.Env.WebhookCallbackURL != cfg.Env.WebhookCallbackURL {
-		t.Fatalf("WebhookCallbackURL = %q, want %q", redacted.Env.WebhookCallbackURL, cfg.Env.WebhookCallbackURL)
-	}
-}
-
 func TestServerModeCallbackURLUsesRelayIngestURLOnlyInRelayModes(t *testing.T) {
 	cfg := &Config{ServerMode: ServerModeConfig{
 		Mode:               ServerModeRelay,
@@ -120,36 +72,6 @@ func TestGetPostgresDSN(t *testing.T) {
 			cfg := &Config{Env: tc.env}
 			if got := cfg.GetPostgresDSN(); got != tc.want {
 				t.Fatalf("GetPostgresDSN() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestRedactRelayURLToken exercises redactRelayURLToken directly so each guard
-// asserts on its own: only a well-formed /u/<token> URL has its token replaced,
-// while unparseable URLs, relative URLs, short paths, a non-"u" prefix, and a
-// segment that is not a relay token are all returned verbatim. Trailing
-// segments and the query string survive the rewrite.
-func TestRedactRelayURLToken(t *testing.T) {
-	const token = "token-secret-123456" // 19 chars, passes isRelayToken
-	cases := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{name: "redacts valid relay token", raw: "https://relay.example/u/" + token, want: "https://relay.example/u/REDACTED"},
-		{name: "preserves trailing segments", raw: "https://relay.example/u/" + token + "/extra", want: "https://relay.example/u/REDACTED/extra"},
-		{name: "preserves query string", raw: "https://relay.example/u/" + token + "?x=1", want: "https://relay.example/u/REDACTED?x=1"},
-		{name: "leaves relative url unchanged", raw: "/u/" + token, want: "/u/" + token},
-		{name: "leaves unparseable url unchanged", raw: "https://[", want: "https://["},
-		{name: "leaves single-segment path unchanged", raw: "https://relay.example/u", want: "https://relay.example/u"},
-		{name: "leaves non-u prefix unchanged", raw: "https://relay.example/x/" + token, want: "https://relay.example/x/" + token},
-		{name: "leaves short token unchanged", raw: "https://relay.example/u/short", want: "https://relay.example/u/short"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := redactRelayURLToken(tc.raw); got != tc.want {
-				t.Fatalf("redactRelayURLToken(%q) = %q, want %q", tc.raw, got, tc.want)
 			}
 		})
 	}

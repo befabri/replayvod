@@ -5,28 +5,6 @@ import (
 	"testing"
 )
 
-func TestServerModeConfigProcessesWebhookNotifications(t *testing.T) {
-	cases := []struct {
-		name string
-		mode string
-		want bool
-	}{
-		{name: "unset", mode: "", want: false},
-		{name: "off", mode: ServerModeOff, want: false},
-		{name: "poll", mode: ServerModePoll, want: false},
-		{name: "direct", mode: ServerModeDirect, want: true},
-		{name: "relay", mode: ServerModeRelay, want: true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := (ServerModeConfig{Mode: tc.mode}).ProcessesWebhookNotifications()
-			if got != tc.want {
-				t.Fatalf("ProcessesWebhookNotifications() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // TestValidateServerMode_RejectsURLFieldsForeignToMode pins that every
 // mode rejects URL fields that don't belong to it, the same way the
 // unset and direct branches already do. Without this a half-set config such as

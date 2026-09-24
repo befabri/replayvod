@@ -30,7 +30,6 @@ func getDefaultAppConfig() AppConfig {
 		},
 		Scheduler: SchedulerConfig{
 			Enabled:                               true,
-			ThumbnailIntervalMinutes:              5,
 			EventsubIntervalMinutes:               10,
 			EventsubReconcileIntervalMinutes:      60,
 			CategoryArtIntervalMinutes:            1440,

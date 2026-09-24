@@ -152,14 +152,6 @@ func (s *LocalStorage) Stat(ctx context.Context, path string) (FileInfo, error) 
 	}, nil
 }
 
-// LocalPath returns the absolute filesystem path for a stored object.
-// Only meaningful for LocalStorage — callers that use it commit to the
-// local backend. Used by the byte-range streaming handler which wants to
-// hand the file path directly to http.ServeFile.
-func (s *LocalStorage) LocalPath(path string) (string, error) {
-	return s.resolve(path)
-}
-
 // copyContext is io.Copy that honors ctx cancellation. Large video copies
 // need this so a shutdown actually stops the transfer.
 func copyContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {

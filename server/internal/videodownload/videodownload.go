@@ -24,7 +24,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -64,7 +63,7 @@ func computeSig(key []byte, videoID int64, partIndex int32, expUnix int64) strin
 
 // Signer mints absolute signed URLs. baseURL is the public scheme://host the API
 // is reachable at; an empty baseURL or a non-positive ttl disables minting
-// (PartURL returns ""), which the payload builder treats as "omit the URL".
+// (PartURLUntil returns ""), which the payload builder treats as "omit the URL".
 type Signer struct {
 	key     []byte
 	ttl     time.Duration
@@ -90,15 +89,10 @@ func (s *Signer) Enabled() bool {
 	return s != nil && s.baseURL != "" && s.ttl > 0
 }
 
-// PartURL returns an absolute, signed, expiring download URL for one video part,
-// or "" when the Signer is disabled.
-func (s *Signer) PartURL(videoID int64, partIndex int32) string {
-	return s.PartURLUntil(videoID, partIndex, nil)
-}
-
-// PartURLUntil returns a signed part URL whose expiry is capped at notAfter when
-// provided. If that cap is already reached, it returns "" rather than minting a
-// URL that advertises access beyond the recording's retention deadline.
+// PartURLUntil returns an absolute, signed, expiring download URL for one video
+// part, or "" when the Signer is disabled. A non-nil notAfter caps the expiry;
+// once that cap is reached it returns "" rather than minting a URL that
+// advertises access beyond the recording's retention deadline.
 func (s *Signer) PartURLUntil(videoID int64, partIndex int32, notAfter *time.Time) string {
 	if !s.Enabled() {
 		return ""
@@ -146,15 +140,4 @@ func (v *Verifier) Verify(videoID int64, partIndex int32, rawExpires, sig string
 		return ErrInvalidSignature
 	}
 	return nil
-}
-
-// SameOrigin is a small helper for callers that already hold a parsed base URL
-// and want the scheme://host form. Unused by the signer itself; kept here so the
-// origin-derivation rule lives next to the URLs it builds.
-func SameOrigin(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return ""
-	}
-	return u.Scheme + "://" + u.Host
 }

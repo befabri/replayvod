@@ -16,7 +16,6 @@ type contextKey string
 const (
 	ctxKeyUser    contextKey = "user"
 	ctxKeySession contextKey = "session"
-	ctxKeyTokens  contextKey = "tokens"
 )
 
 // Authenticator shares session validation and context binding across transports.
@@ -70,8 +69,7 @@ func (a *Authenticator) authenticate(ctx context.Context, r *http.Request) (cont
 
 	ctx = a.tokens.Bind(ctx, sess.HashedID, tokens)
 	ctx = context.WithValue(ctx, ctxKeyUser, user)
-	ctx = context.WithValue(ctx, ctxKeySession, sess)
-	return context.WithValue(ctx, ctxKeyTokens, tokens), nil
+	return context.WithValue(ctx, ctxKeySession, sess), nil
 }
 
 func (a *Authenticator) HTTP(next http.Handler) http.Handler {
@@ -109,11 +107,6 @@ func GetUser(ctx context.Context) *repository.User {
 // RequireUser guard) without standing up the full middleware chain.
 func WithUser(ctx context.Context, user *repository.User) context.Context {
 	return context.WithValue(ctx, ctxKeyUser, user)
-}
-
-func GetTokens(ctx context.Context) *session.TwitchTokens {
-	t, _ := ctx.Value(ctxKeyTokens).(*session.TwitchTokens)
-	return t
 }
 
 func GetSession(ctx context.Context) *repository.Session {

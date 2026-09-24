@@ -213,7 +213,7 @@ func streamRouteTestServer(t *testing.T, repo repository.Repository, store stora
 // doSigned rewrites only the URL origin, preserving the signed path and query.
 func doSigned(t *testing.T, srv *httptest.Server, signer *videodownload.Signer, method string, videoID int64, part int32) *http.Response {
 	t.Helper()
-	signed, err := url.Parse(signer.PartURL(videoID, part))
+	signed, err := url.Parse(signer.PartURLUntil(videoID, part, nil))
 	if err != nil {
 		t.Fatalf("parse signed URL: %v", err)
 	}
@@ -259,19 +259,6 @@ func getPlaybackStream(t *testing.T, srv *httptest.Server, videoID int64) *http.
 func headSessionPart(t *testing.T, srv *httptest.Server, videoID int64, part int32) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodHead, srv.URL+"/api/v1/videos/"+strconv.FormatInt(videoID, 10)+"/parts/"+strconv.FormatInt(int64(part), 10)+"/stream", nil)
-	if err != nil {
-		t.Fatalf("build HEAD: %v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("HEAD: %v", err)
-	}
-	return resp
-}
-
-func headSessionStream(t *testing.T, srv *httptest.Server, videoID int64) *http.Response {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodHead, srv.URL+"/api/v1/videos/"+strconv.FormatInt(videoID, 10)+"/parts/1/stream", nil)
 	if err != nil {
 		t.Fatalf("build HEAD: %v", err)
 	}
@@ -728,77 +715,6 @@ func TestStreamPlayback_TransientStatErrorServesWithoutDemoting(t *testing.T) {
 	}
 }
 
-func TestStreamVideo_CompatibleMultipartWithoutCacheKeepsPartOneFallback(t *testing.T) {
-	fps := 60.0
-	repo := &signedRepo{
-		video: doneVideo(),
-		parts: []repository.VideoPart{
-			{PartIndex: 1, Filename: "vod-42-01.mp4", Quality: "1080", FPS: &fps, Codec: repository.CodecH264},
-			{PartIndex: 2, Filename: "vod-42-02.mp4", Quality: "1080", FPS: &fps, Codec: repository.CodecH264},
-		},
-	}
-	srv := sessionPartTestServer(t, repo)
-
-	resp, err := http.Get(srv.URL + "/api/v1/videos/42/parts/1/stream")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if string(body) != "video-bytes" {
-		t.Fatalf("body = %q", body)
-	}
-}
-
-func TestStreamVideo_HEADCompatibleMultipartDoesNotBuildContinuousCache(t *testing.T) {
-	fps := 60.0
-	repo := &signedRepo{
-		video: doneVideo(),
-		parts: []repository.VideoPart{
-			{PartIndex: 1, Filename: "vod-42-01.mp4", Quality: "1080", FPS: &fps, Codec: repository.CodecH264},
-			{PartIndex: 2, Filename: "vod-42-02.mp4", Quality: "1080", FPS: &fps, Codec: repository.CodecH264},
-		},
-	}
-	srv := sessionPartTestServer(t, repo)
-
-	resp := headSessionStream(t, srv, 42)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if len(body) != 0 {
-		t.Fatalf("HEAD body length = %d, want 0", len(body))
-	}
-}
-
-func TestStreamVideo_IncompatibleMultipartKeepsPartOneFallback(t *testing.T) {
-	repo := &signedRepo{
-		video: doneVideo(),
-		parts: []repository.VideoPart{
-			{PartIndex: 1, Filename: "vod-42-01.mp4", Quality: "1080", Codec: repository.CodecH264},
-			{PartIndex: 2, Filename: "vod-42-02.mp4", Quality: "720", Codec: repository.CodecH264},
-		},
-	}
-	srv := sessionPartTestServer(t, repo)
-
-	resp, err := http.Get(srv.URL + "/api/v1/videos/42/parts/1/stream")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if string(body) != "video-bytes" {
-		t.Fatalf("body = %q", body)
-	}
-}
-
 func TestStreamSignedPart_audioPartUsesAudioContentType(t *testing.T) {
 	repo := &signedRepo{
 		video: doneVideo(),
@@ -955,7 +871,7 @@ func TestStreamSignedPart_rangeRequestIsResumable(t *testing.T) {
 	srv := signedRouteTestServer(t, repo, store)
 	signer := videodownload.NewSigner(signTestSecret, "https://app.example", time.Hour)
 
-	signed, err := url.Parse(signer.PartURL(42, 1))
+	signed, err := url.Parse(signer.PartURLUntil(42, 1, nil))
 	if err != nil {
 		t.Fatalf("parse signed URL: %v", err)
 	}

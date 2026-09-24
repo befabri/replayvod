@@ -135,13 +135,6 @@ type FollowedStreamResponse struct {
 
 func toFollowedStreamResponse(f *FollowedStream) FollowedStreamResponse {
 	s := &f.Stream
-	// Normalize Tags to an empty slice so the JSON marshals to [] rather
-	// than null when Helix omits the field. Consumers that iterate the
-	// array don't need to null-check.
-	tags := s.Tags
-	if tags == nil {
-		tags = []string{}
-	}
 	return FollowedStreamResponse{
 		StreamID:         s.ID,
 		BroadcasterID:    s.UserID,
@@ -156,7 +149,7 @@ func toFollowedStreamResponse(f *FollowedStream) FollowedStreamResponse {
 		ViewerCount:      int64(s.ViewerCount),
 		StartedAt:        s.StartedAt,
 		ThumbnailURL:     s.ThumbnailURL,
-		Tags:             tags,
+		Tags:             s.Tags,
 	}
 }
 

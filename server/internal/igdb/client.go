@@ -80,24 +80,6 @@ func NewClient(clientID string, tokenProvider TokenProvider, log *slog.Logger) *
 	}
 }
 
-func (c *Client) SetHTTPClient(httpClient *http.Client) {
-	if httpClient != nil {
-		c.httpClient = httpClient
-	}
-}
-
-func (c *Client) SetBaseURL(baseURL string) {
-	if baseURL != "" {
-		c.baseURL = strings.TrimRight(baseURL, "/")
-	}
-}
-
-func (c *Client) SetRetryBaseDelay(delay time.Duration) {
-	if delay >= 0 {
-		c.retryBaseDelay = delay
-	}
-}
-
 // GetGames fetches games by IGDB id. IDs must already be numeric; the service
 // layer parses Twitch's string igdb_id before calling this method so query
 // construction never depends on untrusted text.

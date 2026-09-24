@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/BurntSushi/toml"
 	"github.com/caarlos0/env/v11"
@@ -13,10 +12,8 @@ import (
 )
 
 var (
-	configPtr atomic.Pointer[Config]
-	configMu  sync.Mutex
-	tomlPath  string
-	once      sync.Once
+	loaded *Config
+	once   sync.Once
 )
 
 // LoadConfig loads configuration from the TOML file and environment variables.
@@ -28,10 +25,9 @@ func LoadConfig(path string) *Config {
 			slog.Error("Failed to load configuration", "error", err)
 			os.Exit(1)
 		}
-		tomlPath = path
-		configPtr.Store(config)
+		loaded = config
 	})
-	return configPtr.Load()
+	return loaded
 }
 
 // loadConfig assembles the configuration from .env, the TOML file, and the
@@ -83,35 +79,6 @@ func loadDotenv() error {
 	return nil
 }
 
-// ReloadAppConfig reloads config.toml without restarting.
-func ReloadAppConfig() error {
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	current := configPtr.Load()
-	if current == nil {
-		return fmt.Errorf("config not loaded yet")
-	}
-
-	newApp := getDefaultAppConfig()
-	if err := loadTOML(tomlPath, &newApp); err != nil {
-		return fmt.Errorf("failed to parse config.toml: %w", err)
-	}
-
-	validateAppConfig(&newApp)
-	applyEnvOverrides(&newApp, current.Env)
-
-	newConfig := &Config{
-		App:        newApp,
-		Env:        current.Env,
-		ServerMode: current.ServerMode,
-	}
-
-	configPtr.Store(newConfig)
-	slog.Info("Config reloaded successfully", "path", tomlPath)
-	return nil
-}
-
 func loadTOML(path string, config *AppConfig) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		slog.Info("No config.toml found, using defaults", "path", path)
@@ -137,15 +104,9 @@ func loadTOML(path string, config *AppConfig) error {
 }
 
 func isDeprecatedConfigKey(key string) bool {
-	return key == "logging.sample_rate" || key == "server.allowed_origins"
-}
-
-// GetConfig returns the loaded configuration (thread-safe).
-func GetConfig() *Config {
-	cfg := configPtr.Load()
-	if cfg == nil {
-		slog.Error("Config not loaded. Call LoadConfig() first.")
-		os.Exit(1)
+	switch key {
+	case "logging.sample_rate", "server.allowed_origins", "scheduler.thumbnail_interval_minutes":
+		return true
 	}
-	return cfg
+	return false
 }

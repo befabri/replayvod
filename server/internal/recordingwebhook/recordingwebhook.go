@@ -32,8 +32,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/befabri/replayvod/server/internal/eventbus"
 )
 
 // Event type identifiers. These are the canonical strings stored in the events
@@ -63,18 +61,6 @@ type invalidError struct{ message string }
 
 func (e invalidError) Error() string        { return e.message }
 func (e invalidError) Is(target error) bool { return target == ErrInvalid }
-
-// eventForKind maps the eventbus terminal kind to its event identifier.
-func eventForKind(kind eventbus.RecordingTerminalKind) string {
-	switch kind {
-	case eventbus.RecordingCompleted:
-		return EventCompleted
-	case eventbus.RecordingFailed:
-		return EventFailed
-	default:
-		return ""
-	}
-}
 
 // generateSecret returns 32 random bytes hex-encoded (64 characters). Same
 // shape and entropy as the EventSub HMAC secret so the two are interchangeable

@@ -25,19 +25,3 @@ func TestPascalCase(t *testing.T) {
 		}
 	}
 }
-
-func TestCamelCase(t *testing.T) {
-	cases := []struct {
-		in, want string
-	}{
-		{"user_id", "userID"},
-		{"profile_image_url", "profileImageURL"},
-		{"id", "id"},
-	}
-	for _, c := range cases {
-		got := CamelCase(c.in)
-		if got != c.want {
-			t.Errorf("CamelCase(%q) = %q; want %q", c.in, got, c.want)
-		}
-	}
-}

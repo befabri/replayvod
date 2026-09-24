@@ -82,20 +82,14 @@ func TestList_ReturnsSeededTags(t *testing.T) {
 
 func TestList_ErrMapsToInternal(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := &Handler{
-		svc: &Service{repo: &errorRepo{err: errors.New("db down")}, log: log},
-		log: log,
-	}
+	h := NewHandler(New(&errorRepo{err: errors.New("db down")}, log), log)
 	_, err := h.List(context.Background())
 	requireTRPCCode(t, err, trpcgo.CodeInternalServerError)
 }
 
 func TestList_ErrNotFoundMapsToNotFound(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := &Handler{
-		svc: &Service{repo: &errorRepo{err: repository.ErrNotFound}, log: log},
-		log: log,
-	}
+	h := NewHandler(New(&errorRepo{err: repository.ErrNotFound}, log), log)
 	_, err := h.List(context.Background())
 	requireTRPCCode(t, err, trpcgo.CodeNotFound)
 }
@@ -106,10 +100,10 @@ func seedTag(repo repository.Repository, name string) error {
 }
 
 type errorRepo struct {
-	err                   error
-	repository.Repository // embed interface for unused methods — will panic if called
+	repository.Repository
+	err error
 }
 
-func (r *errorRepo) ListTags(_ context.Context) ([]repository.Tag, error) {
+func (r *errorRepo) ListTags(context.Context) ([]repository.Tag, error) {
 	return nil, r.err
 }

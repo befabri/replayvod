@@ -62,7 +62,7 @@ func isSubAlive(status string) bool {
 // It defers replacements whose deletion fails and stops creates after consecutive failures.
 func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[string]bool) error {
 	// Reject unusable callbacks before issuing a failing Twitch request for every channel.
-	if !isCallbackURLUsable(s.callbackURL) {
+	if !config.IsUsableWebhookURL(s.callbackURL) {
 		s.log.Info("skip channel-sub reconcile: callback URL is not a usable HTTPS endpoint",
 			"callback_host", urlHost(s.callbackURL))
 		return nil
@@ -325,7 +325,7 @@ func (s *Service) UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, r
 // ReconcileChannelUpdateSubs maintains channel.update subscriptions for active recordings.
 // It leaves stream.online and stream.offline subscriptions to ReconcileChannelSubs.
 func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcasterIDs map[string]bool) error {
-	if !isCallbackURLUsable(s.callbackURL) {
+	if !config.IsUsableWebhookURL(s.callbackURL) {
 		// An unusable callback prevents replacement of any subscription deleted here.
 		s.log.Info("skip channel.update reconcile: callback URL is not a usable HTTPS endpoint",
 			"callback_host", urlHost(s.callbackURL))
@@ -423,11 +423,6 @@ func (s *Service) createMissingChannelUpdateSubs(ctx context.Context, activeBroa
 	return created
 }
 
-// isCallbackURLUsable reports whether Twitch accepts the callback under startup validation rules.
-func isCallbackURLUsable(raw string) bool {
-	return config.IsUsableWebhookURL(raw)
-}
-
 func urlHost(raw string) string {
 	return config.URLHost(raw)
 }
@@ -445,7 +440,7 @@ func subCallbackURL(sub *twitch.EventSubSubscription) string {
 // subscribe returns an active mirror or creates a subscription on Twitch.
 // Snapshot repairs missing mirrors when a successful create cannot be persisted.
 func (s *Service) subscribe(ctx context.Context, subType, version string, cond twitch.EventSubCondition, broadcasterID string) (*repository.Subscription, error) {
-	if !isCallbackURLUsable(s.callbackURL) {
+	if !config.IsUsableWebhookURL(s.callbackURL) {
 		return nil, ErrCallbackURLNotUsable
 	}
 	existing, err := s.repo.GetActiveSubscriptionForBroadcasterType(ctx, broadcasterID, subType)

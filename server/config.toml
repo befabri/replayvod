@@ -55,7 +55,6 @@ secret_key = ""
 # These settings apply after restart. Dashboard task pause/resume and run-now
 # controls apply while running; pauses and execution history survive restarts.
 enabled = true
-thumbnail_interval_minutes = 5
 eventsub_interval_minutes = 10
 eventsub_reconcile_interval_minutes = 60
 category_art_interval_minutes = 1440

@@ -121,6 +121,9 @@ func TestIsDeprecatedConfigKey(t *testing.T) {
 	if !isDeprecatedConfigKey("server.allowed_origins") {
 		t.Fatal("server.allowed_origins should be recognized as deprecated")
 	}
+	if !isDeprecatedConfigKey("scheduler.thumbnail_interval_minutes") {
+		t.Fatal("scheduler.thumbnail_interval_minutes should be recognized as deprecated")
+	}
 	if isDeprecatedConfigKey("download.max_concurrent") {
 		t.Fatal("active config key reported as deprecated")
 	}
@@ -234,67 +237,4 @@ func countString(values []string, want string) int {
 		}
 	}
 	return count
-}
-
-// TestReloadAppConfig covers the live-reload path: it errors before the first
-// load, reloads the TOML while preserving Env and ServerMode, and surfaces a
-// malformed TOML as an error instead of swapping in a broken config.
-func TestReloadAppConfig(t *testing.T) {
-	saved := configPtr.Load()
-	savedPath := tomlPath
-	t.Cleanup(func() {
-		configPtr.Store(saved)
-		tomlPath = savedPath
-	})
-
-	t.Run("errors when not loaded", func(t *testing.T) {
-		configPtr.Store(nil)
-		if err := ReloadAppConfig(); err == nil {
-			t.Fatal("ReloadAppConfig() = nil, want error before first load")
-		}
-	})
-
-	t.Run("reloads toml and preserves env and server mode", func(t *testing.T) {
-		tomlPath = writeFile(t, t.TempDir(), "config.toml", "[download]\nmax_concurrent = 9\n")
-		configPtr.Store(&Config{
-			App:        getDefaultAppConfig(),
-			Env:        Environment{Host: "preserved-host"},
-			ServerMode: ServerModeConfig{Mode: ServerModeOff},
-		})
-		if err := ReloadAppConfig(); err != nil {
-			t.Fatalf("ReloadAppConfig() = %v, want nil", err)
-		}
-		got := configPtr.Load()
-		if got.App.Download.MaxConcurrent != 9 {
-			t.Fatalf("reloaded MaxConcurrent = %d, want 9", got.App.Download.MaxConcurrent)
-		}
-		if got.Env.Host != "preserved-host" || got.ServerMode.Mode != ServerModeOff {
-			t.Fatalf("reload did not preserve Env/ServerMode: %+v / %+v", got.Env, got.ServerMode)
-		}
-	})
-
-	t.Run("malformed toml leaves config untouched", func(t *testing.T) {
-		tomlPath = writeFile(t, t.TempDir(), "config.toml", "== not toml ==")
-		original := &Config{App: getDefaultAppConfig()}
-		configPtr.Store(original)
-		if err := ReloadAppConfig(); err == nil {
-			t.Fatal("ReloadAppConfig(malformed) = nil, want error")
-		}
-		if configPtr.Load() != original {
-			t.Fatal("a failed reload must not swap in a new config")
-		}
-	})
-}
-
-// TestGetConfigReturnsStored pins the happy path of the accessor. The not-loaded
-// path calls os.Exit and is intentionally left to the bootstrap.
-func TestGetConfigReturnsStored(t *testing.T) {
-	saved := configPtr.Load()
-	t.Cleanup(func() { configPtr.Store(saved) })
-
-	want := &Config{Env: Environment{Host: "stored"}}
-	configPtr.Store(want)
-	if got := GetConfig(); got != want {
-		t.Fatal("GetConfig() did not return the stored config")
-	}
 }

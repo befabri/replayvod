@@ -28,25 +28,15 @@ var wordOverrides = map[string]string{
 }
 
 // renderWord returns the Go-name form of a single snake/kebab-split token.
-// `first` indicates it's the first token (camel form lowercases non-initialisms).
-func renderWord(w string, first, camel bool) string {
+func renderWord(w string) string {
 	if w == "" {
 		return ""
 	}
 	if initialisms[w] {
-		if first && camel {
-			return strings.ToLower(w)
-		}
 		return strings.ToUpper(w)
 	}
 	if override, ok := wordOverrides[w]; ok {
-		if first && camel {
-			return strings.ToLower(override)
-		}
 		return override
-	}
-	if first && camel {
-		return strings.ToLower(w)
 	}
 	return titleCase(w)
 }
@@ -61,21 +51,7 @@ func PascalCase(s string) string {
 	parts := splitParts(s)
 	var b strings.Builder
 	for _, p := range parts {
-		b.WriteString(renderWord(p, false, false))
-	}
-	return b.String()
-}
-
-// CamelCase is like PascalCase but the first part is lowercased (unless it's an initialism).
-// Used for parameter names, not struct names.
-func CamelCase(s string) string {
-	if s == "" {
-		return ""
-	}
-	parts := splitParts(s)
-	var b strings.Builder
-	for i, p := range parts {
-		b.WriteString(renderWord(p, i == 0, true))
+		b.WriteString(renderWord(p))
 	}
 	return b.String()
 }

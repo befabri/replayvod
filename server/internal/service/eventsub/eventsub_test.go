@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/testdb"
@@ -1162,32 +1161,24 @@ func eventSubListOf(subsJSON ...string) string {
 		strings.Join(subsJSON, ","), len(subsJSON))
 }
 
-// TestIsCallbackURLUsable_MatchesConfigRule keeps the service's callback check
-// in lockstep with config.IsUsableWebhookURL, which is the single rule for
-// "Twitch will accept this callback". The two had drifted: config rejects
-// loopback hosts (Twitch can never reach them) while this helper did not, so a
-// dev pointing direct delivery at https://localhost would be rejected at boot
-// but accepted by the subscribe/reconcile guard.
-func TestIsCallbackURLUsable_MatchesConfigRule(t *testing.T) {
-	cases := []struct {
-		raw  string
-		want bool
-	}{
-		{raw: "https://replayvod.example/api/v1/webhook/callback", want: true},
-		{raw: "https://replayvod.example:443/api/v1/webhook/callback", want: true},
-		{raw: "https://localhost/api/v1/webhook/callback", want: false},
-		{raw: "https://127.0.0.1/api/v1/webhook/callback", want: false},
-		{raw: "http://replayvod.example/api/v1/webhook/callback", want: false},
-		{raw: "https://replayvod.example:8080/api/v1/webhook/callback", want: false},
-		{raw: "", want: false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.raw, func(t *testing.T) {
-			if got := isCallbackURLUsable(tc.raw); got != tc.want {
-				t.Fatalf("isCallbackURLUsable(%q) = %v, want %v", tc.raw, got, tc.want)
-			}
-			if got := config.IsUsableWebhookURL(tc.raw); got != tc.want {
-				t.Fatalf("config.IsUsableWebhookURL(%q) = %v, want %v (rules must agree)", tc.raw, got, tc.want)
+// TestSubscribeRefusesCallbacksTwitchCannotReach holds the subscribe guard to
+// the rule startup validation applies. The two once drifted: boot rejected
+// loopback hosts (Twitch can never reach them) while this guard accepted them,
+// so a dev pointing direct delivery at https://localhost was rejected at boot
+// but subscribed anyway. The nil repository and client prove the guard runs
+// before either is touched.
+func TestSubscribeRefusesCallbacksTwitchCannotReach(t *testing.T) {
+	for _, raw := range []string{
+		"https://localhost/api/v1/webhook/callback",
+		"https://127.0.0.1/api/v1/webhook/callback",
+		"http://replayvod.example/api/v1/webhook/callback",
+		"https://replayvod.example:8080/api/v1/webhook/callback",
+		"",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			svc := New(nil, nil, raw, "secret", slog.New(slog.DiscardHandler))
+			if _, err := svc.SubscribeStreamOnline(context.Background(), "b"); !errors.Is(err, ErrCallbackURLNotUsable) {
+				t.Fatalf("SubscribeStreamOnline with callback %q = %v, want ErrCallbackURLNotUsable", raw, err)
 			}
 		})
 	}

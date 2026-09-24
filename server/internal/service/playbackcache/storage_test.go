@@ -119,10 +119,7 @@ func TestCacheBuildDoesNotCleanUpAfterStorageChanges(t *testing.T) {
 	if err := svc.BuildNow(t.Context(), 42); err == nil {
 		t.Fatal("build unexpectedly succeeded")
 	}
-	path, err := store.LocalPath(storagekeys.Video(name))
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(store.Root, storagekeys.Video(name))
 	if data, err := os.ReadFile(path); err != nil || string(data) != "other install's cache" {
 		t.Errorf("cleanup changed foreign file: %q err=%v", data, err)
 	}
@@ -160,10 +157,7 @@ func TestCacheBuildPreservesReplacementVolumeDuringConcat(t *testing.T) {
 	}
 	mediatest.SetGate(svc.store, gateFunc(func() error { return storage.Ready(ctx, store, expected) }))
 	name := "vod-42-playback.mp4"
-	path, err := store.LocalPath(storagekeys.Video(name))
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(store.Root, storagekeys.Video(name))
 	detached := filepath.Join(t.TempDir(), "detached")
 	runner.beforeWrite = func() {
 		if err := os.Rename(store.Root, detached); err != nil {

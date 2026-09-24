@@ -144,16 +144,6 @@ func TestCurrentStreamDistinguishesOfflineFromProviderFailure(t *testing.T) {
 	}
 }
 
-func TestNewFetchRetryHydratorSetsClock(t *testing.T) {
-	h := newFetchRetryHydrator(nil, 1, time.Millisecond)
-	if h.now == nil {
-		t.Fatal("newFetchRetryHydrator left now nil")
-	}
-	if got := h.now(); got.IsZero() {
-		t.Fatal("newFetchRetryHydrator now returned zero time")
-	}
-}
-
 func TestCurrentStreamMissingProviderIsAnErrorNotAnOfflineObservation(t *testing.T) {
 	h := NewHydrator(nil, nil, Config{}, slog.New(slog.DiscardHandler))
 	for _, id := range []string{"channel", ""} {

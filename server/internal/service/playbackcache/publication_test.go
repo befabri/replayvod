@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -234,10 +235,7 @@ func TestPruneCannotDeleteCacheFromStaleSnapshot(t *testing.T) {
 			if err != nil || asset.Status != repository.PlaybackAssetStatusReady {
 				t.Fatalf("stale prune discarded rebuilt row: %+v, %v", asset, err)
 			}
-			path, err := store.LocalPath(storagekeys.Video(*asset.Filename))
-			if err != nil {
-				t.Fatal(err)
-			}
+			path := filepath.Join(store.Root, storagekeys.Video(*asset.Filename))
 			if bytes, err := os.ReadFile(path); err != nil || string(bytes) != "playback" {
 				t.Fatalf("stale prune discarded rebuilt artifact: %q, %v", bytes, err)
 			}

@@ -28,7 +28,7 @@ func TestExistingMediaHonorsStorageReadiness(t *testing.T) {
 		for _, route := range []struct{ name, url string }{
 			{"video", "/api/v1/videos/7/parts/1/stream"},
 			{"part", "/api/v1/videos/7/parts/1/stream"},
-			{"signed part", signer.PartURL(7, 1)},
+			{"signed part", signer.PartURLUntil(7, 1, nil)},
 			{"playback", "/api/v1/videos/7/playback/stream"},
 			{"thumbnail", "/api/v1/thumbnails/rec.jpg"},
 		} {

@@ -12,7 +12,7 @@ const testSecret = "server-hmac-secret"
 // test can feed them to Verify the way the serving route does.
 func signedParams(t *testing.T, s *Signer, videoID int64, part int32) (string, string) {
 	t.Helper()
-	u, err := url.Parse(s.PartURL(videoID, part))
+	u, err := url.Parse(s.PartURLUntil(videoID, part, nil))
 	if err != nil {
 		t.Fatalf("mint URL: %v", err)
 	}
@@ -79,14 +79,14 @@ func TestSigner_disabledWhenNoBaseOrTTL(t *testing.T) {
 	if NewSigner(testSecret, "https://app.example", 0).Enabled() {
 		t.Fatal("zero TTL should disable the signer")
 	}
-	if got := NewSigner(testSecret, "", time.Hour).PartURL(1, 0); got != "" {
+	if got := NewSigner(testSecret, "", time.Hour).PartURLUntil(1, 0, nil); got != "" {
 		t.Fatalf("disabled signer should mint no URL, got %q", got)
 	}
 }
 
 func TestPartURL_shape(t *testing.T) {
 	s := NewSigner(testSecret, "https://app.example/", time.Hour) // trailing slash trimmed
-	u, err := url.Parse(s.PartURL(7, 2))
+	u, err := url.Parse(s.PartURLUntil(7, 2, nil))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

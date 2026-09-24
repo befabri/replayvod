@@ -726,7 +726,7 @@ export interface RevokeSessionInput {
  * instead of a bare string. Defined once here, in the package that owns the
  * role constants, and referenced from both DTOs so the generated output keeps a
  * single Role type. The values alias the Role* constants above, which remain
- * the source the HTTP role checks use.
+ * the source HasMinRole ranks.
  */
 export type Role = "viewer" | "admin" | "owner";
 

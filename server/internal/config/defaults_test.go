@@ -61,7 +61,6 @@ func TestGetDefaultAppConfig(t *testing.T) {
 		},
 		Scheduler: SchedulerConfig{
 			Enabled:                               true,
-			ThumbnailIntervalMinutes:              5,
 			EventsubIntervalMinutes:               10,
 			EventsubReconcileIntervalMinutes:      60,
 			CategoryArtIntervalMinutes:            1440,
