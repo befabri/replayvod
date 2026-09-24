@@ -1,57 +1,20 @@
 // Security/correctness regression tests for the relay Worker.
 
 import assert from "node:assert/strict";
-import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import http, { type ServerResponse } from "node:http";
 import test from "node:test";
-import { unstable_startWorker } from "wrangler";
+import {
+  connect,
+  parseRelayFrame,
+  startRelay,
+  startValidator,
+  tokenMinter,
+  type ValidatorHandle,
+  waitMessage,
+} from "./support";
 
 const TEST_TIMEOUT_MS = 20_000;
-
-type PlainTextBinding = { type: "plain_text"; value: string };
-type RelayBindingName =
-  | "BUFFER_TTL_MS"
-  | "TOKEN_VALIDATE_URL"
-  | "RELAY_SHARED_SECRET"
-  | "TOKEN_VALIDATE_TIMEOUT_MS"
-  | "ALLOW_INSECURE_TOKEN_VALIDATE_URL";
-type RelayBindings = Partial<Record<RelayBindingName, PlainTextBinding>>;
-
-type RelayHandle = {
-  base: string;
-  dispose: () => Promise<void> | void;
-};
-
-type ValidatorHandle = {
-  url: string;
-  close: () => Promise<void>;
-};
-
-type MessageWaiter = {
-  resolve: (data: string) => void;
-  reject: (error: Error) => void;
-};
-
-type SocketBuffer = {
-  queue: string[];
-  waiters: MessageWaiter[];
-};
-
-type ValidatorHandler = (
-  req: IncomingMessage,
-  res: ServerResponse,
-) => Promise<void>;
-
-type RelayFrame = {
-  id: string;
-  cursor: number;
-  ts: number;
-  headers: Record<string, string>;
-  body: string;
-  requires_response: boolean;
-};
-
-const tokenPrefix = Math.random().toString(36).slice(2, 10);
-let tokenSeq = 0;
+const nextToken = tokenMinter("sec");
 
 test(
   "relay ingest rejects oversized bodies before buffering",
@@ -216,46 +179,6 @@ test(
 
 // -- helpers -----------------------------------------------------------------
 
-async function startRelay(bindings: RelayBindings = {}): Promise<RelayHandle> {
-  const worker = await unstable_startWorker({
-    config: "wrangler.jsonc",
-    envFiles: ["tests/empty.env"],
-    dev: {
-      server: { port: 0 },
-      inspector: false,
-      logLevel: "none",
-      watch: false,
-    },
-    bindings,
-  });
-  await worker.ready;
-  return {
-    base: (await worker.url).toString(),
-    dispose: () => worker.dispose(),
-  };
-}
-
-async function startValidator(handler: ValidatorHandler): Promise<ValidatorHandle> {
-  const server = http.createServer((req, res) => {
-    void handler(req, res).catch((err: Error) => {
-      res.writeHead(500, { "content-type": "text/plain" });
-      res.end(`${err.message}\n`);
-    });
-  });
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  return {
-    url: `http://127.0.0.1:${address.port}/validate`,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((err) => (err ? reject(err) : resolve())),
-      ),
-  };
-}
-
 // startStallingValidator flushes 200 + JSON content-type, then withholds the
 // body until the test calls `release(res)` (captured via the supplied tap).
 async function startStallingValidator(
@@ -281,119 +204,3 @@ async function startStallingValidator(
   };
 }
 
-function nextToken(): string {
-  tokenSeq += 1;
-  return `sec${tokenPrefix}${String(tokenSeq).padStart(20, "0")}`;
-}
-
-const socketBuffers = new WeakMap<WebSocket, SocketBuffer>();
-
-async function connect(
-  base: string,
-  token: string,
-  query = "",
-): Promise<WebSocket> {
-  const url = new URL(`/u/${token}/subscribe${query ? `?${query}` : ""}`, base);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(url.toString());
-  const buffer: SocketBuffer = { queue: [], waiters: [] };
-  socketBuffers.set(ws, buffer);
-  ws.addEventListener("message", (event) => {
-    if (typeof event.data !== "string") {
-      const waiter = buffer.waiters.shift();
-      waiter?.reject(new Error("unexpected binary websocket message"));
-      return;
-    }
-    const waiter = buffer.waiters.shift();
-    if (waiter) {
-      waiter.resolve(event.data);
-      return;
-    }
-    buffer.queue.push(event.data);
-  });
-  await new Promise<void>((resolve, reject) => {
-    ws.addEventListener("open", () => resolve(), { once: true });
-    ws.addEventListener("error", () => reject(new Error("websocket error")), {
-      once: true,
-    });
-  });
-  return ws;
-}
-
-function waitMessage(ws: WebSocket, timeoutMs = 1_000): Promise<string> {
-  const buffer = socketBuffers.get(ws);
-  if (!buffer) return Promise.reject(new Error("websocket is not tracked"));
-  const queued = buffer.queue.shift();
-  if (queued !== undefined) return Promise.resolve(queued);
-
-  return new Promise((resolve, reject) => {
-    const waiter: MessageWaiter = {
-      resolve: (data: string) => {
-        cleanup();
-        resolve(data);
-      },
-      reject: (error: Error) => {
-        cleanup();
-        reject(error);
-      },
-    };
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("timed out waiting for websocket message"));
-    }, timeoutMs);
-    const onError = () => {
-      cleanup();
-      reject(new Error("websocket error"));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      const index = buffer.waiters.indexOf(waiter);
-      if (index !== -1) buffer.waiters.splice(index, 1);
-      ws.removeEventListener("error", onError);
-    };
-    buffer.waiters.push(waiter);
-    ws.addEventListener("error", onError);
-  });
-}
-
-function parseRelayFrame(data: string): RelayFrame {
-  const parsed = JSON.parse(data) as unknown;
-  assertRelayFrame(parsed);
-  return parsed;
-}
-
-function assertRelayFrame(value: unknown): asserts value is RelayFrame {
-  assert.ok(isObject(value), "relay frame must be an object");
-  assert.equal(typeof value.id, "string", "relay frame id must be a string");
-  assert.equal(
-    typeof value.cursor,
-    "number",
-    "relay frame cursor must be a number",
-  );
-  assert.equal(typeof value.ts, "number", "relay frame ts must be a number");
-  assert.ok(
-    isStringRecord(value.headers),
-    "relay frame headers must be string key/value pairs",
-  );
-  assert.equal(
-    typeof value.body,
-    "string",
-    "relay frame body must be a base64 string",
-  );
-  assert.equal(
-    typeof value.requires_response,
-    "boolean",
-    "relay frame requires_response must be a boolean",
-  );
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return (
-    isObject(value) &&
-    Object.values(value).every((entry) => typeof entry === "string")
-  );
-}
