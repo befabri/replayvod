@@ -10,6 +10,7 @@ import { type AppRouter, TRPCProvider, useTRPC } from "@/api/trpc";
 import { type AuthUser, authStore } from "@/stores/auth";
 import { USER_SETTINGS } from "@/test/playback-settings";
 import {
+	useKeepSettingsLoaded,
 	useSettings,
 	useUpdatePlaybackSettings,
 	useUpdateSettings,
@@ -25,13 +26,19 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
-function harness(fetch: (procedure: string) => Promise<SettingsResponse>) {
+function providers(
+	fetch: (procedure: string) => Promise<SettingsResponse>,
+	gcTime?: number,
+) {
 	authStore.setState((state) => ({
 		...state,
 		user: { id: USER_SETTINGS.user_id } as AuthUser,
 	}));
 	const queryClient = new QueryClient({
-		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+		defaultOptions: {
+			queries: { retry: false, ...(gcTime == null ? {} : { gcTime }) },
+			mutations: { retry: false },
+		},
 	});
 	const trpcClient = createTRPCClient<AppRouter>({
 		links: [
@@ -58,6 +65,11 @@ function harness(fetch: (procedure: string) => Promise<SettingsResponse>) {
 			</TRPCProvider>
 		</QueryClientProvider>
 	);
+	return { queryClient, wrapper };
+}
+
+function harness(fetch: (procedure: string) => Promise<SettingsResponse>) {
+	const { queryClient, wrapper } = providers(fetch);
 	const { result } = renderHook(
 		() => {
 			const trpc = useTRPC();
@@ -184,4 +196,37 @@ it("does not publish a settings save after the account changes", async () => {
 	expect(
 		queryClient.getQueryData(result.current.trpc.settings.get.queryKey()),
 	).toEqual(nextAccount);
+});
+
+// Settings are read through Suspense by pages the user opens much later. If
+// the layout only prefetched them, nothing would observe the query on pages
+// without video consumers, it would be garbage collected, and the next video
+// page would fall back to its skeleton while settings load again.
+it("keeps settings cached while the dashboard layout is mounted", async () => {
+	const { queryClient, wrapper } = providers(async () => USER_SETTINGS, 5);
+	const { result } = renderHook(
+		() => {
+			useKeepSettingsLoaded();
+			return useTRPC();
+		},
+		{ wrapper },
+	);
+	const key = result.current.settings.get.queryKey();
+	await waitFor(() => expect(queryClient.getQueryData(key)).toBeDefined());
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+
+	expect(queryClient.getQueryData(key)).toEqual(USER_SETTINGS);
+});
+
+it("labels a settings failure as a settings failure", async () => {
+	const { queryClient, wrapper } = providers(async () => USER_SETTINGS);
+	const { result } = renderHook(() => useTRPC(), { wrapper });
+	const key = result.current.settings.get.queryKey();
+	renderHook(() => useSettings(), { wrapper });
+	await waitFor(() => expect(queryClient.getQueryData(key)).toBeDefined());
+
+	expect(queryClient.getQueryCache().find({ queryKey: key })?.meta).toEqual({
+		errorLabel: "settings.failed_to_load",
+	});
 });

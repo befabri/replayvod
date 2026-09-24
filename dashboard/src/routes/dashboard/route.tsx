@@ -1,7 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/layout/navbar";
 import {
 	SIDEBAR_EASE,
@@ -10,7 +9,8 @@ import {
 	Sidebar,
 } from "@/components/layout/sidebar";
 import { RouteError } from "@/components/route-error";
-import { PlaybackSettingsProvider } from "@/features/settings/playback";
+import { LoadingState } from "@/components/ui/loading-state";
+import { useKeepSettingsLoaded } from "@/features/settings/queries";
 import { StorageBanner } from "@/features/storage/components/StorageBanner";
 import { useLiveStreamStatus } from "@/features/streams-live/queries";
 import { useLiveVideoChanges } from "@/features/videos/queries";
@@ -30,10 +30,9 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 function DashboardPending() {
-	const { t } = useTranslation();
 	return (
 		<div className="flex min-h-screen items-center justify-center">
-			<div className="text-muted-foreground">{t("common.loading")}</div>
+			<LoadingState />
 		</div>
 	);
 }
@@ -41,6 +40,7 @@ function DashboardPending() {
 function DashboardLayout() {
 	useLiveStreamStatus();
 	useLiveVideoChanges();
+	useKeepSettingsLoaded();
 	const { user } = Route.useRouteContext();
 	const collapsed = useSelector(uiStore, (s) => s.sidebarCollapsed);
 
@@ -60,9 +60,7 @@ function DashboardLayout() {
 				)}
 			>
 				<StorageBanner />
-				<PlaybackSettingsProvider>
-					<Outlet />
-				</PlaybackSettingsProvider>
+				<Outlet />
 			</main>
 		</div>
 	);

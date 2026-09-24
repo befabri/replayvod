@@ -3,6 +3,7 @@ import {
 	useMutation,
 	useQuery,
 	useQueryClient,
+	useSuspenseQuery,
 } from "@tanstack/react-query";
 import type { SettingsResponse } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
@@ -27,11 +28,26 @@ async function cacheSavedSettings(
 	return true;
 }
 
+function settingsQuery(trpc: ReturnType<typeof useTRPC>) {
+	return trpc.settings.get.queryOptions(undefined, {
+		staleTime: 60_000,
+		meta: { errorLabel: "settings.failed_to_load" },
+	});
+}
+
 export function useSettings() {
 	const trpc = useTRPC();
-	return useQuery(
-		trpc.settings.get.queryOptions(undefined, { staleTime: 60_000 }),
-	);
+	return useQuery(settingsQuery(trpc));
+}
+
+export function useSuspenseSettings() {
+	const trpc = useTRPC();
+	return useSuspenseQuery(settingsQuery(trpc));
+}
+
+export function useKeepSettingsLoaded() {
+	const trpc = useTRPC();
+	useQuery(settingsQuery(trpc));
 }
 
 export function useUpdatePlaybackSettings() {

@@ -13,6 +13,7 @@ export {
 	resyncQuery,
 	snapshotCaches,
 } from "./cache";
+export { DEFAULT_QUERY_ERROR_LABEL, queryErrorLabel } from "./meta";
 export {
 	type OptimisticWriteConfig,
 	optimisticWrite,
