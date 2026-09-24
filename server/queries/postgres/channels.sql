@@ -100,8 +100,7 @@ LIMIT sqlc.arg('limit');
 
 -- name: SearchChannels :many
 -- Case-insensitive substring match on login + display name. Ranks exact
--- login match first, then prefix match, then substring match, then
--- alphabetical — so typing "sho" surfaces "shroud" before "ashotoftoast".
+-- login match first, then prefix match, then substring match, then alphabetical.
 -- Empty query returns everything (up to limit), so the same endpoint
 -- backs the "show all" state of a combobox without a second query.
 SELECT * FROM channels

@@ -27,13 +27,14 @@ func categoryNamesOf(categories []repository.Category) []string {
 func testSearchChannels(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	seed := []repository.Channel{
-		{BroadcasterID: "1", BroadcasterLogin: "shroud", BroadcasterName: "shroud"},
+		{BroadcasterID: "1", BroadcasterLogin: "shrimpcaster", BroadcasterName: "ShrimpCaster"},
 		{BroadcasterID: "2", BroadcasterLogin: "shoal", BroadcasterName: "Shoal"},
-		{BroadcasterID: "3", BroadcasterLogin: "ashotoftoast", BroadcasterName: "ashot"},
+		{BroadcasterID: "3", BroadcasterLogin: "washtubcaster", BroadcasterName: "Washtub"},
 		{BroadcasterID: "4", BroadcasterLogin: "unrelated", BroadcasterName: "Elsewhere"},
 		{BroadcasterID: "5", BroadcasterLogin: "percent_tester", BroadcasterName: "100% tester"},
 		{BroadcasterID: "6", BroadcasterLogin: "echecs_club", BroadcasterName: "Échecs Club"},
 		{BroadcasterID: "7", BroadcasterLogin: "club_echecs", BroadcasterName: "Club Échecs"},
+		{BroadcasterID: "8", BroadcasterLogin: "bubblecaster", BroadcasterName: "Shrimpcaster Fan"},
 	}
 	for _, c := range seed {
 		ch := c
@@ -49,13 +50,11 @@ func testSearchChannels(t *testing.T, h Harness) {
 		}
 		return loginsOf(got)
 	}
-	t.Run("prefix beats substring, alphabetical within prefix", func(t *testing.T) {
-		assertStringSlice(t, search(t, "sh", 10), []string{"shoal", "shroud", "ashotoftoast"})
+	t.Run("login or display name prefix beats substring, alphabetical within prefix", func(t *testing.T) {
+		assertStringSlice(t, search(t, "sh", 10), []string{"bubblecaster", "shoal", "shrimpcaster", "washtubcaster"})
 	})
-	t.Run("exact login match ranks first", func(t *testing.T) {
-		if got := search(t, "shroud", 10); len(got) == 0 || got[0] != "shroud" {
-			t.Fatalf("exact match should rank first, got %v", got)
-		}
+	t.Run("exact login match ranks ahead of an earlier display name prefix", func(t *testing.T) {
+		assertStringSlice(t, search(t, "shrimpcaster", 10), []string{"shrimpcaster", "bubblecaster"})
 	})
 	t.Run("empty query returns every channel", func(t *testing.T) {
 		if got := search(t, "", 10); len(got) != len(seed) {
