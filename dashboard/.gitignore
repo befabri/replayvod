@@ -5,6 +5,7 @@ node_modules/
 # Build / cache
 /dist/
 /.tanstack/
+/storybook-static/
 /.vite/
 
 # Playwright

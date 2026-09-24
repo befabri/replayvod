@@ -122,6 +122,19 @@ tasks:
     cmds:
       - npm run test
 
+  dashboard:storybook:
+    dir: dashboard
+    desc: Storybook on :6006
+    prefix: storybook
+    cmds:
+      - npm run storybook
+
+  dashboard:test:storybook:
+    dir: dashboard
+    desc: Run every story as a browser test (needs Playwright Chromium)
+    cmds:
+      - npm run test:storybook
+
   # ---- hosted Connect stack (landing + cloud + relay) ----
   #
   # Runs the marketing site, the private auth/billing worker, and the
