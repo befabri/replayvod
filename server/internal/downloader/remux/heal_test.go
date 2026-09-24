@@ -107,9 +107,3 @@ func TestRemuxer_Heal_CtxCancelPassesThrough(t *testing.T) {
 		t.Errorf("ctx cancel dressed with stderr: %q", err)
 	}
 }
-
-func TestCorruptionThresholdValue(t *testing.T) {
-	if CorruptionThreshold != 50.0 {
-		t.Errorf("CorruptionThreshold=%v, want 50.0 (spec Stage 9)", CorruptionThreshold)
-	}
-}

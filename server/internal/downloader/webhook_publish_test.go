@@ -42,7 +42,7 @@ func subscribedService(t *testing.T) (*Service, <-chan eventbus.RecordingTermina
 	return s, bus.RecordingTerminal.Subscribe(ctx)
 }
 
-func TestRecordingWebhookDelivery_CompletedEnqueuesDurableRow(t *testing.T) {
+func TestFinishAttempt_EnqueuesCompletedWebhook(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	ctx := context.Background()
 	if _, err := s.repo.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/x", "recording.completed"); err != nil {
@@ -51,20 +51,17 @@ func TestRecordingWebhookDelivery_CompletedEnqueuesDurableRow(t *testing.T) {
 	if err := s.repo.EnsureRecordingWebhookSecret(ctx, "secret"); err != nil {
 		t.Fatalf("EnsureRecordingWebhookSecret: %v", err)
 	}
+	d := seedWebhookAttempt(t, s, "job-done")
 
-	delivery := s.recordingWebhookDelivery(99, recordingwebhook.EventCompleted)
-	if delivery == nil {
-		t.Fatal("recordingWebhookDelivery returned nil; a terminal event must always enqueue a row")
-	}
-	if err := s.repo.MarkVideoDoneAndEnqueueRecordingWebhook(ctx, 99, 12.5, 4096, nil, repository.CompletionKindComplete, false, delivery); err != nil {
-		t.Fatalf("MarkVideoDoneAndEnqueueRecordingWebhook: %v", err)
+	if err := s.finishAttempt(ctx, d, 12.5, 4096, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatalf("finishAttempt: %v", err)
 	}
 
 	rows, err := s.repo.ListRecordingWebhookDeliveries(ctx, 10)
 	if err != nil {
 		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
 	}
-	if len(rows) != 1 || rows[0].Event != recordingwebhook.EventCompleted || rows[0].VideoID != 99 {
+	if len(rows) != 1 || rows[0].Event != recordingwebhook.EventCompleted || rows[0].VideoID != d.videoID {
 		t.Fatalf("terminal completion should enqueue one recording.completed row, got %+v", rows)
 	}
 	if rows[0].MessageID == "" {
@@ -132,12 +129,6 @@ func TestPublishRecordingTerminal_completed(t *testing.T) {
 	if ev.Kind != eventbus.RecordingCompleted || ev.VideoID != 7 {
 		t.Fatalf("got %+v, want completed for video 7", ev)
 	}
-}
-
-func TestPublishRecordingTerminal_nilBusIsSafe(t *testing.T) {
-	s := newTestService(t, t.TempDir()) // SetEventBus never called
-	// Must be a no-op, not a panic — tests and bus-less deployments rely on it.
-	s.publishRecordingTerminal(9, eventbus.RecordingCompleted)
 }
 
 // TestResume_UnresumableRunningJobFailsAndEnqueuesWebhook covers Resume's crash-

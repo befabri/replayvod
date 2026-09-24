@@ -309,8 +309,6 @@ func TestRun_MalformedSegmentNotFetched(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := newJob(t, srv, dir)
-	// Disable the first-content guard to isolate the ratio check under either drain order.
-	cfg.GapPolicy.SkipFirstContentGuard = true
 	cfg.GapPolicy.MaxGapRatio = 0.5
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

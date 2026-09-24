@@ -513,14 +513,6 @@ func TestResumeState_ShouldSkip(t *testing.T) {
 		}
 	}
 
-	skip := r.SkipSet()
-	for _, tc := range cases {
-		if tc.seq > r.AccountedFrontierMediaSeq {
-			if got := skip[tc.seq]; got != tc.want {
-				t.Errorf("SkipSet[%d]=%v, want %v", tc.seq, got, tc.want)
-			}
-		}
-	}
 }
 
 func TestResumeState_JSONRoundtrip(t *testing.T) {

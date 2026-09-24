@@ -389,7 +389,6 @@ func TestRun_PrerollDoesNotTripFirstContentGuard(t *testing.T) {
 		SegmentConcurrency: 2,
 		Log:                slog.New(slog.DiscardHandler),
 		GapPolicy: GapPolicy{
-			// Guard is on by default (SkipFirstContentGuard=false).
 			MaxGapRatio: 0.01,
 		},
 	}

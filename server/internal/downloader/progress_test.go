@@ -163,48 +163,48 @@ func TestProgressEmitter_MediaOffsetSourcePopulatesSnapshots(t *testing.T) {
 	}
 }
 
-func TestComputeSpeed_NotEnoughSamples(t *testing.T) {
-	if got := computeSpeed(nil); got != "" {
+func TestSpeed_NotEnoughSamples(t *testing.T) {
+	if got := formatSpeed(currentRate(nil)); got != "" {
 		t.Errorf("nil samples = %q, want empty", got)
 	}
-	if got := computeSpeed([]byteSample{{at: time.Now(), bytes: 100}}); got != "" {
+	if got := formatSpeed(currentRate([]byteSample{{at: time.Now(), bytes: 100}})); got != "" {
 		t.Errorf("one sample = %q, want empty", got)
 	}
 }
 
-func TestComputeSpeed_WindowTooShort(t *testing.T) {
+func TestSpeed_WindowTooShort(t *testing.T) {
 	t0 := time.Now()
-	got := computeSpeed([]byteSample{
+	got := formatSpeed(currentRate([]byteSample{
 		{at: t0, bytes: 0},
 		{at: t0.Add(10 * time.Millisecond), bytes: 1000}, // < 100ms guard
-	})
+	}))
 	if got != "" {
 		t.Errorf("sub-100ms window = %q, want empty (too noisy)", got)
 	}
 }
 
-func TestComputeSpeed_RateScalesToUnit(t *testing.T) {
+func TestSpeed_RateScalesToUnit(t *testing.T) {
 	// 5 MiB over 1 second = 5 MiB/s.
 	t0 := time.Now()
-	got := computeSpeed([]byteSample{
+	got := formatSpeed(currentRate([]byteSample{
 		{at: t0, bytes: 0},
 		{at: t0.Add(time.Second), bytes: 5 << 20}, // 5 MiB
-	})
+	}))
 	if !strings.Contains(got, "MiB/s") {
 		t.Errorf("got %q, want MiB/s unit for 5 MiB/s rate", got)
 	}
 }
 
-func TestComputeSpeed_ZeroOrNegativeDeltaIsEmpty(t *testing.T) {
+func TestSpeed_ZeroOrNegativeDeltaIsEmpty(t *testing.T) {
 	// A stalled stream (no bytes moved) reports empty speed
 	// rather than "0.00 B/s" — prevents the UI from showing a
 	// zero rate that looks like "stuck" when the stream's
 	// just quiet.
 	t0 := time.Now()
-	got := computeSpeed([]byteSample{
+	got := formatSpeed(currentRate([]byteSample{
 		{at: t0, bytes: 5000},
 		{at: t0.Add(time.Second), bytes: 5000},
-	})
+	}))
 	if got != "" {
 		t.Errorf("zero-byte window = %q, want empty", got)
 	}

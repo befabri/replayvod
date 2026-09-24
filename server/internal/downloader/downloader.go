@@ -1258,11 +1258,6 @@ func hasSegmentExt(dir, ext string) bool {
 	return false
 }
 
-func hasSegmentFile(dir, name string) bool {
-	info, err := os.Stat(filepath.Join(dir, name))
-	return err == nil && info.Mode().IsRegular()
-}
-
 func shouldFinalizeEmptyContinuation(priorParts int, hlsResult *hls.JobResult, resume *ResumeState) bool {
 	return priorParts > 0 &&
 		hlsResult != nil &&
@@ -2165,17 +2160,17 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 		log.Error("failure classification unresolved", "error", err)
 		return
 	}
-	partsKnown := true
 	failCompletionKind := repository.CompletionKindComplete
 	switch {
 	case userCancelled:
 		failCompletionKind = repository.CompletionKindCancelled
-	case partsKnown && hasPart:
+	case hasPart:
 		failCompletionKind = repository.CompletionKindPartial
 	}
-	// Post-capture processing failures do not truncate a broadcast that reached ENDLIST.
+	// A run that finalized no part captured nothing to truncate, and post-capture
+	// processing failures do not truncate a broadcast that reached ENDLIST.
 	cutShort := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
-	truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
+	truncated := hasPart && cutShort
 
 	// A scheduled retry is not terminal, so it must not enqueue a completion webhook.
 	if d.vod && !userCancelled {

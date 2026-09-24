@@ -351,18 +351,6 @@ func (r *ResumeState) resetPerPartAccounting() {
 	}
 }
 
-// NoteCommitted records a saved sequence and removes its matching single gap.
-// It preserves range gaps and advances only through contiguous resolved outcomes.
-func (r *ResumeState) NoteCommitted(seq int64) {
-	r.NoteCommittedSegment(seq, 0, 0)
-}
-
-// NoteCommittedSegment records saved bytes and EXTINF seconds when their sequence reaches
-// the frontier; refetched single gaps already below the frontier count immediately.
-func (r *ResumeState) NoteCommittedSegment(seq int64, bytes int64, durationSeconds float64) {
-	r.noteCommittedSegmentUntilThreshold(seq, bytes, durationSeconds, 0, 0)
-}
-
 // NoteCommittedSegmentUntilThreshold stops at the first contiguous sequence reaching
 // a size/duration ceiling and returns its boundary; higher commits remain buffered.
 func (r *ResumeState) NoteCommittedSegmentUntilThreshold(seq int64, bytes int64, durationSeconds float64, maxBytes int64, maxSeconds int) (int64, bool) {
@@ -430,12 +418,6 @@ func (r *ResumeState) noteGapUntilThreshold(seq int64, reason GapReason, maxByte
 		})
 	}
 	return r.advanceUntilThreshold(maxBytes, maxSeconds)
-}
-
-// NoteRangeGap records inclusive loss and advances the frontier.
-// It ignores inverted ranges and trims overlap with already-accounted history.
-func (r *ResumeState) NoteRangeGap(start, end int64, reason GapReason) {
-	r.noteRangeGapUntilThreshold(start, end, reason, 0, 0)
 }
 
 // NoteRangeGapUntilThreshold returns the first threshold crossing made contiguous by a
@@ -597,22 +579,6 @@ func (r *ResumeState) AuthGapSeqs() []int64 {
 		}
 	}
 	return out
-}
-
-// SkipSet returns a mutable copy of completed-above-frontier and gap sequences.
-// Callers must separately exclude sequences at or below AccountedFrontierMediaSeq.
-func (r *ResumeState) SkipSet() map[int64]bool {
-	skip := make(map[int64]bool, len(r.CompletedAboveFrontier)+len(r.Gaps))
-	for _, s := range r.CompletedAboveFrontier {
-		skip[s] = true
-	}
-	for _, g := range r.Gaps {
-		end := max(g.EndMediaSeq, g.MediaSeq)
-		for s := g.MediaSeq; s <= end; s++ {
-			skip[s] = true
-		}
-	}
-	return skip
 }
 
 // ShouldSkip reports whether a sequence is committed, recorded as a gap, or below the frontier.

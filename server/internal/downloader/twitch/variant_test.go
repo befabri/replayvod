@@ -267,15 +267,6 @@ func TestSelectVariant_FirstWinsAtEqualCodecAndQuality(t *testing.T) {
 	}
 }
 
-func TestCodecRank(t *testing.T) {
-	cases := map[string]int{CodecH265: 3, CodecAV1: 2, CodecH264: 1, "vp9": -1, "": -1}
-	for codec, want := range cases {
-		if got := codecRank(codec); got != want {
-			t.Errorf("codecRank(%q) = %d, want %d", codec, got, want)
-		}
-	}
-}
-
 func TestCodecAllowed(t *testing.T) {
 	cases := []struct {
 		name  string

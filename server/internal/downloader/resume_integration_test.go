@@ -37,46 +37,21 @@ func newTestService(t *testing.T, scratchDir string) *Service {
 	return NewService(cfg, repo, mediatest.NewAt(t, repo, store, nil, nil, cfg.Env.ScratchDir), nil, nil, nil, discardLog())
 }
 
-func TestPrepareScratch_EmptyDBSweepsOrphans(t *testing.T) {
+func TestPrepareScratch_SweepsOrphansButKeepsRecoverableJobs(t *testing.T) {
 	scratch := t.TempDir()
-	for _, name := range []string{"orphan-a", "orphan-b", "orphan-c"} {
+	for _, name := range []string{"job-alpha", "job-beta", "orphan-a", "orphan-b"} {
 		if err := os.Mkdir(filepath.Join(scratch, name), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", name, err)
 		}
 	}
 
 	s := newTestService(t, scratch)
+	seedWebhookAttempt(t, s, "job-alpha")
+	seedWebhookAttempt(t, s, "job-beta")
 
 	if err := s.PrepareScratch(context.Background()); err != nil {
-		t.Fatalf("PrepareScratch on empty DB: %v", err)
+		t.Fatalf("PrepareScratch: %v", err)
 	}
-
-	entries, err := os.ReadDir(scratch)
-	if err != nil {
-		t.Fatalf("readdir: %v", err)
-	}
-	if len(entries) != 0 {
-		names := make([]string, len(entries))
-		for i, e := range entries {
-			names[i] = e.Name()
-		}
-		t.Errorf("scratch not swept: got %v, want empty", names)
-	}
-}
-
-func TestSweepOrphanedTempsExcept_PreservesProtected(t *testing.T) {
-	scratch := t.TempDir()
-	for _, name := range []string{"job-alpha", "job-beta", "job-orphan"} {
-		if err := os.Mkdir(filepath.Join(scratch, name), 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", name, err)
-		}
-	}
-
-	s := newTestService(t, scratch)
-	s.sweepOrphanedTempsExcept(map[string]bool{
-		"job-alpha": true,
-		"job-beta":  true,
-	})
 
 	entries, err := os.ReadDir(scratch)
 	if err != nil {
@@ -89,29 +64,16 @@ func TestSweepOrphanedTempsExcept_PreservesProtected(t *testing.T) {
 	slices.Sort(got)
 	want := []string{"job-alpha", "job-beta"}
 	if !slices.Equal(got, want) {
-		t.Errorf("scratch after protected sweep = %v, want %v", got, want)
+		t.Errorf("scratch after startup sweep = %v, want %v", got, want)
 	}
 }
 
-func TestSweepOrphanedTempsExcept_NilProtectedWipesAll(t *testing.T) {
-	scratch := t.TempDir()
-	for _, name := range []string{"a", "b"} {
-		if err := os.Mkdir(filepath.Join(scratch, name), 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", name, err)
-		}
-	}
-	s := newTestService(t, scratch)
-	s.sweepOrphanedTempsExcept(nil)
-	entries, _ := os.ReadDir(scratch)
-	if len(entries) != 0 {
-		t.Errorf("nil-protected sweep left %d entries, want 0", len(entries))
-	}
-}
-
-func TestSweepOrphanedTempsExcept_MissingScratchDirIsNoop(t *testing.T) {
+func TestPrepareScratch_MissingScratchDirIsNoop(t *testing.T) {
 	scratch := filepath.Join(t.TempDir(), "does-not-exist")
 	s := newTestService(t, scratch)
-	// Must not panic or error — startup on a fresh deploy may hit
-	// this before the operator has created the scratch tree.
-	s.sweepOrphanedTempsExcept(nil)
+	// Startup on a fresh deploy may run before the operator has
+	// created the scratch tree; that must not fail bootstrap.
+	if err := s.PrepareScratch(context.Background()); err != nil {
+		t.Fatalf("PrepareScratch without a scratch dir: %v", err)
+	}
 }

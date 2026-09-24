@@ -89,7 +89,6 @@ func TestRun_InheritedGapPolicyCheckedBeforeAcquisition(t *testing.T) {
 		{"first_content", GapPolicy{MaxGapRatio: 1}, 0, 1, true},
 		{"default_ratio", GapPolicy{}, 10, 1, true},
 		{"at_ratio", GapPolicy{MaxGapRatio: 0.1}, 9, 1, false},
-		{"first_content_disabled", GapPolicy{MaxGapRatio: 1, SkipFirstContentGuard: true}, 0, 1, false},
 		{"fresh_strict", GapPolicy{Strict: true}, 0, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

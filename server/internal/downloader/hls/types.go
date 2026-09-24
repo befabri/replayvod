@@ -127,14 +127,3 @@ type MediaPlaylist struct {
 	// EndList records EXT-X-ENDLIST, meaning no further segments can be appended.
 	EndList bool
 }
-
-// Len returns the number of segments in this snapshot.
-func (p *MediaPlaylist) Len() int { return len(p.Segments) }
-
-// MaxMediaSeq returns the highest sequence, or MediaSequenceBase-1 when empty.
-func (p *MediaPlaylist) MaxMediaSeq() int64 {
-	if len(p.Segments) == 0 {
-		return p.MediaSequenceBase - 1
-	}
-	return p.Segments[len(p.Segments)-1].MediaSeq
-}

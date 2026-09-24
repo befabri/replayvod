@@ -186,44 +186,6 @@ func TestRun_GapPolicy_AbortsOverRatio(t *testing.T) {
 	}
 }
 
-func TestRun_GapPolicy_SkipFirstContentGuard(t *testing.T) {
-	// Confirms the guard actually gates on SegmentsDone==0
-	// rather than on "seg at index 0 failed." With the flag
-	// on, a first-segment failure is evaluated purely against
-	// the ratio ceiling. With ratio=1.0, any gap is under, so
-	// the first failure becomes an accepted gap rather than a
-	// guard abort.
-	live := &liveServer{
-		kind: SegmentKindTS, maxSegments: 3, windowSize: 3,
-		baseSeq: 0, tickInterval: 1,
-	}
-	s := &failingSegmentServer{live: live, fail: map[int]bool{0: true}}
-	srv := httptest.NewServer(s.handler())
-	defer srv.Close()
-
-	dir := t.TempDir()
-	cfg := newPolicyJob(t, srv, dir, GapPolicy{
-		SkipFirstContentGuard: true,
-		// 1.0 means "accept any ratio" — test is gating on the
-		// guard flag, not the ratio.
-		MaxGapRatio: 1.0,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	result, err := Run(ctx, cfg)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if result.SegmentsGaps != 1 {
-		t.Errorf("SegmentsGaps=%d, want 1", result.SegmentsGaps)
-	}
-	if result.SegmentsDone != 2 {
-		t.Errorf("SegmentsDone=%d, want 2", result.SegmentsDone)
-	}
-}
-
 // TestRun_GapPolicy_AbortCancelsPoller guards the cleanup path.
 // A gap-policy abort must cancel both the poller and the pool so
 // neither keeps working after Run returns. Watches both signals

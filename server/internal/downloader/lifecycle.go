@@ -128,7 +128,7 @@ func (s *Service) failUnrecoverableAttempt(ctx context.Context, job *repository.
 	}
 	claim := repository.AttemptClaim{JobID: job.ID, VideoID: job.VideoID, ExecutionID: job.ExecutionID}
 	write := func(c context.Context) error {
-		return s.markRecordingFailed(c, claim, message, kind, failedRunTruncated(true, hasPart, cutShort))
+		return s.markRecordingFailed(c, claim, message, kind, hasPart && cutShort)
 	}
 	err = write(writeCtx)
 	if errors.Is(err, repository.ErrCommitUncertain) {

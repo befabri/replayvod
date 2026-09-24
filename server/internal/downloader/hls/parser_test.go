@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -42,8 +43,8 @@ func TestParseMediaPlaylist_TSLive(t *testing.T) {
 	if pl.EndList {
 		t.Errorf("EndList=true, want false for live playlist")
 	}
-	if pl.Len() != 4 {
-		t.Fatalf("len=%d, want 4", pl.Len())
+	if len(pl.Segments) != 4 {
+		t.Fatalf("len=%d, want 4", len(pl.Segments))
 	}
 	// Sequential MediaSeq starting at the base.
 	for i, want := range []int64{42, 43, 44, 45} {
@@ -57,9 +58,6 @@ func TestParseMediaPlaylist_TSLive(t *testing.T) {
 	}
 	if pl.Segments[2].Discontinuity {
 		t.Error("Segments[2].Discontinuity=true, want false")
-	}
-	if pl.MaxMediaSeq() != 45 {
-		t.Errorf("MaxMediaSeq=%d, want 45", pl.MaxMediaSeq())
 	}
 }
 
@@ -86,8 +84,8 @@ func TestParseMediaPlaylist_FMP4Live(t *testing.T) {
 	if pl.MediaSequenceBase != 100 {
 		t.Errorf("MediaSequenceBase=%d, want 100", pl.MediaSequenceBase)
 	}
-	if pl.Len() != 3 {
-		t.Errorf("len=%d, want 3", pl.Len())
+	if len(pl.Segments) != 3 {
+		t.Errorf("len=%d, want 3", len(pl.Segments))
 	}
 }
 
@@ -102,8 +100,8 @@ func TestParseMediaPlaylist_TSVodWithEndList(t *testing.T) {
 	if !pl.EndList {
 		t.Error("EndList=false, want true for VOD with EXT-X-ENDLIST")
 	}
-	if pl.Len() != 3 {
-		t.Errorf("len=%d, want 3", pl.Len())
+	if len(pl.Segments) != 3 {
+		t.Errorf("len=%d, want 3", len(pl.Segments))
 	}
 }
 
@@ -182,13 +180,6 @@ func TestParseMediaPlaylist_RejectLowLatency(t *testing.T) {
 	}
 }
 
-func TestMaxMediaSeq_EmptyPlaylist(t *testing.T) {
-	pl := &MediaPlaylist{MediaSequenceBase: 50}
-	if got := pl.MaxMediaSeq(); got != 49 {
-		t.Errorf("MaxMediaSeq(empty, base=50)=%d, want 49", got)
-	}
-}
-
 func TestParseMediaPlaylist_RejectZeroTargetDuration(t *testing.T) {
 	// Empty playlist → TargetDuration stays 0 after decode
 	// (Eyevinn normally infers from EXTINF; no segments → no
@@ -237,8 +228,8 @@ func TestParseMediaPlaylist_FirstSegmentDiscontinuity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if pl.Len() < 1 {
-		t.Fatalf("len=%d, want >= 1", pl.Len())
+	if len(pl.Segments) < 1 {
+		t.Fatalf("len=%d, want >= 1", len(pl.Segments))
 	}
 	if !pl.Segments[0].Discontinuity {
 		t.Error("Segments[0].Discontinuity=false, want true (tag precedes first segment)")
@@ -260,8 +251,8 @@ func TestParseMediaPlaylist_StitchedAdPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if pl.Len() != 5 {
-		t.Fatalf("len=%d, want 5", pl.Len())
+	if len(pl.Segments) != 5 {
+		t.Fatalf("len=%d, want 5", len(pl.Segments))
 	}
 	want := map[int64]bool{
 		100: false, // pre-ad
@@ -346,14 +337,16 @@ func TestIsAdSegment_BoundaryMath(t *testing.T) {
 }
 
 func TestParseMediaPlaylist_InputCap(t *testing.T) {
-	// Build a valid-enough playlist header followed by filler
-	// large enough to bust the 1 MiB cap. The LimitReader cuts
-	// before Eyevinn sees the truncation boundary; the parser
-	// may return a decode error or a bounded playlist, but it
-	// must not hang or OOM.
+	// A broken or hostile edge can serve an unbounded playlist. The
+	// parser may return a decode error or a bounded playlist, but it
+	// must stop reading at the cap rather than buffer the whole body.
 	header := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n"
 	filler := strings.Repeat("# comment line padding enough bytes to exceed the limit\n", 40000)
-	body := strings.NewReader(header + filler)
+	var read atomic.Int64
+	body := &countingReader{r: strings.NewReader(header + filler), n: &read}
 
 	_, _ = ParseMediaPlaylist(body)
+	if got := read.Load(); got > maxPlaylistBytes {
+		t.Fatalf("read %d bytes, want at most %d", got, maxPlaylistBytes)
+	}
 }

@@ -8,28 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-func TestFailedRunTruncated(t *testing.T) {
-	cases := []struct {
-		name                          string
-		partsKnown, hasPart, cutShort bool
-		want                          bool
-	}{
-		{"nothing captured, cut short", true, false, true, false},
-		{"nothing captured, ended cleanly", true, false, false, false},
-		{"parts captured, cut short", true, true, true, true},
-		{"parts captured, post-broadcast failure", true, true, false, false},
-		{"parts unknown, cut short", false, false, true, true},
-		{"parts unknown, ended cleanly", false, false, false, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := failedRunTruncated(tc.partsKnown, tc.hasPart, tc.cutShort); got != tc.want {
-				t.Fatalf("failedRunTruncated(%v, %v, %v) = %v, want %v", tc.partsKnown, tc.hasPart, tc.cutShort, got, tc.want)
-			}
-		})
-	}
-}
-
 type failedPartProbeRepo struct{ repository.Repository }
 
 func (r failedPartProbeRepo) HasFinalizedVideoParts(context.Context, int64) (bool, error) {
@@ -50,8 +28,7 @@ func TestFailDownload_PersistsTruncationOnlyForCapturedMedia(t *testing.T) {
 		{name: "failure after broadcast", partSize: 100, ended: true, wantKind: repository.CompletionKindPartial},
 		{name: "cancelled with media", partSize: 100, cancelled: true, ended: true, wantTruncated: true, wantKind: repository.CompletionKindCancelled},
 		{name: "lost window", partSize: 100, ended: true, rolled: true, wantTruncated: true, wantKind: repository.CompletionKindPartial},
-		{name: "unknown media cut short", partSize: -1, unknown: true, wantTruncated: true, wantKind: repository.CompletionKindComplete},
-		{name: "unknown media after broadcast", partSize: -1, unknown: true, ended: true, wantKind: repository.CompletionKindComplete},
+		{name: "unknown media", partSize: -1, unknown: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

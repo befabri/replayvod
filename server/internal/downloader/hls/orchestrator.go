@@ -93,9 +93,6 @@ type GapPolicy struct {
 
 	// MaxGapRatio defaults to 0.01 when nonpositive; use Strict for zero tolerance.
 	MaxGapRatio float64
-
-	// SkipFirstContentGuard permits gaps before any real content has been saved.
-	SkipFirstContentGuard bool
 }
 
 func (p *GapPolicy) normalize() {
@@ -665,7 +662,7 @@ func evaluateGapCount(p *GapPolicy, r *JobResult, additional, seq int64, cause e
 	switch {
 	case p.Strict:
 		reason = "strict mode"
-	case !p.SkipFirstContentGuard && r.SegmentsDone == 0:
+	case r.SegmentsDone == 0:
 		reason = "no content segment committed yet"
 	default:
 		ratio := float64(gapsAfter) / (float64(gapsAfter) + float64(r.SegmentsDone))

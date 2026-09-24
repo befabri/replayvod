@@ -224,11 +224,6 @@ func formatSpeed(rate float64, ok bool) string {
 	return formatRate(rate)
 }
 
-func computeSpeed(samples []byteSample) string {
-	rate, ok := currentRate(samples)
-	return formatSpeed(rate, ok)
-}
-
 func computeETA(done, total, bytesWritten int64, rate float64, rateOK bool) string {
 	if total <= 0 || done >= total || !rateOK || done == 0 {
 		return ""
