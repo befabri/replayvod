@@ -13,7 +13,7 @@
     "preview:cf": "npm run build && wrangler dev",
     "astro": "astro",
     "check": "astro check",
-    "test:install": "docker compose -f tests/install/docker-compose.yml run --rm install-tests",
+    "test:install": "docker compose -f tests/install/docker-compose.yml run --rm -T install-tests",
     "format": "prettier --write \"src/**/*.{astro,ts,css}\"",
     "format:check": "prettier --check \"src/**/*.{astro,ts,css}\""
   },

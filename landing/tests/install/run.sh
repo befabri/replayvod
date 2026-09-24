@@ -178,7 +178,26 @@ run_installer() {
     FAKE_DOCKER_LOG="$docker_log" \
     REPLAYVOD_REPO="file://$repo" \
     "$@" \
-    sh "$INSTALL_SCRIPT" > "$out" 2> "$err"
+    python3 - "$INSTALL_SCRIPT" > "$out" 2> "$err" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+# Redirecting stdin does not detach /dev/tty. Start a new session so these
+# cases stay non-interactive even when the suite is launched in a terminal.
+with subprocess.Popen(
+    ["sh", sys.argv[1]], stdin=subprocess.DEVNULL, start_new_session=True
+) as child:
+    try:
+        status = child.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        os.killpg(child.pid, signal.SIGKILL)
+        child.wait()
+        print("non-interactive installer timed out", file=sys.stderr)
+        status = 124
+sys.exit(status if status >= 0 else 128 - status)
+PY
   status=$?
   set -e
 
@@ -378,11 +397,6 @@ test_owner_id_is_optional_non_interactive() {
 }
 
 test_profile_prompt_selects_postgres() {
-  if ! command -v python3 >/dev/null 2>&1; then
-    pass 'interactive profile prompt skipped because python3 is unavailable'
-    return
-  fi
-
   dir=$(case_dir profile-prompt)
   repo="$dir/repo"
   app="$dir/home/replayvod"
@@ -401,11 +415,6 @@ test_profile_prompt_selects_postgres() {
 }
 
 test_prompt_retry_and_skip_start() {
-	if ! command -v python3 >/dev/null 2>&1; then
-		pass 'interactive retry/start prompt skipped because python3 is unavailable'
-    return
-  fi
-
   dir=$(case_dir prompt-retry-skip-start)
   repo="$dir/repo"
   app="$dir/home/replayvod"
