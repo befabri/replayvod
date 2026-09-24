@@ -1,8 +1,8 @@
 import { StarIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Toggle } from "@/components/ui/toggle";
 import { useSetChannelFavorite } from "@/features/channels";
-import { cn } from "@/lib/utils";
 
 export function ChannelFavoriteButton({
 	broadcasterId,
@@ -21,7 +21,8 @@ export function ChannelFavoriteButton({
 	const mutation = useSetChannelFavorite();
 	const [optimistic, setOptimistic] = useState<boolean | null>(null);
 	const active = optimistic ?? favorite;
-	const label = active
+	const label = t("channels.favorite.label");
+	const hint = active
 		? t("channels.favorite.remove")
 		: t("channels.favorite.add");
 
@@ -31,15 +32,16 @@ export function ChannelFavoriteButton({
 	}, [favorite]);
 
 	return (
-		<button
-			type="button"
-			aria-pressed={active}
+		<Toggle
+			variant={withLabel ? "outline" : "ghost"}
+			size={withLabel ? "default" : "icon-sm"}
+			pressed={active}
 			aria-label={label}
-			title={label}
-			disabled={mutation.isPending}
+			title={hint}
 			onClick={(event) => {
 				event.stopPropagation();
 				event.preventDefault();
+				if (mutation.isPending) return;
 				const next = !active;
 				setOptimistic(next);
 				mutation.mutate(
@@ -55,16 +57,10 @@ export function ChannelFavoriteButton({
 					},
 				);
 			}}
-			className={cn(
-				withLabel
-					? "inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-input/30 px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-input/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-					: "inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
-				active && "text-primary hover:text-primary",
-				className,
-			)}
+			className={className}
 		>
-			<StarIcon className="size-4" weight={active ? "fill" : "regular"} />
+			<StarIcon weight={active ? "fill" : "regular"} />
 			{withLabel ? label : null}
-		</button>
+		</Toggle>
 	);
 }

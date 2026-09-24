@@ -220,6 +220,7 @@
 			"favorites": "Favoris"
 		},
 		"favorite": {
+			"label": "Favori",
 			"add": "Ajouter aux favoris",
 			"remove": "Retirer des favoris"
 		},
@@ -295,6 +296,7 @@
 			"watch_later": "À regarder"
 		},
 		"watch_later": {
+			"label": "À regarder",
 			"add": "Ajouter à À regarder",
 			"remove": "Retirer de À regarder"
 		},

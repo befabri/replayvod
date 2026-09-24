@@ -220,6 +220,7 @@
 			"favorites": "Favorites"
 		},
 		"favorite": {
+			"label": "Favorite",
 			"add": "Add to favorites",
 			"remove": "Remove from favorites"
 		},
@@ -295,6 +296,7 @@
 			"watch_later": "Watch later"
 		},
 		"watch_later": {
+			"label": "Watch later",
 			"add": "Add to watch later",
 			"remove": "Remove from watch later"
 		},

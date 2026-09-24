@@ -7,6 +7,7 @@ import type {
 	ActiveDownloadResponse,
 	VideoResponse,
 } from "@/api/generated/trpc";
+import { makeActiveDownload, makeVideo } from "@/test/fixtures";
 
 // Mutable state the mocked useLiveActiveDownloads returns; each test sets it.
 const live = vi.hoisted(() => ({
@@ -51,41 +52,7 @@ vi.mock("@/components/ui/avatar", () => ({
 import { RunningDownloads } from "./RunningDownloads";
 
 function video(partial: Partial<VideoResponse> = {}): VideoResponse {
-	return {
-		id: 1,
-		job_id: "job-1",
-		filename: "vod",
-		display_name: "Streamer",
-		title: "Title",
-		status: "RUNNING",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p60",
-		is_audio_only: false,
-		broadcaster_id: "b1",
-		viewer_count: 0,
-		language: "en",
-		start_download_at: "2026-06-03T00:00:00Z",
-		source: "live",
-		...partial,
-	};
-}
-
-function row(
-	partial: Partial<ActiveDownloadResponse> = {},
-): ActiveDownloadResponse {
-	return {
-		video: video(),
-		part_index: 1,
-		stage: "segments",
-		bytes_written: 100,
-		segments_done: 10,
-		segments_gaps: 0,
-		segments_ad_gaps: 0,
-		segments_total: -1,
-		percent: -1,
-		...partial,
-	};
+	return makeVideo(0, { status: "RUNNING", ...partial });
 }
 
 afterEach(() => {
@@ -123,7 +90,7 @@ describe("RunningDownloads", () => {
 		// Distinct display_name so the assertion proves broadcaster_name is the
 		// rendered channel label, not the fallback.
 		live.data = [
-			row({
+			makeActiveDownload({
 				video: video({
 					broadcaster_name: "Streamer",
 					display_name: "fallback-name",
@@ -133,14 +100,16 @@ describe("RunningDownloads", () => {
 		render(createElement(RunningDownloads));
 		expect(screen.getAllByText("Streamer").length).toBeGreaterThan(0);
 		expect(screen.queryByText("fallback-name")).toBeNull();
-		expect(screen.getByLabelText("videos.watch_later.add")).toBeTruthy();
+		expect(screen.getByLabelText("videos.watch_later.label")).toBeTruthy();
 		expect(screen.getByText("dashboard.active_count:1")).toBeTruthy();
 	});
 
 	it("marks a running archive instead of showing the live dot", () => {
 		live.data = [
-			row({ video: video({ id: 1, job_id: "vod", source: "vod" }) }),
-			row({ video: video({ id: 2, job_id: "live" }) }),
+			makeActiveDownload({
+				video: video({ id: 1, job_id: "vod", source: "vod" }),
+			}),
+			makeActiveDownload({ video: video({ id: 2, job_id: "live" }) }),
 		];
 		render(createElement(RunningDownloads));
 		expect(screen.getAllByTestId("running-archive-badge")).toHaveLength(1);
@@ -151,8 +120,15 @@ describe("RunningDownloads", () => {
 		// A VOD archive reports its total from the first poll; a live
 		// recording reports -1 until it ends.
 		live.data = [
-			row({ video: video({ job_id: "vod" }), percent: 42.4, eta: "3m" }),
-			row({ video: video({ id: 2, job_id: "live" }), percent: -1 }),
+			makeActiveDownload({
+				video: video({ job_id: "vod" }),
+				percent: 42.4,
+				eta: "3m",
+			}),
+			makeActiveDownload({
+				video: video({ id: 2, job_id: "live" }),
+				percent: -1,
+			}),
 		];
 		render(createElement(RunningDownloads));
 		expect(screen.getByText("42%")).toBeTruthy();

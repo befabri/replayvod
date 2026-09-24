@@ -16,6 +16,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoResponse } from "@/api/generated/trpc";
+import { makeVideo } from "@/test/fixtures";
 
 const useVideoSnapshotsMock = vi.hoisted(() =>
 	vi.fn(() => ({ data: [] as string[] })),
@@ -112,29 +113,14 @@ function storedPreviewImg(container: HTMLElement): HTMLImageElement | null {
 }
 
 function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
-	return {
-		id: 1,
-		job_id: "job-1",
+	return makeVideo(0, {
 		filename: "streamer-2026-01-01",
-		display_name: "Streamer",
-		title: "Live stream",
 		status: "RUNNING",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p60",
-		is_audio_only: false,
-		broadcaster_id: "123",
-		broadcaster_login: "streamer",
-		broadcaster_name: "Streamer",
-		profile_image_url: "",
-		viewer_count: 0,
-		language: "en",
+		thumbnail: undefined,
 		duration_seconds: 0,
-		size_bytes: 0,
 		start_download_at: "2026-01-01T12:00:00Z",
-		source: "live",
 		...overrides,
-	};
+	});
 }
 
 beforeEach(() => {
@@ -208,7 +194,7 @@ describe("VideoCard stored preview thumbnail", () => {
 	it("shows watch later on running videos", () => {
 		render(<VideoCard video={video()} canManage={false} />);
 
-		expect(screen.getByLabelText("videos.watch_later.add")).toBeTruthy();
+		expect(screen.getByLabelText("videos.watch_later.label")).toBeTruthy();
 	});
 
 	it("does not mount stored preview fallback images while the card is off-screen", () => {

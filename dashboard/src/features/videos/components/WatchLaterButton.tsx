@@ -1,8 +1,8 @@
 import { BookmarkSimpleIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Toggle } from "@/components/ui/toggle";
 import { useSetWatchLater } from "@/features/videos";
-import { cn } from "@/lib/utils";
 
 export function WatchLaterButton({
 	videoId,
@@ -21,7 +21,8 @@ export function WatchLaterButton({
 	const mutation = useSetWatchLater();
 	const [optimistic, setOptimistic] = useState<boolean | null>(null);
 	const active = optimistic ?? watchLater;
-	const label = active
+	const label = t("videos.watch_later.label");
+	const hint = active
 		? t("videos.watch_later.remove")
 		: t("videos.watch_later.add");
 
@@ -31,15 +32,16 @@ export function WatchLaterButton({
 	}, [watchLater]);
 
 	return (
-		<button
-			type="button"
-			aria-pressed={active}
+		<Toggle
+			variant={withLabel ? "outline" : "ghost"}
+			size={withLabel ? "sm" : "icon-sm"}
+			pressed={active}
 			aria-label={label}
-			title={label}
-			disabled={mutation.isPending}
+			title={hint}
 			onClick={(event) => {
 				event.stopPropagation();
 				event.preventDefault();
+				if (mutation.isPending) return;
 				const next = !active;
 				setOptimistic(next);
 				mutation.mutate(
@@ -55,19 +57,10 @@ export function WatchLaterButton({
 					},
 				);
 			}}
-			className={cn(
-				withLabel
-					? "inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-					: "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-				active && "text-primary hover:text-primary",
-				className,
-			)}
+			className={className}
 		>
-			<BookmarkSimpleIcon
-				className="size-4"
-				weight={active ? "fill" : "regular"}
-			/>
+			<BookmarkSimpleIcon weight={active ? "fill" : "regular"} />
 			{withLabel ? label : null}
-		</button>
+		</Toggle>
 	);
 }
