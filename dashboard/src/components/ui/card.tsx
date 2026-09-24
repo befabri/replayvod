@@ -45,6 +45,30 @@ function CardDescription({ className, ...props }: React.ComponentProps<"p">) {
 	);
 }
 
+function CardStatusHeader({
+	title,
+	description,
+	status,
+	className,
+}: {
+	title: React.ReactNode;
+	description: React.ReactNode;
+	status: React.ReactNode;
+	className?: string;
+}) {
+	return (
+		<CardHeader className={cn("@container", className)}>
+			<div className="grid gap-y-1.5 @sm:grid-cols-[minmax(0,1fr)_auto] @sm:items-center @sm:gap-x-4 @sm:gap-y-0">
+				<CardTitle>{title}</CardTitle>
+				<div className="flex @sm:justify-end">{status}</div>
+				<CardDescription className="@sm:col-span-2">
+					{description}
+				</CardDescription>
+			</div>
+		</CardHeader>
+	);
+}
+
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div data-slot="card-content" className={cn("p-4", className)} {...props} />
@@ -67,5 +91,6 @@ export {
 	CardDescription,
 	CardFooter,
 	CardHeader,
+	CardStatusHeader,
 	CardTitle,
 };

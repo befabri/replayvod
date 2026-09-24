@@ -119,13 +119,23 @@ function VideosPage() {
 
 function VideosPageLoading() {
 	const { t } = useTranslation();
+	const { tab } = Route.useSearch();
+	const navigate = Route.useNavigate();
 	return (
 		<TitledLayout
 			title={t("videos.title")}
 			description={<VideosSummarySkeleton />}
 		>
 			<div className="space-y-6">
-				<Skeleton className="h-9 w-full max-w-xl" />
+				<VideoScopeTabs
+					current={tab}
+					counts={{}}
+					onChange={(next) => {
+						void navigate({
+							search: (s) => videosSearchForTabChange(s, next),
+						});
+					}}
+				/>
 				<VideoGridLoading className="mt-0" />
 			</div>
 		</TitledLayout>

@@ -21,6 +21,7 @@ export function VideoCardSkeleton() {
 						</div>
 					</div>
 				</div>
+				<div className="h-5.5" />
 			</div>
 		</div>
 	);

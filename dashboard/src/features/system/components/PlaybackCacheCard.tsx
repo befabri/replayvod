@@ -7,13 +7,7 @@ import { UpdatePlaybackCacheConfigInputSchema } from "@/api/generated/zod";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardStatusHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -61,23 +55,21 @@ export function PlaybackCacheCard({
 
 	return (
 		<Card>
-			<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
-				<div>
-					<CardTitle>{t("playback_cache.card_title")}</CardTitle>
-					<CardDescription>
-						{t("playback_cache.card_description")}
-					</CardDescription>
-				</div>
-				<form.Subscribe selector={(s) => s.values.enabled}>
-					{(enabled) => (
-						<Badge variant={enabled ? "green" : "muted"}>
-							{enabled
-								? t("playback_cache.enabled")
-								: t("playback_cache.disabled")}
-						</Badge>
-					)}
-				</form.Subscribe>
-			</CardHeader>
+			<CardStatusHeader
+				title={t("playback_cache.card_title")}
+				description={t("playback_cache.card_description")}
+				status={
+					<form.Subscribe selector={(s) => s.values.enabled}>
+						{(enabled) => (
+							<Badge variant={enabled ? "green" : "muted"}>
+								{enabled
+									? t("playback_cache.enabled")
+									: t("playback_cache.disabled")}
+							</Badge>
+						)}
+					</form.Subscribe>
+				}
+			/>
 			<CardContent>
 				<form
 					className="grid gap-5"
@@ -200,15 +192,11 @@ export function PlaybackCacheCardSkeleton() {
 	return (
 		<LoadingState>
 			<Card>
-				<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
-					<div>
-						<CardTitle>{t("playback_cache.card_title")}</CardTitle>
-						<CardDescription>
-							{t("playback_cache.card_description")}
-						</CardDescription>
-					</div>
-					<BadgeSkeleton />
-				</CardHeader>
+				<CardStatusHeader
+					title={t("playback_cache.card_title")}
+					description={t("playback_cache.card_description")}
+					status={<BadgeSkeleton />}
+				/>
 				<CardContent>
 					<div className="grid gap-5">
 						<div className="flex items-center gap-3">

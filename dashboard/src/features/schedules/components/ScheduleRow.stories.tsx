@@ -61,7 +61,7 @@ export const SkeletonMatchesRow = meta.story({
 	play: async ({ canvas }) => {
 		await canvas.findByText(channelAt(1).displayName);
 		await expect(
-			layoutMismatches(
+			await layoutMismatches(
 				canvas.getByTestId("skeleton"),
 				canvas.getByTestId("loaded"),
 			),

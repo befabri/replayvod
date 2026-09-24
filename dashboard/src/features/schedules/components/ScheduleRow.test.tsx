@@ -11,8 +11,11 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/features/schedules/queries", () => ({
 	useToggleSchedule: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
+const channelQuery = vi.hoisted(() => ({
+	current: { data: undefined } as Record<string, unknown>,
+}));
 vi.mock("@/features/channels", () => ({
-	useChannel: () => ({ data: undefined }),
+	useChannel: () => channelQuery.current,
 }));
 // EditForm pulls a deep dependency graph (category/tag pickers); stub it since
 // it only mounts inside the (closed) edit dialog and isn't under test here.
@@ -46,7 +49,10 @@ function schedule(partial: Partial<ScheduleResponse> = {}): ScheduleResponse {
 	};
 }
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	channelQuery.current = { data: undefined };
+});
 
 describe("ScheduleRow role gating", () => {
 	it("shows the original requester on an approved schedule", () => {
@@ -83,6 +89,45 @@ describe("ScheduleRow role gating", () => {
 			createElement(ScheduleRow, { schedule: schedule(), canManage: true }),
 		);
 		expect(screen.getByRole("button", { name: "schedules.edit" })).toBeTruthy();
+		const toggle = screen.getByRole("button", { name: "schedules.disable" });
+		expect((toggle as HTMLButtonElement).disabled).toBe(false);
+	});
+});
+
+describe("ScheduleRow channel loading", () => {
+	it("holds the skeleton while the first channel request is in flight", () => {
+		channelQuery.current = {
+			data: undefined,
+			isPending: true,
+			fetchStatus: "fetching",
+			failureCount: 0,
+		};
+		render(createElement(ScheduleRow, { schedule: schedule() }));
+		expect(
+			screen.queryByRole("button", { name: "schedules.disable" }),
+		).toBeNull();
+		expect(screen.queryByText("b-1")).toBeNull();
+	});
+
+	// A failed lookup is retried with backoff for several seconds. The row
+	// must stay usable meanwhile, as it does when the lookup is disabled or
+	// waiting for the network.
+	it.each([
+		{ fetchStatus: "fetching", failureCount: 1 },
+		{ fetchStatus: "idle", failureCount: 0 },
+		{ fetchStatus: "paused", failureCount: 0 },
+	])("shows the channel id while $fetchStatus after $failureCount failures", ({
+		fetchStatus,
+		failureCount,
+	}) => {
+		channelQuery.current = {
+			data: undefined,
+			isPending: true,
+			fetchStatus,
+			failureCount,
+		};
+		render(createElement(ScheduleRow, { schedule: schedule() }));
+		expect(screen.getAllByText("b-1").length).toBeGreaterThan(0);
 		const toggle = screen.getByRole("button", { name: "schedules.disable" });
 		expect((toggle as HTMLButtonElement).disabled).toBe(false);
 	});

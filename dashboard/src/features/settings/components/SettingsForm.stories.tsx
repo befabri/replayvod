@@ -39,7 +39,7 @@ export const SkeletonMatchesCard = meta.story({
 	),
 	play: async ({ canvas }) => {
 		await expect(
-			layoutMismatches(
+			await layoutMismatches(
 				canvas.getByTestId("skeleton"),
 				canvas.getByTestId("loaded"),
 			),

@@ -86,7 +86,7 @@ export const SkeletonMatchesCard = meta.story({
 			DELIVERIES.length,
 		);
 		await expect(
-			layoutMismatches(canvas.getByTestId("skeleton"), loaded),
+			await layoutMismatches(canvas.getByTestId("skeleton"), loaded),
 		).toEqual([]);
 	},
 });

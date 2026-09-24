@@ -108,7 +108,7 @@ export const SkeletonMatchesCard = meta.story({
 		).toBeVisible();
 		for (const loaded of ["connected", "anonymous"]) {
 			await expect(
-				layoutMismatches(
+				await layoutMismatches(
 					canvas.getByTestId("skeleton"),
 					canvas.getByTestId(loaded),
 				),

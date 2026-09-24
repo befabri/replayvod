@@ -23,6 +23,8 @@ import {
 import { useRelativeTime } from "@/lib/format-relative";
 import { TriggerDownloadDialog } from "./TriggerDownloadDialog";
 
+export const WATCH_TAG_ROW = "mt-2 flex flex-wrap items-center gap-1.5";
+
 export function VideoInfo({
 	video,
 	headerAction,
@@ -129,10 +131,7 @@ export function VideoInfo({
 				)}
 			</div>
 			{video.tags?.length ? (
-				<ul
-					className="mt-2 flex flex-wrap items-center gap-1.5"
-					aria-label={t("videos.tags")}
-				>
+				<ul className={WATCH_TAG_ROW} aria-label={t("videos.tags")}>
 					{video.tags.map((tag) => (
 						<li key={tag.id}>
 							<Badge variant="muted">{tag.name}</Badge>

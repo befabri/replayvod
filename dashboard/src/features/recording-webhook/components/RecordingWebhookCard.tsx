@@ -17,13 +17,7 @@ import type {
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardStatusHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
@@ -126,15 +120,15 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 
 	return (
 		<Card>
-			<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
-				<div>
-					<CardTitle>{t("webhook.title")}</CardTitle>
-					<CardDescription>{t("webhook.description")}</CardDescription>
-				</div>
-				<Badge variant={data.enabled ? "green" : "muted"}>
-					{data.enabled ? t("webhook.enabled") : t("webhook.disabled")}
-				</Badge>
-			</CardHeader>
+			<CardStatusHeader
+				title={t("webhook.title")}
+				description={t("webhook.description")}
+				status={
+					<Badge variant={data.enabled ? "green" : "muted"}>
+						{data.enabled ? t("webhook.enabled") : t("webhook.disabled")}
+					</Badge>
+				}
+			/>
 			<CardContent>
 				<form
 					className="grid gap-4"
@@ -359,13 +353,11 @@ export function RecordingWebhookCardSkeleton() {
 	return (
 		<LoadingState>
 			<Card>
-				<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
-					<div>
-						<CardTitle>{t("webhook.title")}</CardTitle>
-						<CardDescription>{t("webhook.description")}</CardDescription>
-					</div>
-					<BadgeSkeleton />
-				</CardHeader>
+				<CardStatusHeader
+					title={t("webhook.title")}
+					description={t("webhook.description")}
+					status={<BadgeSkeleton />}
+				/>
 				<CardContent>
 					<div className="grid gap-4">
 						<div className="flex items-center gap-3">
@@ -404,9 +396,18 @@ export function RecordingWebhookCardSkeleton() {
 							</span>
 						</div>
 						<div className="flex flex-wrap gap-2">
-							<ButtonSkeleton className="w-24" />
-							<ButtonSkeleton className="w-32" />
-							<ButtonSkeleton className="w-44" />
+							<ButtonSkeleton>
+								<FloppyDiskIcon data-icon="inline-start" />
+								{t("webhook.save")}
+							</ButtonSkeleton>
+							<ButtonSkeleton>
+								<PaperPlaneTiltIcon data-icon="inline-start" />
+								{t("webhook.send_test")}
+							</ButtonSkeleton>
+							<ButtonSkeleton>
+								<ArrowsClockwiseIcon data-icon="inline-start" />
+								{t("webhook.regenerate_secret")}
+							</ButtonSkeleton>
 						</div>
 					</div>
 				</CardContent>

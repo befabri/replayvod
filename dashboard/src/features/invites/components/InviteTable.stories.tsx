@@ -51,7 +51,7 @@ export const SkeletonMatchesRows = meta.story({
 	},
 	play: async ({ canvas }) => {
 		await expect(
-			layoutMismatches(
+			await layoutMismatches(
 				tableIn(canvas.getByTestId("skeleton")),
 				tableIn(canvas.getByTestId("loaded")),
 				{ axis: "vertical" },

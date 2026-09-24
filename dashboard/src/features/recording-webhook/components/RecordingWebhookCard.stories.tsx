@@ -2,7 +2,7 @@ import { expect } from "storybook/test";
 import preview from "#.storybook/preview";
 import i18n from "@/i18n";
 import { makeRecordingWebhookConfig } from "@/test/fixtures";
-import { layoutMismatches } from "@/test/layout";
+import { layoutMismatchesAcrossWidths } from "@/test/layout";
 import {
 	RecordingWebhookCard,
 	RecordingWebhookCardSkeleton,
@@ -37,7 +37,7 @@ export const Loading = meta.story({
 // keeps a signing secret, so the secret row and its buttons are always there.
 export const SkeletonMatchesCard = meta.story({
 	render: (args) => (
-		<div className="grid gap-8">
+		<div className="grid gap-8" data-testid="pair">
 			<div data-testid="skeleton">
 				<RecordingWebhookCardSkeleton />
 			</div>
@@ -48,7 +48,8 @@ export const SkeletonMatchesCard = meta.story({
 	),
 	play: async ({ canvas }) => {
 		await expect(
-			layoutMismatches(
+			await layoutMismatchesAcrossWidths(
+				canvas.getByTestId("pair"),
 				canvas.getByTestId("skeleton"),
 				canvas.getByTestId("loaded"),
 			),

@@ -2,7 +2,7 @@ import { expect } from "storybook/test";
 import preview from "#.storybook/preview";
 import i18n from "@/i18n";
 import { makePlaybackCacheConfig } from "@/test/fixtures";
-import { layoutMismatches } from "@/test/layout";
+import { layoutMismatchesAcrossWidths } from "@/test/layout";
 import {
 	PlaybackCacheCard,
 	PlaybackCacheCardSkeleton,
@@ -35,7 +35,7 @@ export const Loading = meta.story({
 // control's place, so nothing moves when the settings arrive.
 export const SkeletonMatchesCard = meta.story({
 	render: (args) => (
-		<div className="grid gap-8">
+		<div className="grid gap-8" data-testid="pair">
 			<div data-testid="skeleton">
 				<PlaybackCacheCardSkeleton />
 			</div>
@@ -46,7 +46,8 @@ export const SkeletonMatchesCard = meta.story({
 	),
 	play: async ({ canvas }) => {
 		await expect(
-			layoutMismatches(
+			await layoutMismatchesAcrossWidths(
+				canvas.getByTestId("pair"),
 				canvas.getByTestId("skeleton"),
 				canvas.getByTestId("loaded"),
 			),

@@ -2,7 +2,7 @@ import { expect } from "storybook/test";
 import preview from "#.storybook/preview";
 import i18n from "@/i18n";
 import { makeStorageDetails } from "@/test/fixtures";
-import { layoutMismatches } from "@/test/layout";
+import { layoutMismatchesAcrossWidths } from "@/test/layout";
 import { StorageCard, StorageCardSkeleton } from "./StorageCard";
 
 const meta = preview.meta({
@@ -33,10 +33,11 @@ export const Skeleton = meta.story({
 });
 
 // The skeleton draws the card's own labels and holds each value's line, so
-// nothing moves when the storage check arrives.
+// nothing moves when the storage check arrives. Text wraps with the card's
+// width, so the check runs at every width from a phone's up to max-w-3xl.
 export const SkeletonMatchesCard = meta.story({
 	render: (args) => (
-		<div className="grid gap-8">
+		<div className="grid gap-8" data-testid="pair">
 			<div data-testid="skeleton">
 				<StorageCardSkeleton />
 			</div>
@@ -47,7 +48,8 @@ export const SkeletonMatchesCard = meta.story({
 	),
 	play: async ({ canvas }) => {
 		await expect(
-			layoutMismatches(
+			await layoutMismatchesAcrossWidths(
+				canvas.getByTestId("pair"),
 				canvas.getByTestId("skeleton"),
 				canvas.getByTestId("loaded"),
 			),

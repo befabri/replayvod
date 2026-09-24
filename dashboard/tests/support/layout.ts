@@ -1,18 +1,41 @@
 import type { Page } from "@playwright/test";
 
-type Landmark = { key: string; x: number; y: number };
+type Landmark = {
+	key: string;
+	x: number;
+	y: number;
+	width?: number;
+	height?: number;
+};
 
 // watchLandmarks records, on every animation frame from the first paint, where
 // each landmark sits. `byText` elements are keyed by their text, so a
 // placeholder and the loaded element that share a label count as one;
 // `byOrder` elements are keyed by their position in the page, for boxes whose
-// content changes when the data arrives.
+// content changes when the data arrives. `sizedByOrder` elements are keyed the
+// same way and must keep their size as well: a selector list that matches both
+// the placeholders and the loaded elements, the skeleton cells of a grid and
+// its loaded cells for instance, gives each loaded element the key of the
+// placeholder it replaces, so a placeholder of the wrong size fails even when
+// nothing sits below it.
 export async function watchLandmarks(
 	page: Page,
-	{ byText = [], byOrder = [] }: { byText?: string[]; byOrder?: string[] },
+	{
+		byText = [],
+		byOrder = [],
+		sizedByOrder = [],
+	}: { byText?: string[]; byOrder?: string[]; sizedByOrder?: string[] },
 ) {
 	await page.addInitScript(
-		({ textual, ordered }: { textual: string[]; ordered: string[] }) => {
+		({
+			textual,
+			ordered,
+			sized,
+		}: {
+			textual: string[];
+			ordered: string[];
+			sized: string[];
+		}) => {
 			const frames: Landmark[][] = [];
 			Object.assign(window, { __landmarkFrames: frames });
 			const visible = (element: Element) => {
@@ -23,12 +46,20 @@ export async function watchLandmarks(
 				!element
 					.getAnimations({ subtree: false })
 					.some((animation) => animation.playState === "running");
-			const place = (key: string, element: Element) => {
+			const place = (key: string, element: Element): Landmark => {
 				const box = element.getBoundingClientRect();
 				return {
 					key: `${location.pathname} ${key}`,
 					x: Math.round(box.x),
 					y: Math.round(box.y + window.scrollY),
+				};
+			};
+			const measure = (key: string, element: Element): Landmark => {
+				const box = element.getBoundingClientRect();
+				return {
+					...place(key, element),
+					width: Math.round(box.width),
+					height: Math.round(box.height),
 				};
 			};
 			const sample = () => {
@@ -43,21 +74,26 @@ export async function watchLandmarks(
 						frame.push(place(`${selector} "${text}" #${nth}`, element));
 					}
 				}
-				for (const selector of ordered) {
-					[...document.querySelectorAll(selector)]
-						.filter(visible)
-						.forEach((element, index) => {
-							if (settled(element)) {
-								frame.push(place(`${selector} #${index}`, element));
-							}
-						});
+				for (const [selectors, record] of [
+					[ordered, place],
+					[sized, measure],
+				] as const) {
+					for (const selector of selectors) {
+						[...document.querySelectorAll(selector)]
+							.filter(visible)
+							.forEach((element, index) => {
+								if (settled(element)) {
+									frame.push(record(`${selector} #${index}`, element));
+								}
+							});
+					}
 				}
 				frames.push(frame);
 				requestAnimationFrame(sample);
 			};
 			requestAnimationFrame(sample);
 		},
-		{ textual: byText, ordered: byOrder },
+		{ textual: byText, ordered: byOrder, sized: sizedByOrder },
 	);
 }
 
@@ -71,8 +107,21 @@ export async function landmarkKeys(page: Page) {
 	return new Set(frames.flat().map((landmark) => landmark.key));
 }
 
-// landmarkMoves lists every landmark whose position changed after it first
-// appeared, with the positions it took in order.
+function describe({ x, y, width, height }: Landmark) {
+	return width === undefined ? `${x},${y}` : `${x},${y} ${width}x${height}`;
+}
+
+function drifted(origin: Landmark, landmark: Landmark, tolerance: number) {
+	return [
+		[origin.x, landmark.x],
+		[origin.y, landmark.y],
+		[origin.width ?? 0, landmark.width ?? 0],
+		[origin.height ?? 0, landmark.height ?? 0],
+	].some(([before, after]) => Math.abs(before - after) > tolerance);
+}
+
+// landmarkMoves lists every landmark whose position, or size when it was
+// recorded, changed after it first appeared, with the boxes it took in order.
 export async function landmarkMoves(page: Page, tolerance = 1) {
 	const frames = await page.evaluate(
 		() =>
@@ -88,12 +137,9 @@ export async function landmarkMoves(page: Page, tolerance = 1) {
 				first.set(landmark.key, landmark);
 				continue;
 			}
-			if (
-				Math.abs(origin.x - landmark.x) > tolerance ||
-				Math.abs(origin.y - landmark.y) > tolerance
-			) {
-				const path = moves.get(landmark.key) ?? [`${origin.x},${origin.y}`];
-				const step = `${landmark.x},${landmark.y}`;
+			if (drifted(origin, landmark, tolerance)) {
+				const path = moves.get(landmark.key) ?? [describe(origin)];
+				const step = describe(landmark);
 				if (path.at(-1) !== step) path.push(step);
 				moves.set(landmark.key, path);
 			}

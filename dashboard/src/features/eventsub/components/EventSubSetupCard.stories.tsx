@@ -2,7 +2,7 @@ import { expect } from "storybook/test";
 import preview from "#.storybook/preview";
 import i18n from "@/i18n";
 import { makeEventSubConfig } from "@/test/fixtures";
-import { layoutMismatches } from "@/test/layout";
+import { layoutMismatchesAcrossWidths } from "@/test/layout";
 import {
 	EventSubSetupCard,
 	EventSubSetupCardSkeleton,
@@ -47,7 +47,7 @@ export const Loading = meta.story({
 // mode with no extra field below the options, which polling, the default, is.
 export const SkeletonMatchesCard = meta.story({
 	render: (args) => (
-		<div className="grid gap-8">
+		<div className="grid gap-8" data-testid="pair">
 			<div data-testid="skeleton">
 				<EventSubSetupCardSkeleton />
 			</div>
@@ -58,7 +58,8 @@ export const SkeletonMatchesCard = meta.story({
 	),
 	play: async ({ canvas }) => {
 		await expect(
-			layoutMismatches(
+			await layoutMismatchesAcrossWidths(
+				canvas.getByTestId("pair"),
 				canvas.getByTestId("skeleton"),
 				canvas.getByTestId("loaded"),
 			),

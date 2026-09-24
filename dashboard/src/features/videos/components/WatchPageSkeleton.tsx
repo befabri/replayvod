@@ -1,6 +1,6 @@
 import type { VideoResponse } from "@/api/generated/trpc";
 import { LoadingState } from "@/components/ui/loading-state";
-import { Skeleton } from "@/components/ui/skeleton";
+import { BadgeSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { recordingPosterURL } from "@/features/videos/thumbnail";
 import { cn } from "@/lib/utils";
 import {
@@ -10,6 +10,7 @@ import {
 	PlayerPoster,
 	VIDEO_PLAYER_FRAME,
 } from "./PlayerFrame";
+import { WATCH_TAG_ROW } from "./VideoInfo";
 import type { WatchLayout } from "./WatchHeaderActions";
 import { WatchPageGrid } from "./WatchPageGrid";
 
@@ -47,6 +48,18 @@ export function WatchPageSkeleton({
 									<Skeleton key={width} className={cn("h-5", width)} />
 								))}
 							</div>
+							{video?.tags?.length ? (
+								<div
+									className={WATCH_TAG_ROW}
+									data-testid="watch-tags-skeleton"
+								>
+									{video.tags.map((tag) => (
+										<div key={tag.id}>
+											<BadgeSkeleton>{tag.name}</BadgeSkeleton>
+										</div>
+									))}
+								</div>
+							) : null}
 							<div className="mt-5 flex items-center gap-3 border-y border-foreground/10 py-4">
 								<Skeleton className="size-10 shrink-0 rounded-full" />
 								<div className="space-y-1.5">

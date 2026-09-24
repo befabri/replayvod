@@ -60,7 +60,7 @@ export const SkeletonMatchesCard = meta.story({
 			await within(loaded).findByText(String(SNAPSHOT.total)),
 		).toBeVisible();
 		await expect(
-			layoutMismatches(canvas.getByTestId("skeleton"), loaded),
+			await layoutMismatches(canvas.getByTestId("skeleton"), loaded),
 		).toEqual([]);
 	},
 });

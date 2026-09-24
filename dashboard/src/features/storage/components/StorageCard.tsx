@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type {
@@ -7,20 +7,13 @@ import type {
 } from "@/api/generated/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardStatusHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { LoadingState } from "@/components/ui/loading-state";
-import { Skeleton } from "@/components/ui/skeleton";
+import { BadgeSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { useAdoptStorage } from "@/features/storage/queries";
 
-const HEADER_CLASS = "sm:flex-row sm:items-start sm:justify-between";
 const FACTS_CLASS =
 	"grid gap-2 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-6";
 
@@ -59,12 +52,16 @@ export function StorageCard({ data }: { data: StorageDetailsResponse }) {
 
 	return (
 		<Card>
-			<CardHeader className={HEADER_CLASS}>
-				<StorageCardHeading />
-				<Badge variant={STATE_VARIANT[data.state]} data-testid="storage-state">
-					{t(`storage.state_${data.state}`)}
-				</Badge>
-			</CardHeader>
+			<StorageCardHeader
+				badge={
+					<Badge
+						variant={STATE_VARIANT[data.state]}
+						data-testid="storage-state"
+					>
+						{t(`storage.state_${data.state}`)}
+					</Badge>
+				}
+			/>
 			<CardContent className="grid gap-4">
 				<dl className={FACTS_CLASS}>
 					<dt className="text-muted-foreground">{t("storage.backend")}</dt>
@@ -130,13 +127,14 @@ export function StorageCard({ data }: { data: StorageDetailsResponse }) {
 	);
 }
 
-function StorageCardHeading() {
+function StorageCardHeader({ badge }: { badge: ReactNode }) {
 	const { t } = useTranslation();
 	return (
-		<div>
-			<CardTitle>{t("storage.card_title")}</CardTitle>
-			<CardDescription>{t("storage.card_description")}</CardDescription>
-		</div>
+		<CardStatusHeader
+			title={t("storage.card_title")}
+			description={t("storage.card_description")}
+			status={badge}
+		/>
 	);
 }
 
@@ -145,10 +143,7 @@ export function StorageCardSkeleton() {
 	return (
 		<LoadingState>
 			<Card>
-				<CardHeader className={HEADER_CLASS}>
-					<StorageCardHeading />
-					<Skeleton className="h-5.5 w-20 rounded-md" />
-				</CardHeader>
+				<StorageCardHeader badge={<BadgeSkeleton />} />
 				<CardContent className="grid gap-4">
 					<dl className={FACTS_CLASS}>
 						<dt className="text-muted-foreground">{t("storage.backend")}</dt>
@@ -173,8 +168,13 @@ export function StorageCardSkeleton() {
 							<Skeleton className="h-3.5 w-36" />
 						</dd>
 					</dl>
-					<div className="flex h-5 items-center">
-						<Skeleton className="h-3.5 w-3/4" />
+					<div className="text-sm">
+						<Skeleton
+							aria-hidden="true"
+							className="inline box-decoration-clone text-transparent select-none"
+						>
+							{t("storage.attached_hint")}
+						</Skeleton>
 					</div>
 				</CardContent>
 			</Card>

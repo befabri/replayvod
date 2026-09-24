@@ -35,8 +35,21 @@ export function ScheduleRow({
 }) {
 	const { t } = useTranslation();
 	const toggle = useToggleSchedule();
-	const { data: channel } = useChannel(schedule.broadcaster_id);
+	const {
+		data: channel,
+		isPending: channelPending,
+		fetchStatus: channelFetchStatus,
+		failureCount: channelFailures,
+	} = useChannel(schedule.broadcaster_id);
 	const [editing, setEditing] = useState(false);
+
+	if (
+		channelPending &&
+		channelFetchStatus === "fetching" &&
+		channelFailures === 0
+	) {
+		return <ScheduleRowSkeleton canManage={canManage} />;
+	}
 
 	const channelLabel = channel?.broadcaster_name ?? schedule.broadcaster_id;
 	const dimmed = schedule.is_disabled || globallyPaused;

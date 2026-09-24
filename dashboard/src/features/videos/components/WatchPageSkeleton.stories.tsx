@@ -1,4 +1,4 @@
-import { expect, waitFor } from "storybook/test";
+import { expect, waitFor, within } from "storybook/test";
 import preview from "#.storybook/preview";
 import { recordingPosterURL } from "@/features/videos/thumbnail";
 import i18n from "@/i18n";
@@ -37,12 +37,31 @@ export const Wide = meta.story({
 
 export const CachedPoster = meta.story({
 	args: { video: VIDEO },
-	play: async ({ canvasElement }) => {
+	play: async ({ canvas, canvasElement }) => {
 		await waitFor(() =>
 			expect(
 				canvasElement.querySelector(`img[src="${recordingPosterURL(VIDEO)}"]`),
 			).toBeVisible(),
 		);
+		await expect(VIDEO.tags).toBeUndefined();
+		await expect(canvas.queryByTestId("watch-tags-skeleton")).toBeNull();
+	},
+});
+
+export const CachedTags = meta.story({
+	args: { video: makeVideo(4) },
+	play: async ({ args, canvas }) => {
+		const tags = args.video?.tags ?? [];
+		await expect(tags.length).toBeGreaterThan(0);
+		const row = canvas.getByTestId("watch-tags-skeleton");
+		await expect(row.children).toHaveLength(tags.length);
+		for (const [index, tag] of tags.entries()) {
+			const text = within(row.children[index] as HTMLElement).getByText(
+				tag.name,
+			);
+			await expect(text).not.toBeVisible();
+			await expect(text.closest("[aria-hidden='true']")).not.toBeNull();
+		}
 	},
 });
 

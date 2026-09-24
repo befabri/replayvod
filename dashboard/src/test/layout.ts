@@ -43,11 +43,17 @@ export type LayoutCheck = {
 	axis?: "both" | "vertical";
 };
 
-export function layoutMismatches(
+async function fontsLoadedFor(...roots: Element[]) {
+	for (const root of roots) root.getBoundingClientRect();
+	await document.fonts.ready;
+}
+
+export async function layoutMismatches(
 	skeleton: Element,
 	loaded: Element,
 	{ tolerance = 1, axis = "both" }: LayoutCheck = {},
-): string[] {
+): Promise<string[]> {
+	await fontsLoadedFor(skeleton, loaded);
 	const mismatches: string[] = [];
 	const skeletonHeight = skeleton.getBoundingClientRect().height;
 	const loadedHeight = loaded.getBoundingClientRect().height;
@@ -83,5 +89,21 @@ export function layoutMismatches(
 			);
 		}
 	}
+	return mismatches;
+}
+
+export async function layoutMismatchesAcrossWidths(
+	container: HTMLElement,
+	skeleton: Element,
+	loaded: Element,
+	check: LayoutCheck = {},
+): Promise<string[]> {
+	const mismatches: string[] = [];
+	for (let width = 320; width <= 768; width += 4) {
+		container.style.width = `${width}px`;
+		const found = await layoutMismatches(skeleton, loaded, check);
+		mismatches.push(...found.map((mismatch) => `${width}px: ${mismatch}`));
+	}
+	container.style.width = "";
 	return mismatches;
 }
