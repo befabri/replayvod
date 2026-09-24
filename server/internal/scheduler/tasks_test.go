@@ -812,10 +812,10 @@ func TestBuildStandardTasks_RecordingsRetentionTaskDeletesExpired(t *testing.T) 
 		t.Fatalf("seed channel: %v", err)
 	}
 	hour := int64(1)
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH",
 		IsDeleteRediff: true, TimeBeforeDelete: &hour,
-	}); err != nil {
+	}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatalf("seed schedule: %v", err)
 	}
 
@@ -888,10 +888,10 @@ func TestBuildStandardTasks_RecordingsRetentionTaskPropagatesError(t *testing.T)
 		t.Fatalf("seed channel: %v", err)
 	}
 	hour := int64(1)
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH",
 		IsDeleteRediff: true, TimeBeforeDelete: &hour,
-	}); err != nil {
+	}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatalf("seed schedule: %v", err)
 	}
 	vid, err := repo.CreateVideo(ctx, &repository.VideoInput{

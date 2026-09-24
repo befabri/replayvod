@@ -70,20 +70,6 @@ func (q *Queries) LinkVideoCategory(ctx context.Context, arg LinkVideoCategoryPa
 	return err
 }
 
-const linkVideoTag = `-- name: LinkVideoTag :exec
-INSERT INTO video_tags (video_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
-`
-
-type LinkVideoTagParams struct {
-	VideoID int64 `json:"video_id"`
-	TagID   int64 `json:"tag_id"`
-}
-
-func (q *Queries) LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) error {
-	_, err := q.db.Exec(ctx, linkVideoTag, arg.VideoID, arg.TagID)
-	return err
-}
-
 const listCategorySpansForVideo = `-- name: ListCategorySpansForVideo :many
 SELECT
     c.id,
@@ -211,33 +197,6 @@ func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds [
 			&i.UpdatedAt,
 			&i.DurationSeconds,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listTagsForVideo = `-- name: ListTagsForVideo :many
-SELECT t.id, t.name, t.created_at FROM tags t
-INNER JOIN video_tags vt ON vt.tag_id = t.id
-WHERE vt.video_id = $1
-ORDER BY t.name
-`
-
-func (q *Queries) ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error) {
-	rows, err := q.db.Query(ctx, listTagsForVideo, videoID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Tag{}
-	for rows.Next() {
-		var i Tag
-		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

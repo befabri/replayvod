@@ -250,20 +250,6 @@ func (q *Queries) ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsB
 	return items, nil
 }
 
-const updateStreamViewers = `-- name: UpdateStreamViewers :exec
-UPDATE streams SET viewer_count = ? WHERE id = ?
-`
-
-type UpdateStreamViewersParams struct {
-	ViewerCount int64  `json:"viewer_count"`
-	ID          string `json:"id"`
-}
-
-func (q *Queries) UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error {
-	_, err := q.db.ExecContext(ctx, updateStreamViewers, arg.ViewerCount, arg.ID)
-	return err
-}
-
 const upsertStream = `-- name: UpsertStream :one
 INSERT INTO streams (
     id, broadcaster_id, type, language, thumbnail_url,

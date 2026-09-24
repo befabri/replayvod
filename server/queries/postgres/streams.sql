@@ -18,9 +18,6 @@ RETURNING *;
 -- name: EndStream :exec
 UPDATE streams SET ended_at = $2 WHERE id = $1 AND ended_at IS NULL;
 
--- name: UpdateStreamViewers :exec
-UPDATE streams SET viewer_count = $2 WHERE id = $1;
-
 -- name: ListActiveStreams :many
 SELECT * FROM streams WHERE ended_at IS NULL ORDER BY started_at DESC;
 

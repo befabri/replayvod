@@ -37,11 +37,6 @@ WHERE revoked_at IS NULL
 ORDER BY created_at DESC, id DESC
 LIMIT ? OFFSET ?;
 
--- name: ListSubscriptionsByBroadcaster :many
-SELECT * FROM subscriptions
-WHERE broadcaster_id = ?
-ORDER BY created_at DESC;
-
 -- name: ListSubscriptionsByType :many
 SELECT * FROM subscriptions
 WHERE type = ? AND revoked_at IS NULL
@@ -54,9 +49,6 @@ UPDATE subscriptions SET status = ? WHERE id = ?;
 UPDATE subscriptions
 SET revoked_at = datetime('now'), revoked_reason = @reason, status = 'revoked'
 WHERE id = @id AND revoked_at IS NULL;
-
--- name: DeleteSubscription :exec
-DELETE FROM subscriptions WHERE id = ?;
 
 -- name: CountActiveSubscriptions :one
 SELECT COUNT(*) FROM subscriptions WHERE revoked_at IS NULL;

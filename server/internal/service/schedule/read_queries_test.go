@@ -60,7 +60,7 @@ func TestList_BatchesScheduleMetadata(t *testing.T) {
 		if i%2 == 0 {
 			from = &requester
 		}
-		if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: id, RequestedBy: "admin-1", RequestedFrom: from, Quality: "HIGH"}); err != nil {
+		if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: id, RequestedBy: "admin-1", RequestedFrom: from, Quality: "HIGH"}, repository.ScheduleFilterInput{}); err != nil {
 			t.Fatal(err)
 		}
 	}

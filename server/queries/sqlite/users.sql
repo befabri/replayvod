@@ -6,9 +6,6 @@ SELECT * FROM users WHERE id = ?;
 -- timestamps. A plain SELECT cannot lock out a concurrent role change.
 UPDATE users SET id = id WHERE id = ? RETURNING *;
 
--- name: GetUserByLogin :one
-SELECT * FROM users WHERE login = ?;
-
 -- name: UpsertUser :one
 INSERT INTO users (id, login, display_name, email, profile_image_url, role)
 VALUES (?, ?, ?, ?, ?, ?)

@@ -63,29 +63,14 @@ func testSubscriptionLookupsAndCounts(t *testing.T, h Harness) {
 	if online, err := repo.ListSubscriptionsByType(ctx, "stream.online"); err != nil || len(online) != 1 || online[0].ID != "sub-1" {
 		t.Fatalf("online subscriptions after revoke = %+v, %v", online, err)
 	}
-	if byBroadcaster, err := repo.ListSubscriptionsByBroadcaster(ctx, "bc-2"); err != nil || len(byBroadcaster) != 1 || byBroadcaster[0].ID != "sub-3" || byBroadcaster[0].RevokedAt == nil {
-		t.Fatalf("revoked row must stay listed for its broadcaster: %+v, %v", byBroadcaster, err)
+	if revoked, err := repo.GetSubscription(ctx, "sub-3"); err != nil || revoked.RevokedAt == nil {
+		t.Fatalf("revoked row must stay readable with its revocation: %+v, %v", revoked, err)
 	}
 	if _, err := repo.GetActiveSubscriptionForBroadcasterType(ctx, "bc-2", "stream.online"); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("revoked subscription still active: %v", err)
 	}
 	if n, err := repo.CountActiveSubscriptions(ctx); err != nil || n != 2 {
 		t.Fatalf("active count after revoke = %d, %v", n, err)
-	}
-	if err := repo.DeleteSubscription(ctx, "sub-2"); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.DeleteSubscription(ctx, "sub-2"); err != nil {
-		t.Fatalf("deleting a missing subscription: %v", err)
-	}
-	if _, err := repo.GetSubscription(ctx, "sub-2"); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("deleted subscription survived: %v", err)
-	}
-	if n, err := repo.CountActiveSubscriptions(ctx); err != nil || n != 1 {
-		t.Fatalf("active count after delete = %d, %v", n, err)
-	}
-	if byBroadcaster, err := repo.ListSubscriptionsByBroadcaster(ctx, "bc-1"); err != nil || len(byBroadcaster) != 1 || byBroadcaster[0].ID != "sub-1" {
-		t.Fatalf("bc-1 subscriptions = %+v, %v", byBroadcaster, err)
 	}
 }
 

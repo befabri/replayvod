@@ -547,14 +547,6 @@ func pgWebhookEventToDomain(src pggen.WebhookEvent) *repository.WebhookEvent {
 	}
 }
 
-func pgWebhookEventsToDomain(rows []pggen.WebhookEvent) []repository.WebhookEvent {
-	out := make([]repository.WebhookEvent, len(rows))
-	for i, r := range rows {
-		out[i] = *pgWebhookEventToDomain(r)
-	}
-	return out
-}
-
 func pgServerSettingsToDomain(src pggen.ServerSetting) *repository.ServerSettings {
 	return &repository.ServerSettings{
 		CreatedAt:                     src.CreatedAt,

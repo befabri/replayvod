@@ -21,11 +21,11 @@ func testScheduleFiltersAndToggle(t *testing.T, h Harness) {
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "bc-2", BroadcasterLogin: "bc-2", BroadcasterName: "bc-2"}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "bc-1", RequestedBy: "owner", Quality: repository.QualityHigh})
+	first, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "bc-1", RequestedBy: "owner", Quality: repository.QualityHigh}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "bc-2", RequestedBy: "owner", Quality: repository.QualityHigh})
+	second, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "bc-2", RequestedBy: "owner", Quality: repository.QualityHigh}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,53 +42,28 @@ func testScheduleFiltersAndToggle(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"c1", "c2"} {
-		if err := repo.LinkScheduleCategory(ctx, first.ID, id); err != nil {
+	input := &repository.ScheduleInput{BroadcasterID: "bc-1", RequestedBy: "owner", Quality: repository.QualityHigh}
+	for _, step := range []struct {
+		filters          repository.ScheduleFilterInput
+		categories, tags []string
+	}{
+		{repository.ScheduleFilterInput{CategoryIDs: []string{"c1", "c2"}, TagIDs: []int64{speedrun.ID, chill.ID}}, []string{"Art", "Chess"}, []string{"chill", "speedrun"}},
+		{repository.ScheduleFilterInput{CategoryIDs: []string{"c1"}, TagIDs: []int64{speedrun.ID}}, []string{"Chess"}, []string{"speedrun"}},
+		{repository.ScheduleFilterInput{}, nil, nil},
+	} {
+		if _, err := repo.UpdateScheduleWithFilters(ctx, first.ID, input, step.filters); err != nil {
 			t.Fatal(err)
 		}
-	}
-	for _, id := range []int64{speedrun.ID, chill.ID} {
-		if err := repo.LinkScheduleTag(ctx, first.ID, id); err != nil {
+		categories, err := repo.ListScheduleCategories(ctx, first.ID)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	categories, err := repo.ListScheduleCategories(ctx, first.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSlice(t, categoryNamesOf(categories), []string{"Art", "Chess"})
-	if err := repo.UnlinkScheduleCategory(ctx, first.ID, "c2"); err != nil {
-		t.Fatal(err)
-	}
-	categories, err = repo.ListScheduleCategories(ctx, first.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSlice(t, categoryNamesOf(categories), []string{"Chess"})
-	if err := repo.ClearScheduleCategories(ctx, first.ID); err != nil {
-		t.Fatal(err)
-	}
-	if categories, err := repo.ListScheduleCategories(ctx, first.ID); err != nil || len(categories) != 0 {
-		t.Fatalf("categories after clear = %+v, %v", categories, err)
-	}
-	tags, err := repo.ListScheduleTags(ctx, first.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSlice(t, tagNames(tags), []string{"chill", "speedrun"})
-	if err := repo.UnlinkScheduleTag(ctx, first.ID, chill.ID); err != nil {
-		t.Fatal(err)
-	}
-	tags, err = repo.ListScheduleTags(ctx, first.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSlice(t, tagNames(tags), []string{"speedrun"})
-	if err := repo.ClearScheduleTags(ctx, first.ID); err != nil {
-		t.Fatal(err)
-	}
-	if tags, err := repo.ListScheduleTags(ctx, first.ID); err != nil || len(tags) != 0 {
-		t.Fatalf("tags after clear = %+v, %v", tags, err)
+		assertStringSlice(t, categoryNamesOf(categories), step.categories)
+		tags, err := repo.ListScheduleTags(ctx, first.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertStringSlice(t, tagNames(tags), step.tags)
 	}
 	if active, err := repo.ListActiveSchedulesForBroadcaster(ctx, "bc-1"); err != nil || len(active) != 1 || active[0].ID != first.ID {
 		t.Fatalf("active schedules = %+v, %v", active, err)

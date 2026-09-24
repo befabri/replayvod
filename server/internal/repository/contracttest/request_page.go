@@ -105,26 +105,30 @@ func testScheduleBatchMetadata(t *testing.T, h Harness) {
 	for i := 0; i < 2; i++ {
 		user := fmt.Sprintf("author-%d", i)
 		SeedUserChannel(t, ctx, repo, user, "channel")
-		s, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "channel", RequestedBy: user, Quality: "HIGH"})
+		s, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "channel", RequestedBy: user, Quality: "HIGH"}, repository.ScheduleFilterInput{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, s.ID)
 	}
+	var categoryIDs []string
+	var tagIDs []int64
 	for _, id := range []string{"b", "a"} {
 		if _, err := repo.UpsertCategory(ctx, &repository.Category{ID: id, Name: id}); err != nil {
 			t.Fatal(err)
 		}
-		if err := repo.LinkScheduleCategory(ctx, ids[0], id); err != nil {
-			t.Fatal(err)
-		}
+		categoryIDs = append(categoryIDs, id)
 		tag, err := repo.UpsertTag(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := repo.LinkScheduleTag(ctx, ids[1], tag.ID); err != nil {
-			t.Fatal(err)
-		}
+		tagIDs = append(tagIDs, tag.ID)
+	}
+	if _, err := repo.UpdateScheduleWithFilters(ctx, ids[0], &repository.ScheduleInput{BroadcasterID: "channel", RequestedBy: "author-0", Quality: "HIGH"}, repository.ScheduleFilterInput{CategoryIDs: categoryIDs}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpdateScheduleWithFilters(ctx, ids[1], &repository.ScheduleInput{BroadcasterID: "channel", RequestedBy: "author-1", Quality: "HIGH"}, repository.ScheduleFilterInput{TagIDs: tagIDs}); err != nil {
+		t.Fatal(err)
 	}
 	cats, err := repo.ListScheduleCategoriesByScheduleIDs(ctx, append(ids, 99999, ids[0]))
 	if err != nil || len(cats) != 1 || len(cats[ids[0]]) != 2 || cats[ids[0]][0].Name != "a" {

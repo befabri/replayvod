@@ -6,12 +6,6 @@ RETURNING *;
 -- name: GetJob :one
 SELECT * FROM jobs WHERE id = $1;
 
--- name: GetJobByVideoID :one
--- The most recent job for a video. Used to wire resume state back to
--- the download service on restart: a video can accumulate multiple
--- FAILED jobs + one DONE, and we want the live/terminal one.
-SELECT * FROM jobs WHERE video_id = $1 ORDER BY created_at DESC LIMIT 1;
-
 -- name: GetActiveLiveJobByBroadcaster :one
 -- Broadcaster-level idempotency check. Returns PENDING or RUNNING
 -- only — terminal rows don't block a new job. Live only: a queued or

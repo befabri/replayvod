@@ -23,13 +23,13 @@ func testFinalizeDelete(t *testing.T, h Harness) {
 		}
 		return v
 	}
-	parts := func(id int64) int64 {
+	parts := func(id int64) int {
 		t.Helper()
-		n, err := repo.CountVideoParts(ctx, id)
+		list, err := repo.ListVideoParts(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return n
+		return len(list)
 	}
 	reload := func(v *repository.Video) *repository.Video {
 		t.Helper()
@@ -65,8 +65,8 @@ func testFinalizeDelete(t *testing.T, h Harness) {
 		if err := tx.FinalizeDelete(ctx, live.ID, repository.DeletionKindRetention); err != nil {
 			return err
 		}
-		if n, err := tx.CountVideoParts(ctx, live.ID); err != nil || n != 0 {
-			return fmt.Errorf("parts inside the transaction = %d, %v", n, err)
+		if list, err := tx.ListVideoParts(ctx, live.ID); err != nil || len(list) != 0 {
+			return fmt.Errorf("parts inside the transaction = %d, %v", len(list), err)
 		}
 		return abort
 	})

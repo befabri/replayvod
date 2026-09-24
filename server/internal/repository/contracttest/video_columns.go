@@ -78,7 +78,7 @@ func testVideoRetentionRefsOutliveSchedule(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	SeedUserChannel(t, ctx, repo, "u-1", "b-1")
 	hours := int64(24)
-	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: repository.QualityHigh, IsDeleteRediff: true, TimeBeforeDelete: &hours})
+	sched, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: repository.QualityHigh, IsDeleteRediff: true, TimeBeforeDelete: &hours}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatal(err)
 	}

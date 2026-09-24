@@ -4,9 +4,6 @@ SELECT * FROM users WHERE id = $1;
 -- name: GetUserForUpdate :one
 SELECT * FROM users WHERE id = $1 FOR UPDATE;
 
--- name: GetUserByLogin :one
-SELECT * FROM users WHERE login = $1;
-
 -- name: UpsertUser :one
 INSERT INTO users (id, login, display_name, email, profile_image_url, role)
 VALUES ($1, $2, $3, $4, $5, $6)

@@ -20,9 +20,6 @@ LEFT JOIN videos v ON v.id = vc.video_id AND v.deleted_at IS NULL
 WHERE c.id = $1
 GROUP BY c.id, c.name, c.box_art_url, c.igdb_id, c.description, c.game_metadata_checked_at, c.description_checked_at, c.created_at, c.updated_at;
 
--- name: GetCategoryByName :one
-SELECT * FROM categories WHERE name = $1;
-
 -- name: UpsertCategory :one
 -- Preserves box_art_url, igdb_id, and description on ordinary webhook-path
 -- upserts that only know (id, name). When a non-empty incoming igdb_id changes

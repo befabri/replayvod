@@ -169,7 +169,7 @@ func TestRecoveryFinalizesSavedMediaWithoutFetchingAnotherBroadcast(t *testing.T
 			if _, err := h.repo.UpsertUser(t.Context(), &repository.User{ID: "identity-owner", Login: "identityowner", DisplayName: "Owner", Role: "owner"}); err != nil {
 				t.Fatal(err)
 			}
-			schedule, err := h.repo.CreateSchedule(t.Context(), &repository.ScheduleInput{BroadcasterID: "identity-channel", RequestedBy: "identity-owner", Quality: repository.QualityHigh})
+			schedule, err := h.repo.CreateScheduleWithFilters(t.Context(), &repository.ScheduleInput{BroadcasterID: "identity-channel", RequestedBy: "identity-owner", Quality: repository.QualityHigh}, repository.ScheduleFilterInput{})
 			if err != nil {
 				t.Fatal(err)
 			}

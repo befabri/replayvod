@@ -83,7 +83,6 @@ type Repository interface {
 	// Call it on the transaction repository before other reads to avoid a
 	// stale SQLite snapshot.
 	GetUserForUpdate(ctx context.Context, id string) (*User, error)
-	GetUserByLogin(ctx context.Context, login string) (*User, error)
 	// UpsertUser refreshes profile fields and sets Role only on insert.
 	UpsertUser(ctx context.Context, u *User) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -144,7 +143,6 @@ type Repository interface {
 	GetChannelUserState(ctx context.Context, userID string, broadcasterID string) (*ChannelUserState, error)
 	ListChannelUserStatesForChannels(ctx context.Context, userID string, broadcasterIDs []string) ([]ChannelUserState, error)
 	SetChannelFavorite(ctx context.Context, userID string, broadcasterID string, favorite bool) (*ChannelUserState, error)
-	DeleteChannel(ctx context.Context, broadcasterID string) error
 
 	UpsertUserFollow(ctx context.Context, f *UserFollow) error
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
@@ -152,7 +150,6 @@ type Repository interface {
 
 	GetCategory(ctx context.Context, id string) (*Category, error)
 	GetCategoryDetail(ctx context.Context, id string) (*CategoryDetail, error)
-	GetCategoryByName(ctx context.Context, name string) (*Category, error)
 	UpsertCategory(ctx context.Context, c *Category) (*Category, error)
 	UpsertCategories(ctx context.Context, categories []Category) ([]Category, error)
 	ListCategories(ctx context.Context) ([]Category, error)
@@ -187,8 +184,6 @@ type Repository interface {
 	DeleteExpiredCategorySearchCache(ctx context.Context, before time.Time) error
 	PruneCategorySearchCache(ctx context.Context, maxRows int) error
 
-	GetTag(ctx context.Context, id int64) (*Tag, error)
-	GetTagByName(ctx context.Context, name string) (*Tag, error)
 	UpsertTag(ctx context.Context, name string) (*Tag, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 
@@ -202,7 +197,6 @@ type Repository interface {
 	GetStream(ctx context.Context, id string) (*Stream, error)
 	UpsertStream(ctx context.Context, s *StreamInput) (*Stream, error)
 	EndStream(ctx context.Context, id string, endedAt time.Time) error
-	UpdateStreamViewers(ctx context.Context, id string, viewerCount int64) error
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Stream, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (*Stream, error)
@@ -271,7 +265,6 @@ type Repository interface {
 	SearchVideos(ctx context.Context, query string, limit int) ([]Video, error)
 	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
-	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// RequestVideoDelete queues an operator-requested delete on a live terminal
 	// recording. The background deletion task performs the object purge and
 	// tombstone finalization.
@@ -310,7 +303,6 @@ type Repository interface {
 	// video (recording why via kind) and remove its parts in one transaction so
 	// readers never see a visible row whose part rows were already deleted.
 	FinalizeDelete(ctx context.Context, videoID int64, kind string) error
-	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
 	// VideoStatsHistory returns the terminal recordings grouped by status,
 	// completion kind and tombstone state, which is everything the download
@@ -331,7 +323,6 @@ type Repository interface {
 
 	CreateJob(ctx context.Context, input *JobInput) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
-	GetJobByVideoID(ctx context.Context, videoID int64) (*Job, error)
 	// GetActiveLiveJobByBroadcaster is the live-recording idempotency check;
 	// queued or running archives for the channel are ignored.
 	GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*Job, error)
@@ -341,16 +332,13 @@ type Repository interface {
 
 	CreateVideoPart(ctx context.Context, input *VideoPartInput) (*VideoPart, error)
 	FinalizeVideoPart(ctx context.Context, input *VideoPartFinalize) error
-	GetVideoPart(ctx context.Context, id int64) (*VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*VideoPart, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	// ListVideoPartsForVideos returns parts ordered by video ID, then part index.
 	ListVideoPartsForVideos(ctx context.Context, videoIDs []int64) ([]VideoPart, error)
-	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	// HasFinalizedVideoParts reports whether any part has stored output bytes,
 	// which permits classifying a failed recording as partial.
 	HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error)
-	DeleteVideoParts(ctx context.Context, videoID int64) error
 
 	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*VideoPlaybackAsset, error)
 	UpsertVideoPlaybackAsset(ctx context.Context, input *VideoPlaybackAssetInput) (*VideoPlaybackAsset, error)
@@ -370,7 +358,6 @@ type Repository interface {
 	LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error
 	UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error
 	LinkStreamTag(ctx context.Context, streamID string, tagID int64) error
-	LinkVideoTag(ctx context.Context, videoID, tagID int64) error
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIDs []int64) (map[int64]Category, error)
 	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]CategorySpan, error)
 	CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
@@ -383,7 +370,6 @@ type Repository interface {
 	// ListVideoMetadataChanges returns chronological observations with title and
 	// category rows hydrated.
 	ListVideoMetadataChanges(ctx context.Context, videoID int64) ([]VideoMetadataChange, error)
-	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 
 	CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*ScheduleRequest, error)
 	GetScheduleRequest(ctx context.Context, id int64) (*ScheduleRequest, error)
@@ -400,11 +386,9 @@ type Repository interface {
 	// creating a schedule if the request is no longer pending.
 	ApproveScheduleRequest(ctx context.Context, requestID int64, decidedBy string, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, bool, error)
 
-	CreateSchedule(ctx context.Context, input *ScheduleInput) (*DownloadSchedule, error)
 	CreateScheduleWithFilters(ctx context.Context, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, error)
 	GetSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*DownloadSchedule, error)
-	UpdateSchedule(ctx context.Context, id int64, input *ScheduleInput) (*DownloadSchedule, error)
 	UpdateScheduleWithFilters(ctx context.Context, id int64, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, error)
 	ToggleSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
 	DeleteSchedule(ctx context.Context, id int64) error
@@ -414,15 +398,9 @@ type Repository interface {
 	// retain its indexed lookup of enabled schedules.
 	ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]DownloadSchedule, error)
 	RecordScheduleTrigger(ctx context.Context, id int64) error
-	LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
-	UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
-	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
 	ListScheduleCategoriesByScheduleIDs(ctx context.Context, ids []int64) (map[int64][]Category, error)
 	ListScheduleTagsByScheduleIDs(ctx context.Context, ids []int64) (map[int64][]Tag, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
-	LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error
-	UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error
-	ClearScheduleTags(ctx context.Context, scheduleID int64) error
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
 
 	// CreateSubscription inserts a mirrored EventSub subscription; revocation is a
@@ -434,11 +412,9 @@ type Repository interface {
 	GetSubscription(ctx context.Context, id string) (*Subscription, error)
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*Subscription, error)
 	ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]Subscription, error)
-	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]Subscription, error)
 	ListSubscriptionsByType(ctx context.Context, subType string) ([]Subscription, error)
 	UpdateSubscriptionStatus(ctx context.Context, id, status string) error
 	MarkSubscriptionRevoked(ctx context.Context, id, reason string) error
-	DeleteSubscription(ctx context.Context, id string) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 
 	CreateEventSubSnapshot(ctx context.Context, total, totalCost, maxTotalCost int64) (*EventSubSnapshot, error)
@@ -521,15 +497,9 @@ type Repository interface {
 	// CreateWebhookEvent records an event once. ErrNotFound reports one already
 	// recorded: the insert does nothing on conflict and so returns no row.
 	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
-	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (*WebhookEvent, error)
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
 	MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error
-	ListWebhookEvents(ctx context.Context, limit, offset int) ([]WebhookEvent, error)
-	ListWebhookEventsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]WebhookEvent, error)
-	ListWebhookEventsByType(ctx context.Context, eventType string, limit, offset int) ([]WebhookEvent, error)
-	ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]WebhookEvent, error)
 	ClearWebhookEventPayload(ctx context.Context, before time.Time) error
 	CountWebhookEvents(ctx context.Context) (int64, error)
-	CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error)
 }

@@ -142,7 +142,8 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 	}
 
 	if h.processor == nil {
-		// Audit-only mode should not trip the stuck-events query.
+		// Nothing processes events in audit-only mode; record them as handled
+		// rather than leave them looking stuck in received.
 		if err := h.repo.MarkWebhookEventProcessed(ctx, event.ID); err != nil {
 			h.log.Error("failed to mark audit-only webhook processed", "error", err, "id", event.ID)
 		}

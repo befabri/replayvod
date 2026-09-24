@@ -11,9 +11,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (event_id) DO NOTHING
 RETURNING *;
 
--- name: GetWebhookEvent :one
-SELECT * FROM webhook_events WHERE id = $1;
-
 -- name: GetWebhookEventByEventID :one
 SELECT * FROM webhook_events WHERE event_id = $1;
 
@@ -27,32 +24,6 @@ UPDATE webhook_events
 SET status = 'failed', processed_at = NOW(), error = @err_msg
 WHERE id = @id;
 
--- name: ListWebhookEvents :many
-SELECT * FROM webhook_events
-ORDER BY received_at DESC
-LIMIT $1 OFFSET $2;
-
--- name: ListWebhookEventsByBroadcaster :many
-SELECT * FROM webhook_events
-WHERE broadcaster_id = $1
-ORDER BY received_at DESC
-LIMIT $2 OFFSET $3;
-
--- name: ListWebhookEventsByType :many
-SELECT * FROM webhook_events
-WHERE event_type = $1
-ORDER BY received_at DESC
-LIMIT $2 OFFSET $3;
-
--- name: ListStuckWebhookEvents :many
--- Dashboard "stuck" query: status='received' rows older than a threshold
--- indicate the handler crashed mid-processing. Partial index
--- idx_webhook_events_received_status keeps this fast.
-SELECT * FROM webhook_events
-WHERE status = 'received' AND received_at < @before
-ORDER BY received_at DESC
-LIMIT sqlc.arg('limit');
-
 -- name: ClearWebhookEventPayload :exec
 -- Retention trim: scheduler task nulls the payload on rows older than
 -- webhook_event_payload_retention_days. The row (with audit metadata)
@@ -63,6 +34,3 @@ WHERE received_at < $1 AND payload IS NOT NULL;
 
 -- name: CountWebhookEvents :one
 SELECT COUNT(*) FROM webhook_events;
-
--- name: CountWebhookEventsByType :one
-SELECT COUNT(*) FROM webhook_events WHERE event_type = $1;

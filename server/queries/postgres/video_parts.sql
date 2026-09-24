@@ -19,9 +19,6 @@ UPDATE video_parts SET
     updated_at = NOW()
 WHERE id = $1;
 
--- name: GetVideoPart :one
-SELECT * FROM video_parts WHERE id = $1;
-
 -- name: GetVideoPartByIndex :one
 -- The "current part" lookup used by resume logic — given a video and
 -- a part_index, return the row without pulling the whole list.
@@ -34,9 +31,6 @@ SELECT * FROM video_parts WHERE video_id = $1 ORDER BY part_index ASC;
 SELECT * FROM video_parts
 WHERE video_id = ANY(@video_ids::bigint[])
 ORDER BY video_id ASC, part_index ASC;
-
--- name: CountVideoParts :one
-SELECT COUNT(*) FROM video_parts WHERE video_id = $1;
 
 -- name: HasFinalizedVideoParts :one
 -- True when at least one part for this video has been remuxed and

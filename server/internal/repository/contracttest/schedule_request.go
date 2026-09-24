@@ -25,9 +25,9 @@ func testScheduleRequestDecideOnce(t *testing.T, h Harness) {
 		t.Fatalf("created status = %q, want PENDING", req.Status)
 	}
 
-	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	sched, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH",
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
 	}
@@ -346,9 +346,9 @@ func testScheduleRequestApproveBlocksActiveDuplicate(t *testing.T, h Harness) {
 	SeedUserChannel(t, ctx, repo, "u-1", "b-1")
 	SeedUserChannel(t, ctx, repo, "u-2", "b-1")
 
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-2", Quality: "HIGH",
-	}); err != nil {
+	}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatalf("seed active schedule: %v", err)
 	}
 	req, err := repo.CreateScheduleRequest(ctx, "b-1", "u-1", nil)

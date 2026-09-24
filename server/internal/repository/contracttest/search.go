@@ -29,7 +29,7 @@ func testSearchChannels(t *testing.T, h Harness) {
 	seed := []repository.Channel{
 		{BroadcasterID: "1", BroadcasterLogin: "shrimpcaster", BroadcasterName: "ShrimpCaster"},
 		{BroadcasterID: "2", BroadcasterLogin: "shoal", BroadcasterName: "Shoal"},
-		{BroadcasterID: "3", BroadcasterLogin: "washtubcaster", BroadcasterName: "Washtub"},
+		{BroadcasterID: "3", BroadcasterLogin: "bashfulcaster", BroadcasterName: "Bashful"},
 		{BroadcasterID: "4", BroadcasterLogin: "unrelated", BroadcasterName: "Elsewhere"},
 		{BroadcasterID: "5", BroadcasterLogin: "percent_tester", BroadcasterName: "100% tester"},
 		{BroadcasterID: "6", BroadcasterLogin: "echecs_club", BroadcasterName: "Échecs Club"},
@@ -51,7 +51,7 @@ func testSearchChannels(t *testing.T, h Harness) {
 		return loginsOf(got)
 	}
 	t.Run("login or display name prefix beats substring, alphabetical within prefix", func(t *testing.T) {
-		assertStringSlice(t, search(t, "sh", 10), []string{"bubblecaster", "shoal", "shrimpcaster", "washtubcaster"})
+		assertStringSlice(t, search(t, "sh", 10), []string{"bubblecaster", "shoal", "shrimpcaster", "bashfulcaster"})
 	})
 	t.Run("exact login match ranks ahead of an earlier display name prefix", func(t *testing.T) {
 		assertStringSlice(t, search(t, "shrimpcaster", 10), []string{"shrimpcaster", "bubblecaster"})

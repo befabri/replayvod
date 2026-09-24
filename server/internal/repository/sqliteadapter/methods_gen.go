@@ -44,14 +44,6 @@ func (a *SQLiteAdapter) ClearArchiveRetry(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (a *SQLiteAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleCategories(ctx, scheduleID)
-}
-
-func (a *SQLiteAdapter) ClearScheduleTags(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleTags(ctx, scheduleID)
-}
-
 func (a *SQLiteAdapter) ClearWebhookEventPayload(ctx context.Context, before time.Time) error {
 	return a.queries.ClearWebhookEventPayload(ctx, sqliteTime(before))
 }
@@ -84,20 +76,8 @@ func (a *SQLiteAdapter) CountFetchLogsByType(ctx context.Context, fetchType stri
 	return a.queries.CountFetchLogsByType(ctx, fetchType)
 }
 
-func (a *SQLiteAdapter) CountVideoParts(ctx context.Context, videoID int64) (int64, error) {
-	return a.queries.CountVideoParts(ctx, videoID)
-}
-
-func (a *SQLiteAdapter) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
-	return a.queries.CountVideosByStatus(ctx, status)
-}
-
 func (a *SQLiteAdapter) CountWebhookEvents(ctx context.Context) (int64, error) {
 	return a.queries.CountWebhookEvents(ctx)
-}
-
-func (a *SQLiteAdapter) CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error) {
-	return a.queries.CountWebhookEventsByType(ctx, sql.NullString{String: eventType, Valid: true})
 }
 
 func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
@@ -187,10 +167,6 @@ func (a *SQLiteAdapter) DecideScheduleRequest(ctx context.Context, id int64, sta
 	return affected > 0, nil
 }
 
-func (a *SQLiteAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
-	return a.queries.DeleteChannel(ctx, broadcasterID)
-}
-
 func (a *SQLiteAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
 	return a.queries.DeleteExpiredAppTokens(ctx)
 }
@@ -264,20 +240,12 @@ func (a *SQLiteAdapter) DeleteSession(ctx context.Context, hashedID string) erro
 	return a.queries.DeleteSession(ctx, hashedID)
 }
 
-func (a *SQLiteAdapter) DeleteSubscription(ctx context.Context, id string) error {
-	return a.queries.DeleteSubscription(ctx, id)
-}
-
 func (a *SQLiteAdapter) DeleteTwitchPlaybackSession(ctx context.Context) error {
 	return mapErr(a.queries.DeleteTwitchPlaybackSession(ctx))
 }
 
 func (a *SQLiteAdapter) DeleteUserSessions(ctx context.Context, userID string) error {
 	return a.queries.DeleteUserSessions(ctx, userID)
-}
-
-func (a *SQLiteAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
-	return a.queries.DeleteVideoParts(ctx, videoID)
 }
 
 func (a *SQLiteAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error {
@@ -337,14 +305,6 @@ func (a *SQLiteAdapter) GetCategory(ctx context.Context, id string) (*repository
 	return sqliteCategoryToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetCategoryByName(ctx context.Context, name string) (*repository.Category, error) {
-	row, err := a.queries.GetCategoryByName(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteCategoryToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
 	row, err := a.queries.GetChannel(ctx, broadcasterID)
 	if err != nil {
@@ -379,14 +339,6 @@ func (a *SQLiteAdapter) GetInviteByTokenHash(ctx context.Context, tokenHash stri
 
 func (a *SQLiteAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
 	row, err := a.queries.GetJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteJobToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
-	row, err := a.queries.GetJobByVideoID(ctx, videoID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -513,22 +465,6 @@ func (a *SQLiteAdapter) GetSubscription(ctx context.Context, id string) (*reposi
 	return sqliteSubscriptionToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetTag(ctx context.Context, id int64) (*repository.Tag, error) {
-	row, err := a.queries.GetTag(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteTagToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetTagByName(ctx context.Context, name string) (*repository.Tag, error) {
-	row, err := a.queries.GetTagByName(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteTagToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetTask(ctx context.Context, name string) (*repository.Task, error) {
 	row, err := a.queries.GetTask(ctx, name)
 	if err != nil {
@@ -547,14 +483,6 @@ func (a *SQLiteAdapter) GetTwitchPlaybackSession(ctx context.Context) (*reposito
 
 func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteUserToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
-	row, err := a.queries.GetUserByLogin(ctx, login)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -586,14 +514,6 @@ func (a *SQLiteAdapter) GetVideoForUpdate(ctx context.Context, id int64) (*repos
 		return nil, mapErr(err)
 	}
 	return sqliteVideoToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetVideoPart(ctx context.Context, id int64) (*repository.VideoPart, error) {
-	row, err := a.queries.GetVideoPart(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoPartToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*repository.VideoPart, error) {
@@ -628,14 +548,6 @@ func (a *SQLiteAdapter) GetVideoWaveformKey(ctx context.Context, videoID int64) 
 	return v, nil
 }
 
-func (a *SQLiteAdapter) GetWebhookEvent(ctx context.Context, id int64) (*repository.WebhookEvent, error) {
-	row, err := a.queries.GetWebhookEvent(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteWebhookEventToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetWebhookEventByEventID(ctx context.Context, eventID string) (*repository.WebhookEvent, error) {
 	row, err := a.queries.GetWebhookEventByEventID(ctx, eventID)
 	if err != nil {
@@ -660,14 +572,6 @@ func (a *SQLiteAdapter) LinkRecordingIntentVideo(ctx context.Context, intentID s
 	return mapErr(a.queries.LinkRecordingIntentVideo(ctx, sqlitegen.LinkRecordingIntentVideoParams{IntentID: intentID, VideoID: videoID, StreamID: toNullString(streamID)}))
 }
 
-func (a *SQLiteAdapter) LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.LinkScheduleCategory(ctx, sqlitegen.LinkScheduleCategoryParams{ScheduleID: scheduleID, CategoryID: categoryID})
-}
-
-func (a *SQLiteAdapter) LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.LinkScheduleTag(ctx, sqlitegen.LinkScheduleTagParams{ScheduleID: scheduleID, TagID: tagID})
-}
-
 func (a *SQLiteAdapter) LinkSnapshotSubscription(ctx context.Context, snapshotID int64, subscriptionID string, costAtSnapshot int64, statusAtSnapshot string) error {
 	return a.queries.LinkSnapshotSubscription(ctx, sqlitegen.LinkSnapshotSubscriptionParams{SnapshotID: snapshotID, SubscriptionID: subscriptionID, CostAtSnapshot: costAtSnapshot, StatusAtSnapshot: statusAtSnapshot})
 }
@@ -686,10 +590,6 @@ func (a *SQLiteAdapter) LinkStreamTitle(ctx context.Context, streamID string, ti
 
 func (a *SQLiteAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
 	return a.queries.LinkVideoCategory(ctx, sqlitegen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
-}
-
-func (a *SQLiteAdapter) LinkVideoTag(ctx context.Context, videoID, tagID int64) error {
-	return a.queries.LinkVideoTag(ctx, sqlitegen.LinkVideoTagParams{VideoID: videoID, TagID: tagID})
 }
 
 func (a *SQLiteAdapter) LinkVideoTitle(ctx context.Context, videoID, titleID int64) error {
@@ -1041,22 +941,6 @@ func (a *SQLiteAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcaste
 	return sqliteStreamsToDomain(rows), nil
 }
 
-func (a *SQLiteAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListStuckWebhookEvents(ctx, sqlitegen.ListStuckWebhookEventsParams{Before: sqliteTime(before), Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list stuck webhook events: %w", err)
-	}
-	return sqliteWebhookEventsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListSubscriptionsByBroadcaster(ctx, sql.NullString{String: broadcasterID, Valid: true})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list subscriptions by broadcaster: %w", err)
-	}
-	return sqliteSubscriptionsToDomain(rows), nil
-}
-
 func (a *SQLiteAdapter) ListSubscriptionsByType(ctx context.Context, subType string) ([]repository.Subscription, error) {
 	rows, err := a.queries.ListSubscriptionsByType(ctx, subType)
 	if err != nil {
@@ -1069,14 +953,6 @@ func (a *SQLiteAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) 
 	rows, err := a.queries.ListTags(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list tags: %w", err)
-	}
-	return sqliteTagsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]repository.Tag, error) {
-	rows, err := a.queries.ListTagsForVideo(ctx, videoID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list tags for video: %w", err)
 	}
 	return sqliteTagsToDomain(rows), nil
 }
@@ -1155,14 +1031,6 @@ func (a *SQLiteAdapter) ListVideosForStorageWitness(ctx context.Context, size re
 	return sqliteStorageWitnessesToDomain(rows), nil
 }
 
-func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosMissingThumbnail(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list videos missing thumbnail: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
 func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, page repository.BatchPage) ([]repository.Video, error) {
 	if err := page.Validate(); err != nil {
 		return nil, err
@@ -1172,30 +1040,6 @@ func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, page 
 		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListWebhookEvents(ctx context.Context, limit, offset int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListWebhookEvents(ctx, sqlitegen.ListWebhookEventsParams{Limit: int64(limit), Offset: int64(offset)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list webhook events: %w", err)
-	}
-	return sqliteWebhookEventsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListWebhookEventsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListWebhookEventsByBroadcaster(ctx, sqlitegen.ListWebhookEventsByBroadcasterParams{BroadcasterID: sql.NullString{String: broadcasterID, Valid: true}, Limit: int64(limit), Offset: int64(offset)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list webhook events by broadcaster: %w", err)
-	}
-	return sqliteWebhookEventsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListWebhookEventsByType(ctx context.Context, eventType string, limit, offset int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListWebhookEventsByType(ctx, sqlitegen.ListWebhookEventsByTypeParams{EventType: sql.NullString{String: eventType, Valid: true}, Limit: int64(limit), Offset: int64(offset)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list webhook events by type: %w", err)
-	}
-	return sqliteWebhookEventsToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
@@ -1512,14 +1356,6 @@ func (a *SQLiteAdapter) UnfollowChannel(ctx context.Context, userID, broadcaster
 	return a.queries.UnfollowChannel(ctx, sqlitegen.UnfollowChannelParams{UserID: userID, BroadcasterID: broadcasterID})
 }
 
-func (a *SQLiteAdapter) UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.UnlinkScheduleCategory(ctx, sqlitegen.UnlinkScheduleCategoryParams{ScheduleID: scheduleID, CategoryID: categoryID})
-}
-
-func (a *SQLiteAdapter) UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.UnlinkScheduleTag(ctx, sqlitegen.UnlinkScheduleTagParams{ScheduleID: scheduleID, TagID: tagID})
-}
-
 func (a *SQLiteAdapter) UpdateCategoryDescription(ctx context.Context, id, description string) error {
 	if err := a.queries.UpdateCategoryDescription(ctx, sqlitegen.UpdateCategoryDescriptionParams{ID: id, Description: sql.NullString{String: description, Valid: true}}); err != nil {
 		return fmt.Errorf("sqlite update category description %s: %w", id, err)
@@ -1548,10 +1384,6 @@ func (a *SQLiteAdapter) UpdateSessionActivity(ctx context.Context, hashedID stri
 
 func (a *SQLiteAdapter) UpdateSessionTokens(ctx context.Context, hashedID string, encryptedTokens []byte) error {
 	return a.queries.UpdateSessionTokens(ctx, sqlitegen.UpdateSessionTokensParams{HashedID: hashedID, EncryptedTokens: encryptedTokens})
-}
-
-func (a *SQLiteAdapter) UpdateStreamViewers(ctx context.Context, id string, viewerCount int64) error {
-	return a.queries.UpdateStreamViewers(ctx, sqlitegen.UpdateStreamViewersParams{ID: id, ViewerCount: viewerCount})
 }
 
 func (a *SQLiteAdapter) UpdateSubscriptionStatus(ctx context.Context, id, status string) error {

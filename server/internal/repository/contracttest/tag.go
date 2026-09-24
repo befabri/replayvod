@@ -17,51 +17,23 @@ func tagNames(tags []repository.Tag) []string {
 	return out
 }
 
-func testTagsAndVideoTags(t *testing.T, h Harness) {
+func testTags(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	beta, err := repo.UpsertTag(ctx, "beta")
 	if err != nil {
 		t.Fatal(err)
 	}
-	alpha, err := repo.UpsertTag(ctx, "alpha")
-	if err != nil {
-		t.Fatal(err)
+	if alpha, err := repo.UpsertTag(ctx, "alpha"); err != nil || alpha.CreatedAt.IsZero() {
+		t.Fatalf("tag = %+v, %v", alpha, err)
 	}
-	if got, err := repo.GetTag(ctx, alpha.ID); err != nil || got.Name != "alpha" || got.CreatedAt.IsZero() {
-		t.Fatalf("tag = %+v, %v", got, err)
-	}
-	if _, err := repo.GetTag(ctx, alpha.ID+beta.ID+1); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("missing tag: %v", err)
-	}
-	if got, err := repo.GetTagByName(ctx, "beta"); err != nil || got.ID != beta.ID {
-		t.Fatalf("tag by name = %+v, %v", got, err)
-	}
-	if _, err := repo.GetTagByName(ctx, "gamma"); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("missing tag name: %v", err)
+	if again, err := repo.UpsertTag(ctx, "beta"); err != nil || again.ID != beta.ID {
+		t.Fatalf("re-upserted tag = %+v, %v; want the existing row %d", again, err, beta.ID)
 	}
 	tags, err := repo.ListTags(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertStringSlice(t, tagNames(tags), []string{"alpha", "beta"})
-	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
-	v, err := repo.CreateVideo(ctx, executionInput("tagged"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []int64{beta.ID, alpha.ID, beta.ID} {
-		if err := repo.LinkVideoTag(ctx, v.ID, id); err != nil {
-			t.Fatalf("link tag %d: %v", id, err)
-		}
-	}
-	tags, err = repo.ListTagsForVideo(ctx, v.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSlice(t, tagNames(tags), []string{"alpha", "beta"})
-	if tags, err := repo.ListTagsForVideo(ctx, v.ID+1); err != nil || len(tags) != 0 {
-		t.Fatalf("tags of an unknown video = %+v, %v", tags, err)
-	}
 }
 
 func testCategoryLookupAndSearchCache(t *testing.T, h Harness) {
@@ -70,12 +42,6 @@ func testCategoryLookupAndSearchCache(t *testing.T, h Harness) {
 		if _, err := repo.UpsertCategory(ctx, &c); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if got, err := repo.GetCategoryByName(ctx, "Apex"); err != nil || got.ID != "a" {
-		t.Fatalf("category by name = %+v, %v", got, err)
-	}
-	if _, err := repo.GetCategoryByName(ctx, "Tetris"); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("missing category name: %v", err)
 	}
 	categories, err := repo.ListCategories(ctx)
 	if err != nil {

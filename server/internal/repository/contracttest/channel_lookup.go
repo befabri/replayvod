@@ -8,7 +8,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-func testChannelLookupAndDelete(t *testing.T, h Harness) {
+func testChannelLookup(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	SeedUserChannel(t, ctx, repo, "viewer", "beta")
 	description := "plays chess"
@@ -44,23 +44,6 @@ func testChannelLookupAndDelete(t *testing.T, h Harness) {
 	}
 	if _, err := repo.GetChannelUserState(ctx, "viewer", "beta"); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("state without a row: %v", err)
-	}
-	if err := repo.DeleteChannel(ctx, "alpha"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repo.GetChannel(ctx, "alpha"); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("deleted channel survived: %v", err)
-	}
-	if _, err := repo.GetChannelUserState(ctx, "viewer", "alpha"); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("channel state outlived its channel: %v", err)
-	}
-	channels, err = repo.ListChannels(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSlice(t, loginsOf(channels), []string{"beta"})
-	if err := repo.DeleteChannel(ctx, "alpha"); err != nil {
-		t.Fatalf("deleting a missing channel: %v", err)
 	}
 }
 

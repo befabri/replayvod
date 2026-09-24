@@ -110,32 +110,6 @@ func (q *Queries) GetJob(ctx context.Context, id string) (Job, error) {
 	return i, err
 }
 
-const getJobByVideoID = `-- name: GetJobByVideoID :one
-SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata, stop_requested FROM jobs WHERE video_id = ? ORDER BY created_at DESC LIMIT 1
-`
-
-func (q *Queries) GetJobByVideoID(ctx context.Context, videoID int64) (Job, error) {
-	row := q.db.QueryRowContext(ctx, getJobByVideoID, videoID)
-	var i Job
-	err := row.Scan(
-		&i.ID,
-		&i.VideoID,
-		&i.BroadcasterID,
-		&i.Status,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.Error,
-		&i.ResumeState,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Attempt,
-		&i.ExecutionID,
-		&i.AcceptsMetadata,
-		&i.StopRequested,
-	)
-	return i, err
-}
-
 const listRunningLiveBroadcasters = `-- name: ListRunningLiveBroadcasters :many
 SELECT DISTINCT jobs.broadcaster_id FROM jobs
 JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id

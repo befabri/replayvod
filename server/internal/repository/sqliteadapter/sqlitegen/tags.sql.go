@@ -9,28 +9,6 @@ import (
 	"context"
 )
 
-const getTag = `-- name: GetTag :one
-SELECT id, name, created_at FROM tags WHERE id = ?
-`
-
-func (q *Queries) GetTag(ctx context.Context, id int64) (Tag, error) {
-	row := q.db.QueryRowContext(ctx, getTag, id)
-	var i Tag
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
-	return i, err
-}
-
-const getTagByName = `-- name: GetTagByName :one
-SELECT id, name, created_at FROM tags WHERE name = ?
-`
-
-func (q *Queries) GetTagByName(ctx context.Context, name string) (Tag, error) {
-	row := q.db.QueryRowContext(ctx, getTagByName, name)
-	var i Tag
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
-	return i, err
-}
-
 const listTags = `-- name: ListTags :many
 SELECT id, name, created_at FROM tags ORDER BY name
 `

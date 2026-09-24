@@ -9,14 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) CreateSchedule(ctx context.Context, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.CreateSchedule(ctx, sqliteCreateScheduleParams(input))
-	if err != nil {
-		return nil, fmt.Errorf("sqlite create schedule: %w", err)
-	}
-	return sqliteDownloadScheduleToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
 	var out *repository.DownloadSchedule
 	err := a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
@@ -35,14 +27,6 @@ func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *re
 		return nil, err
 	}
 	return out, nil
-}
-
-func (a *SQLiteAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.UpdateSchedule(ctx, sqliteUpdateScheduleParams(id, input))
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteDownloadScheduleToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {

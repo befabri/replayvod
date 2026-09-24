@@ -39,15 +39,6 @@ func testStreamLifecycleAndListing(t *testing.T, h Harness) {
 		t.Fatal(err)
 	}
 	assertStringSlice(t, streamIDs(active), []string{"b1", "a2", "a1"})
-	if err := repo.UpdateStreamViewers(ctx, "a2", 42); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.UpdateStreamViewers(ctx, "missing", 1); err != nil {
-		t.Fatalf("updating viewers of an unknown stream: %v", err)
-	}
-	if got, err := repo.GetStream(ctx, "a2"); err != nil || got.ViewerCount != 42 {
-		t.Fatalf("viewers after update = %+v, %v", got, err)
-	}
 	ended := now.Add(-30 * time.Minute)
 	if err := repo.EndStream(ctx, "a1", ended); err != nil {
 		t.Fatal(err)

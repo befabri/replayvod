@@ -11,17 +11,6 @@ import (
 	"strings"
 )
 
-const countVideoParts = `-- name: CountVideoParts :one
-SELECT COUNT(*) FROM video_parts WHERE video_id = ?
-`
-
-func (q *Queries) CountVideoParts(ctx context.Context, videoID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countVideoParts, videoID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createVideoPart = `-- name: CreateVideoPart :one
 INSERT INTO video_parts (
     video_id, part_index, filename, quality, fps, codec,
@@ -110,33 +99,6 @@ func (q *Queries) FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartPa
 		arg.ID,
 	)
 	return err
-}
-
-const getVideoPart = `-- name: GetVideoPart :one
-SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts WHERE id = ?
-`
-
-func (q *Queries) GetVideoPart(ctx context.Context, id int64) (VideoPart, error) {
-	row := q.db.QueryRowContext(ctx, getVideoPart, id)
-	var i VideoPart
-	err := row.Scan(
-		&i.ID,
-		&i.VideoID,
-		&i.PartIndex,
-		&i.Filename,
-		&i.Quality,
-		&i.Codec,
-		&i.SegmentFormat,
-		&i.DurationSeconds,
-		&i.SizeBytes,
-		&i.Thumbnail,
-		&i.StartMediaSeq,
-		&i.EndMediaSeq,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Fps,
-	)
-	return i, err
 }
 
 const getVideoPartByIndex = `-- name: GetVideoPartByIndex :one

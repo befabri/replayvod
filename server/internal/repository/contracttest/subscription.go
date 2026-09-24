@@ -217,7 +217,7 @@ func testWebhookEventPayloadRoundTrip(t *testing.T, h Harness) {
 		t.Fatalf("create: %v", err)
 	}
 
-	reloaded, err := repo.GetWebhookEvent(ctx, created.ID)
+	reloaded, err := repo.GetWebhookEventByEventID(ctx, created.EventID)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}

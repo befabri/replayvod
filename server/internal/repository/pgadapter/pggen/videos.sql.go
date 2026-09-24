@@ -23,17 +23,6 @@ func (q *Queries) ClearArchiveRetry(ctx context.Context, id int64) (int64, error
 	return result.RowsAffected(), nil
 }
 
-const countVideosByStatus = `-- name: CountVideosByStatus :one
-SELECT COUNT(*) FROM videos WHERE status = $1 AND deleted_at IS NULL
-`
-
-func (q *Queries) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
-	row := q.db.QueryRow(ctx, countVideosByStatus, status)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createVideo = `-- name: CreateVideo :one
 INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,
@@ -1163,64 +1152,6 @@ func (q *Queries) ListVideosForStorageWitness(ctx context.Context, limit int32) 
 	for rows.Next() {
 		var i ListVideosForStorageWitnessRow
 		if err := rows.Scan(&i.VideoID, &i.Filename, &i.Status); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, deletion_kind, delete_requested_at, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
-`
-
-func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, error) {
-	rows, err := q.db.Query(ctx, listVideosMissingThumbnail)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Video{}
-	for rows.Next() {
-		var i Video
-		if err := rows.Scan(
-			&i.ID,
-			&i.JobID,
-			&i.Filename,
-			&i.DisplayName,
-			&i.Status,
-			&i.Quality,
-			&i.BroadcasterID,
-			&i.StreamID,
-			&i.ViewerCount,
-			&i.Language,
-			&i.DurationSeconds,
-			&i.SizeBytes,
-			&i.Thumbnail,
-			&i.Error,
-			&i.StartDownloadAt,
-			&i.DownloadedAt,
-			&i.DeletedAt,
-			&i.RecordingType,
-			&i.ForceH264,
-			&i.Title,
-			&i.CompletionKind,
-			&i.SelectedQuality,
-			&i.SelectedFps,
-			&i.Truncated,
-			&i.TriggerScheduleID,
-			&i.RetentionSourceScheduleID,
-			&i.RetentionWindowHours,
-			&i.DeletionKind,
-			&i.DeleteRequestedAt,
-			&i.Source,
-			&i.TwitchVideoID,
-			&i.BroadcastAt,
-			&i.NextRetryAt,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

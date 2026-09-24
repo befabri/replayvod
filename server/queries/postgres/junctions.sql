@@ -7,15 +7,6 @@ INSERT INTO video_categories (video_id, category_id) VALUES ($1, $2) ON CONFLICT
 -- name: LinkStreamTag :exec
 INSERT INTO stream_tags (stream_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;
 
--- name: LinkVideoTag :exec
-INSERT INTO video_tags (video_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;
-
--- name: ListTagsForVideo :many
-SELECT t.* FROM tags t
-INNER JOIN video_tags vt ON vt.tag_id = t.id
-WHERE vt.video_id = $1
-ORDER BY t.name;
-
 -- name: UpsertVideoCategorySpan :exec
 -- Category analogue of UpsertVideoTitleSpan; see that comment for the
 -- close-then-insert rationale.

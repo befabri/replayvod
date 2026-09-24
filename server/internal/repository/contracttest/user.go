@@ -18,12 +18,12 @@ func testUserLookupAndWhitelist(t *testing.T, h Harness) {
 			t.Fatal(err)
 		}
 	}
-	got, err := repo.GetUserByLogin(ctx, "alice-login")
-	if err != nil || got.ID != "alice" || got.DisplayName != "Alice" || got.Role != "admin" {
-		t.Fatalf("user by login = %+v, %v", got, err)
+	got, err := repo.GetUser(ctx, "alice")
+	if err != nil || got.Login != "alice-login" || got.DisplayName != "Alice" || got.Role != "admin" {
+		t.Fatalf("user = %+v, %v", got, err)
 	}
-	if _, err := repo.GetUserByLogin(ctx, "nobody"); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("missing login: %v", err)
+	if _, err := repo.GetUser(ctx, "nobody"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("missing user: %v", err)
 	}
 	users, err := repo.ListUsers(ctx)
 	if err != nil || len(users) != 2 {

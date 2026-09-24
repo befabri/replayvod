@@ -66,9 +66,9 @@ func testClearWebhookEventPayloadKeepsAuditRows(t *testing.T, h Harness) {
 	stale, fresh := create("payload-stale"), create("payload-fresh")
 	received := now.Add(-48 * time.Hour).Truncate(time.Second)
 	h.BackdateWebhookEventReceived(t, stale.ID, received)
-	payloadOf := func(id int64) json.RawMessage {
+	payloadOf := func(event *repository.WebhookEvent) json.RawMessage {
 		t.Helper()
-		row, err := repo.GetWebhookEvent(ctx, id)
+		row, err := repo.GetWebhookEventByEventID(ctx, event.EventID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,13 +77,13 @@ func testClearWebhookEventPayloadKeepsAuditRows(t *testing.T, h Harness) {
 	if err := repo.ClearWebhookEventPayload(ctx, now.Add(-72*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if len(payloadOf(stale.ID)) == 0 || len(payloadOf(fresh.ID)) == 0 {
+	if len(payloadOf(stale)) == 0 || len(payloadOf(fresh)) == 0 {
 		t.Fatal("cutoff older than every row cleared a payload")
 	}
 	if err := repo.ClearWebhookEventPayload(ctx, now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	trimmed, err := repo.GetWebhookEvent(ctx, stale.ID)
+	trimmed, err := repo.GetWebhookEventByEventID(ctx, stale.EventID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +93,8 @@ func testClearWebhookEventPayloadKeepsAuditRows(t *testing.T, h Harness) {
 	if trimmed.EventID != stale.EventID || trimmed.MessageType != stale.MessageType || trimmed.Status != stale.Status || !trimmed.ReceivedAt.Equal(received) {
 		t.Fatalf("trim changed audit columns: %+v", trimmed)
 	}
-	if !jsonEqual(payloadOf(fresh.ID), json.RawMessage(`{"event":"payload-fresh"}`)) {
-		t.Fatalf("fresh payload changed: %s", payloadOf(fresh.ID))
+	if !jsonEqual(payloadOf(fresh), json.RawMessage(`{"event":"payload-fresh"}`)) {
+		t.Fatalf("fresh payload changed: %s", payloadOf(fresh))
 	}
 	if err := repo.ClearWebhookEventPayload(ctx, now.Add(-24*time.Hour)); err != nil {
 		t.Fatalf("repeated trim: %v", err)
@@ -105,7 +105,7 @@ func testClearWebhookEventPayloadKeepsAuditRows(t *testing.T, h Harness) {
 	if err := repo.ClearWebhookEventPayload(ctx, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if len(payloadOf(fresh.ID)) != 0 {
+	if len(payloadOf(fresh)) != 0 {
 		t.Fatal("future cutoff kept a payload")
 	}
 }

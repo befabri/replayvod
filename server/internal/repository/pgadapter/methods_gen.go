@@ -43,14 +43,6 @@ func (a *PGAdapter) ClearArchiveRetry(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (a *PGAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleCategories(ctx, scheduleID)
-}
-
-func (a *PGAdapter) ClearScheduleTags(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleTags(ctx, scheduleID)
-}
-
 func (a *PGAdapter) ClearWebhookEventPayload(ctx context.Context, before time.Time) error {
 	return a.queries.ClearWebhookEventPayload(ctx, before)
 }
@@ -83,20 +75,8 @@ func (a *PGAdapter) CountFetchLogsByType(ctx context.Context, fetchType string) 
 	return a.queries.CountFetchLogsByType(ctx, fetchType)
 }
 
-func (a *PGAdapter) CountVideoParts(ctx context.Context, videoID int64) (int64, error) {
-	return a.queries.CountVideoParts(ctx, videoID)
-}
-
-func (a *PGAdapter) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
-	return a.queries.CountVideosByStatus(ctx, status)
-}
-
 func (a *PGAdapter) CountWebhookEvents(ctx context.Context) (int64, error) {
 	return a.queries.CountWebhookEvents(ctx)
-}
-
-func (a *PGAdapter) CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error) {
-	return a.queries.CountWebhookEventsByType(ctx, &eventType)
 }
 
 func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
@@ -186,10 +166,6 @@ func (a *PGAdapter) DecideScheduleRequest(ctx context.Context, id int64, status,
 	return affected > 0, nil
 }
 
-func (a *PGAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
-	return a.queries.DeleteChannel(ctx, broadcasterID)
-}
-
 func (a *PGAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
 	return a.queries.DeleteExpiredAppTokens(ctx)
 }
@@ -263,20 +239,12 @@ func (a *PGAdapter) DeleteSession(ctx context.Context, hashedID string) error {
 	return a.queries.DeleteSession(ctx, hashedID)
 }
 
-func (a *PGAdapter) DeleteSubscription(ctx context.Context, id string) error {
-	return a.queries.DeleteSubscription(ctx, id)
-}
-
 func (a *PGAdapter) DeleteTwitchPlaybackSession(ctx context.Context) error {
 	return mapErr(a.queries.DeleteTwitchPlaybackSession(ctx))
 }
 
 func (a *PGAdapter) DeleteUserSessions(ctx context.Context, userID string) error {
 	return a.queries.DeleteUserSessions(ctx, userID)
-}
-
-func (a *PGAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
-	return a.queries.DeleteVideoParts(ctx, videoID)
 }
 
 func (a *PGAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error {
@@ -336,14 +304,6 @@ func (a *PGAdapter) GetCategory(ctx context.Context, id string) (*repository.Cat
 	return pgCategoryToDomain(row), nil
 }
 
-func (a *PGAdapter) GetCategoryByName(ctx context.Context, name string) (*repository.Category, error) {
-	row, err := a.queries.GetCategoryByName(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgCategoryToDomain(row), nil
-}
-
 func (a *PGAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
 	row, err := a.queries.GetChannel(ctx, broadcasterID)
 	if err != nil {
@@ -378,14 +338,6 @@ func (a *PGAdapter) GetInviteByTokenHash(ctx context.Context, tokenHash string) 
 
 func (a *PGAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
 	row, err := a.queries.GetJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgJobToDomain(row), nil
-}
-
-func (a *PGAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
-	row, err := a.queries.GetJobByVideoID(ctx, videoID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -512,22 +464,6 @@ func (a *PGAdapter) GetSubscription(ctx context.Context, id string) (*repository
 	return pgSubscriptionToDomain(row), nil
 }
 
-func (a *PGAdapter) GetTag(ctx context.Context, id int64) (*repository.Tag, error) {
-	row, err := a.queries.GetTag(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgTagToDomain(row), nil
-}
-
-func (a *PGAdapter) GetTagByName(ctx context.Context, name string) (*repository.Tag, error) {
-	row, err := a.queries.GetTagByName(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgTagToDomain(row), nil
-}
-
 func (a *PGAdapter) GetTask(ctx context.Context, name string) (*repository.Task, error) {
 	row, err := a.queries.GetTask(ctx, name)
 	if err != nil {
@@ -546,14 +482,6 @@ func (a *PGAdapter) GetTwitchPlaybackSession(ctx context.Context) (*repository.T
 
 func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgUserToDomain(row), nil
-}
-
-func (a *PGAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
-	row, err := a.queries.GetUserByLogin(ctx, login)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -585,14 +513,6 @@ func (a *PGAdapter) GetVideoForUpdate(ctx context.Context, id int64) (*repositor
 		return nil, mapErr(err)
 	}
 	return pgVideoToDomain(row), nil
-}
-
-func (a *PGAdapter) GetVideoPart(ctx context.Context, id int64) (*repository.VideoPart, error) {
-	row, err := a.queries.GetVideoPart(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgVideoPartToDomain(row), nil
 }
 
 func (a *PGAdapter) GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*repository.VideoPart, error) {
@@ -627,14 +547,6 @@ func (a *PGAdapter) GetVideoWaveformKey(ctx context.Context, videoID int64) (str
 	return v, nil
 }
 
-func (a *PGAdapter) GetWebhookEvent(ctx context.Context, id int64) (*repository.WebhookEvent, error) {
-	row, err := a.queries.GetWebhookEvent(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgWebhookEventToDomain(row), nil
-}
-
 func (a *PGAdapter) GetWebhookEventByEventID(ctx context.Context, eventID string) (*repository.WebhookEvent, error) {
 	row, err := a.queries.GetWebhookEventByEventID(ctx, eventID)
 	if err != nil {
@@ -655,14 +567,6 @@ func (a *PGAdapter) LinkRecordingIntentVideo(ctx context.Context, intentID strin
 	return mapErr(a.queries.LinkRecordingIntentVideo(ctx, pggen.LinkRecordingIntentVideoParams{IntentID: intentID, VideoID: videoID, StreamID: streamID}))
 }
 
-func (a *PGAdapter) LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.LinkScheduleCategory(ctx, pggen.LinkScheduleCategoryParams{ScheduleID: scheduleID, CategoryID: categoryID})
-}
-
-func (a *PGAdapter) LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.LinkScheduleTag(ctx, pggen.LinkScheduleTagParams{ScheduleID: scheduleID, TagID: tagID})
-}
-
 func (a *PGAdapter) LinkSnapshotSubscription(ctx context.Context, snapshotID int64, subscriptionID string, costAtSnapshot int64, statusAtSnapshot string) error {
 	return a.queries.LinkSnapshotSubscription(ctx, pggen.LinkSnapshotSubscriptionParams{SnapshotID: snapshotID, SubscriptionID: subscriptionID, CostAtSnapshot: int32(costAtSnapshot), StatusAtSnapshot: statusAtSnapshot})
 }
@@ -681,10 +585,6 @@ func (a *PGAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleI
 
 func (a *PGAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
 	return a.queries.LinkVideoCategory(ctx, pggen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
-}
-
-func (a *PGAdapter) LinkVideoTag(ctx context.Context, videoID, tagID int64) error {
-	return a.queries.LinkVideoTag(ctx, pggen.LinkVideoTagParams{VideoID: videoID, TagID: tagID})
 }
 
 func (a *PGAdapter) LinkVideoTitle(ctx context.Context, videoID, titleID int64) error {
@@ -1036,22 +936,6 @@ func (a *PGAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcasterID 
 	return pgStreamsToDomain(rows), nil
 }
 
-func (a *PGAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListStuckWebhookEvents(ctx, pggen.ListStuckWebhookEventsParams{Before: before, Limit: int32(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list stuck webhook events: %w", err)
-	}
-	return pgWebhookEventsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListSubscriptionsByBroadcaster(ctx, &broadcasterID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list subscriptions by broadcaster: %w", err)
-	}
-	return pgSubscriptionsToDomain(rows), nil
-}
-
 func (a *PGAdapter) ListSubscriptionsByType(ctx context.Context, subType string) ([]repository.Subscription, error) {
 	rows, err := a.queries.ListSubscriptionsByType(ctx, subType)
 	if err != nil {
@@ -1064,14 +948,6 @@ func (a *PGAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
 	rows, err := a.queries.ListTags(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("pg list tags: %w", err)
-	}
-	return pgTagsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]repository.Tag, error) {
-	rows, err := a.queries.ListTagsForVideo(ctx, videoID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list tags for video: %w", err)
 	}
 	return pgTagsToDomain(rows), nil
 }
@@ -1150,14 +1026,6 @@ func (a *PGAdapter) ListVideosForStorageWitness(ctx context.Context, size reposi
 	return pgStorageWitnessesToDomain(rows), nil
 }
 
-func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosMissingThumbnail(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list videos missing thumbnail: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
-}
-
 func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, page repository.BatchPage) ([]repository.Video, error) {
 	if err := page.Validate(); err != nil {
 		return nil, err
@@ -1167,22 +1035,6 @@ func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, page repo
 		return nil, fmt.Errorf("pg list videos pending manual delete: %w", err)
 	}
 	return pgVideosToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListWebhookEvents(ctx context.Context, limit, offset int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListWebhookEvents(ctx, pggen.ListWebhookEventsParams{Limit: int32(limit), Offset: int32(offset)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list webhook events: %w", err)
-	}
-	return pgWebhookEventsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListWebhookEventsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListWebhookEventsByBroadcaster(ctx, pggen.ListWebhookEventsByBroadcasterParams{BroadcasterID: &broadcasterID, Limit: int32(limit), Offset: int32(offset)})
-	if err != nil {
-		return nil, fmt.Errorf("pg list webhook events by broadcaster: %w", err)
-	}
-	return pgWebhookEventsToDomain(rows), nil
 }
 
 func (a *PGAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
@@ -1506,14 +1358,6 @@ func (a *PGAdapter) UnfollowChannel(ctx context.Context, userID, broadcasterID s
 	return a.queries.UnfollowChannel(ctx, pggen.UnfollowChannelParams{UserID: userID, BroadcasterID: broadcasterID})
 }
 
-func (a *PGAdapter) UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.UnlinkScheduleCategory(ctx, pggen.UnlinkScheduleCategoryParams{ScheduleID: scheduleID, CategoryID: categoryID})
-}
-
-func (a *PGAdapter) UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.UnlinkScheduleTag(ctx, pggen.UnlinkScheduleTagParams{ScheduleID: scheduleID, TagID: tagID})
-}
-
 func (a *PGAdapter) UpdateCategoryDescription(ctx context.Context, id, description string) error {
 	if err := a.queries.UpdateCategoryDescription(ctx, pggen.UpdateCategoryDescriptionParams{ID: id, Description: &description}); err != nil {
 		return fmt.Errorf("pg update category description %s: %w", id, err)
@@ -1542,10 +1386,6 @@ func (a *PGAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) 
 
 func (a *PGAdapter) UpdateSessionTokens(ctx context.Context, hashedID string, encryptedTokens []byte) error {
 	return a.queries.UpdateSessionTokens(ctx, pggen.UpdateSessionTokensParams{HashedID: hashedID, EncryptedTokens: encryptedTokens})
-}
-
-func (a *PGAdapter) UpdateStreamViewers(ctx context.Context, id string, viewerCount int64) error {
-	return a.queries.UpdateStreamViewers(ctx, pggen.UpdateStreamViewersParams{ID: id, ViewerCount: int32(viewerCount)})
 }
 
 func (a *PGAdapter) UpdateSubscriptionStatus(ctx context.Context, id, status string) error {

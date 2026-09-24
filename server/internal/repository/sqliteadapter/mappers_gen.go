@@ -548,14 +548,6 @@ func sqliteWebhookEventToDomain(src sqlitegen.WebhookEvent) *repository.WebhookE
 	}
 }
 
-func sqliteWebhookEventsToDomain(rows []sqlitegen.WebhookEvent) []repository.WebhookEvent {
-	out := make([]repository.WebhookEvent, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteWebhookEventToDomain(r)
-	}
-	return out
-}
-
 func sqliteServerSettingsToDomain(src sqlitegen.ServerSetting) *repository.ServerSettings {
 	return &repository.ServerSettings{
 		CreatedAt:                     src.CreatedAt.Time,

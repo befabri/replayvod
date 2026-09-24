@@ -13,12 +13,6 @@ func testVideoPartsLifecycle(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	SeedUserChannel(t, ctx, repo, "owner", "bc-1")
 	v := seedLiveJob(t, ctx, repo, "parts-job", "bc-1")
-	if job, err := repo.GetJobByVideoID(ctx, v.ID); err != nil || job.ID != "parts-job" || job.VideoID != v.ID {
-		t.Fatalf("job by video = %+v, %v", job, err)
-	}
-	if _, err := repo.GetJobByVideoID(ctx, v.ID+1); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("job of an unknown video: %v", err)
-	}
 	part := func(index int32, startSeq int64) *repository.VideoPart {
 		t.Helper()
 		p, err := repo.CreateVideoPart(ctx, &repository.VideoPartInput{
@@ -31,11 +25,8 @@ func testVideoPartsLifecycle(t *testing.T, h Harness) {
 		return p
 	}
 	p1, p2 := part(1, 0), part(2, 100)
-	if got, err := repo.GetVideoPart(ctx, p1.ID); err != nil || got.PartIndex != 1 || got.Filename != "parts-job-1.mp4" || got.StartMediaSeq != 0 || got.EndMediaSeq != nil {
+	if got, err := repo.GetVideoPartByIndex(ctx, v.ID, 1); err != nil || got.ID != p1.ID || got.Filename != "parts-job-1.mp4" || got.StartMediaSeq != 0 || got.EndMediaSeq != nil {
 		t.Fatalf("part = %+v, %v", got, err)
-	}
-	if _, err := repo.GetVideoPart(ctx, p1.ID+p2.ID+1); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("missing part: %v", err)
 	}
 	if got, err := repo.GetVideoPartByIndex(ctx, v.ID, 2); err != nil || got.ID != p2.ID || got.StartMediaSeq != 100 {
 		t.Fatalf("part by index = %+v, %v", got, err)
@@ -43,8 +34,8 @@ func testVideoPartsLifecycle(t *testing.T, h Harness) {
 	if _, err := repo.GetVideoPartByIndex(ctx, v.ID, 3); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("missing part index: %v", err)
 	}
-	if n, err := repo.CountVideoParts(ctx, v.ID); err != nil || n != 2 {
-		t.Fatalf("part count = %d, %v", n, err)
+	if parts, err := repo.ListVideoParts(ctx, v.ID); err != nil || len(parts) != 2 {
+		t.Fatalf("parts = %+v, %v", parts, err)
 	}
 	if ok, err := repo.HasFinalizedVideoParts(ctx, v.ID); err != nil || ok {
 		t.Fatalf("unfinalized parts reported as output: %v, %v", ok, err)
@@ -55,66 +46,22 @@ func testVideoPartsLifecycle(t *testing.T, h Harness) {
 	if ok, err := repo.HasFinalizedVideoParts(ctx, v.ID); err != nil || !ok {
 		t.Fatalf("finalized part not reported: %v, %v", ok, err)
 	}
-	if err := repo.DeleteVideoParts(ctx, v.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.DeleteVideoParts(ctx, v.ID); err != nil {
-		t.Fatalf("deleting parts twice: %v", err)
-	}
-	if n, err := repo.CountVideoParts(ctx, v.ID); err != nil || n != 0 {
-		t.Fatalf("part count after delete = %d, %v", n, err)
-	}
-	if ok, err := repo.HasFinalizedVideoParts(ctx, v.ID); err != nil || ok {
-		t.Fatalf("deleted parts still reported: %v, %v", ok, err)
-	}
-	if _, err := repo.GetVideoPart(ctx, p1.ID); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("deleted part survived: %v", err)
-	}
 }
 
-func testVideoCountsAndMissingThumbnails(t *testing.T, h Harness) {
+func testVideoMarkDone(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
-	create := func(job string) *repository.Video {
-		t.Helper()
-		v, err := repo.CreateVideo(ctx, executionInput(job))
-		if err != nil {
-			t.Fatalf("create %s: %v", job, err)
-		}
-		return v
-	}
-	create("count-pending")
-	bare, withPoster := create("count-done-1"), create("count-done-2")
-	if err := repo.MarkVideoDone(ctx, bare.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+	v, err := repo.CreateVideo(ctx, executionInput("done-video"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	poster := "poster.jpg"
-	if err := repo.MarkVideoDone(ctx, withPoster.ID, 3600.5, 1<<30, &poster, repository.CompletionKindComplete, false); err != nil {
+	if err := repo.MarkVideoDone(ctx, v.ID, 3600.5, 1<<30, &poster, repository.CompletionKindComplete, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := repo.GetVideo(ctx, withPoster.ID); err != nil || got.Status != repository.VideoStatusDone || got.DurationSeconds == nil || *got.DurationSeconds != 3600.5 ||
+	if got, err := repo.GetVideo(ctx, v.ID); err != nil || got.Status != repository.VideoStatusDone || got.DurationSeconds == nil || *got.DurationSeconds != 3600.5 ||
 		got.SizeBytes == nil || *got.SizeBytes != 1<<30 || got.Thumbnail == nil || *got.Thumbnail != poster || got.DownloadedAt == nil {
 		t.Fatalf("finished video = %+v, %v", got, err)
-	}
-	for status, want := range map[string]int64{repository.VideoStatusPending: 1, repository.VideoStatusDone: 2, repository.VideoStatusFailed: 0} {
-		if n, err := repo.CountVideosByStatus(ctx, status); err != nil || n != want {
-			t.Fatalf("count of %s = %d, %v; want %d", status, n, err, want)
-		}
-	}
-	if missing, err := repo.ListVideosMissingThumbnail(ctx); err != nil || len(missing) != 1 || missing[0].ID != bare.ID {
-		t.Fatalf("videos missing a poster = %v, %v", videoJobIDs(missing), err)
-	}
-	if err := repo.SetVideoThumbnail(ctx, bare.ID, "late.jpg"); err != nil {
-		t.Fatal(err)
-	}
-	if missing, err := repo.ListVideosMissingThumbnail(ctx); err != nil || len(missing) != 0 {
-		t.Fatalf("videos missing a poster after set = %v, %v", videoJobIDs(missing), err)
-	}
-	if err := repo.SoftDeleteVideo(ctx, withPoster.ID, repository.DeletionKindManual); err != nil {
-		t.Fatal(err)
-	}
-	if n, err := repo.CountVideosByStatus(ctx, repository.VideoStatusDone); err != nil || n != 1 {
-		t.Fatalf("done count after tombstone = %d, %v", n, err)
 	}
 }
 

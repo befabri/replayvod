@@ -8,9 +8,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (event_id) DO NOTHING
 RETURNING *;
 
--- name: GetWebhookEvent :one
-SELECT * FROM webhook_events WHERE id = ?;
-
 -- name: GetWebhookEventByEventID :one
 SELECT * FROM webhook_events WHERE event_id = ?;
 
@@ -24,29 +21,6 @@ UPDATE webhook_events
 SET status = 'failed', processed_at = datetime('now'), error = @err_msg
 WHERE id = @id;
 
--- name: ListWebhookEvents :many
-SELECT * FROM webhook_events
-ORDER BY received_at DESC
-LIMIT ? OFFSET ?;
-
--- name: ListWebhookEventsByBroadcaster :many
-SELECT * FROM webhook_events
-WHERE broadcaster_id = ?
-ORDER BY received_at DESC
-LIMIT ? OFFSET ?;
-
--- name: ListWebhookEventsByType :many
-SELECT * FROM webhook_events
-WHERE event_type = ?
-ORDER BY received_at DESC
-LIMIT ? OFFSET ?;
-
--- name: ListStuckWebhookEvents :many
-SELECT * FROM webhook_events
-WHERE status = 'received' AND received_at < @before
-ORDER BY received_at DESC
-LIMIT @limit;
-
 -- name: ClearWebhookEventPayload :exec
 UPDATE webhook_events
 SET payload = NULL
@@ -54,6 +28,3 @@ WHERE received_at < ? AND payload IS NOT NULL;
 
 -- name: CountWebhookEvents :one
 SELECT COUNT(*) FROM webhook_events;
-
--- name: CountWebhookEventsByType :one
-SELECT COUNT(*) FROM webhook_events WHERE event_type = ?;

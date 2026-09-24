@@ -78,7 +78,7 @@ types:
   - {name: VideoPart, slice: true}
   - {name: VideoPlaybackAsset}
   - {name: VideoUserState}
-  - {name: WebhookEvent, slice: true}
+  - {name: WebhookEvent}
   - {name: ServerSettings, row: ServerSetting}
   - {name: Settings, row: Setting}
   - {name: Snapshot, domain: EventSubSnapshot, row: EventsubSnapshot, slice: true}

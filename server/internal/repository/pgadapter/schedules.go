@@ -10,14 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) CreateSchedule(ctx context.Context, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.CreateSchedule(ctx, pgCreateScheduleParams(input))
-	if err != nil {
-		return nil, fmt.Errorf("pg create schedule: %w", err)
-	}
-	return pgDownloadScheduleToDomain(row), nil
-}
-
 func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
 	var out *repository.DownloadSchedule
 	err := a.inTx(ctx, func(q *pggen.Queries, _ pgx.Tx) error {
@@ -36,14 +28,6 @@ func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *reposi
 		return nil, err
 	}
 	return out, nil
-}
-
-func (a *PGAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.UpdateSchedule(ctx, pgUpdateScheduleParams(id, input))
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgDownloadScheduleToDomain(row), nil
 }
 
 func (a *PGAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {

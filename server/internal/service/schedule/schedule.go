@@ -168,9 +168,8 @@ func (s *Service) GetByID(ctx context.Context, callerID string, callerCanManageA
 	return s.inflateOne(ctx, sched)
 }
 
-// Create registers a schedule for the caller. BroadcasterID can't be
-// changed later — UpdateSchedule preserves it — so input validation
-// blocks a malformed create up front.
+// Create registers a schedule for the caller. Updates never change
+// BroadcasterID, so input validation blocks a malformed create up front.
 func (s *Service) Create(ctx context.Context, callerID string, input WriteInput) (*View, error) {
 	scheduleInput, filters, err := buildScheduleInput(callerID, input, nil)
 	if err != nil {

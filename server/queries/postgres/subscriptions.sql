@@ -46,11 +46,6 @@ WHERE revoked_at IS NULL
 ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2;
 
--- name: ListSubscriptionsByBroadcaster :many
-SELECT * FROM subscriptions
-WHERE broadcaster_id = $1
-ORDER BY created_at DESC;
-
 -- name: ListSubscriptionsByType :many
 SELECT * FROM subscriptions
 WHERE type = $1 AND revoked_at IS NULL
@@ -66,11 +61,6 @@ UPDATE subscriptions SET status = $2 WHERE id = $1;
 UPDATE subscriptions
 SET revoked_at = NOW(), revoked_reason = @reason, status = 'revoked'
 WHERE id = @id AND revoked_at IS NULL;
-
--- name: DeleteSubscription :exec
--- Hard-delete. Only intended for cleanup after a full system teardown or
--- rebuild; production code paths should call MarkSubscriptionRevoked.
-DELETE FROM subscriptions WHERE id = $1;
 
 -- name: CountActiveSubscriptions :one
 SELECT COUNT(*) FROM subscriptions WHERE revoked_at IS NULL;

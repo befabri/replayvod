@@ -13,15 +13,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
-const deleteChannel = `-- name: DeleteChannel :exec
-DELETE FROM channels WHERE broadcaster_id = ?
-`
-
-func (q *Queries) DeleteChannel(ctx context.Context, broadcasterID string) error {
-	_, err := q.db.ExecContext(ctx, deleteChannel, broadcasterID)
-	return err
-}
-
 const getChannel = `-- name: GetChannel :one
 SELECT broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_language, profile_image_url, offline_image_url, description, broadcaster_type, view_count, created_at, updated_at FROM channels WHERE broadcaster_id = ?
 `

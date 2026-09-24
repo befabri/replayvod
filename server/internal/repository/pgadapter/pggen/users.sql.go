@@ -29,26 +29,6 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 	return i, err
 }
 
-const getUserByLogin = `-- name: GetUserByLogin :one
-SELECT id, login, display_name, email, profile_image_url, role, created_at, updated_at FROM users WHERE login = $1
-`
-
-func (q *Queries) GetUserByLogin(ctx context.Context, login string) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByLogin, login)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Login,
-		&i.DisplayName,
-		&i.Email,
-		&i.ProfileImageUrl,
-		&i.Role,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getUserForUpdate = `-- name: GetUserForUpdate :one
 SELECT id, login, display_name, email, profile_image_url, role, created_at, updated_at FROM users WHERE id = $1 FOR UPDATE
 `

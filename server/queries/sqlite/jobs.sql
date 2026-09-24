@@ -6,9 +6,6 @@ RETURNING *;
 -- name: GetJob :one
 SELECT * FROM jobs WHERE id = ?;
 
--- name: GetJobByVideoID :one
-SELECT * FROM jobs WHERE video_id = ? ORDER BY created_at DESC LIMIT 1;
-
 -- name: GetActiveLiveJobByBroadcaster :one
 -- Live only: a queued or running archive for the same channel must neither
 -- block a live recording nor receive its channel.update metadata.

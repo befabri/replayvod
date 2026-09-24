@@ -143,9 +143,6 @@ ORDER BY
     c.broadcaster_login
 LIMIT (SELECT row_limit FROM params);
 
--- name: DeleteChannel :exec
-DELETE FROM channels WHERE broadcaster_id = ?;
-
 -- name: UpsertUserFollow :exec
 INSERT INTO user_followed_channels (user_id, broadcaster_id, followed_at, followed)
 VALUES (?, ?, ?, ?)

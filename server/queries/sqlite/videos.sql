@@ -200,9 +200,6 @@ ORDER BY
     v.id DESC
 LIMIT (SELECT row_limit FROM q);
 
--- name: ListVideosMissingThumbnail :many
-SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL;
-
 -- name: RequestVideoDelete :one
 -- Queue an operator-requested deletion. Idempotent for already-queued live
 -- terminal rows; active recordings must be cancelled first.
@@ -274,9 +271,6 @@ WHERE id > CAST(sqlc.arg(after_id) AS BIGINT) AND (deleted_at IS NULL OR deletio
   )
 ORDER BY id ASC
 LIMIT @limit;
-
--- name: CountVideosByStatus :one
-SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
 
 -- name: StatisticsByStatus :many
 SELECT status, COUNT(*) AS count FROM videos WHERE deleted_at IS NULL GROUP BY status;

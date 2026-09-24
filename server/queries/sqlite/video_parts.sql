@@ -15,9 +15,6 @@ UPDATE video_parts SET
     updated_at = datetime('now')
 WHERE id = ?;
 
--- name: GetVideoPart :one
-SELECT * FROM video_parts WHERE id = ?;
-
 -- name: GetVideoPartByIndex :one
 SELECT * FROM video_parts WHERE video_id = ? AND part_index = ?;
 
@@ -28,9 +25,6 @@ SELECT * FROM video_parts WHERE video_id = ? ORDER BY part_index ASC;
 SELECT * FROM video_parts
 WHERE video_id IN (sqlc.slice('video_ids'))
 ORDER BY video_id ASC, part_index ASC;
-
--- name: CountVideoParts :one
-SELECT COUNT(*) FROM video_parts WHERE video_id = ?;
 
 -- name: DeleteVideoParts :exec
 DELETE FROM video_parts WHERE video_id = ?;

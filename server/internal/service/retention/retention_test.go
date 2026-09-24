@@ -164,14 +164,14 @@ func seedChannelUser(t *testing.T, ctx context.Context, repo repository.Reposito
 
 func seedSchedule(t *testing.T, ctx context.Context, repo repository.Repository, userID, broadcasterID string, deleteRediff bool, hours *int64, disabled bool) {
 	t.Helper()
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID:    broadcasterID,
 		RequestedBy:      userID,
 		Quality:          "HIGH",
 		IsDeleteRediff:   deleteRediff,
 		TimeBeforeDelete: hours,
 		IsDisabled:       disabled,
-	}); err != nil {
+	}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatalf("seed schedule (%s/%s): %v", broadcasterID, userID, err)
 	}
 }

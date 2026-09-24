@@ -43,10 +43,7 @@ type Querier interface {
 	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
-	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
-	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	CountWebhookEvents(ctx context.Context) (int64, error)
-	CountWebhookEventsByType(ctx context.Context, eventType sql.NullString) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
 	// Insert a delivery already CLAIMED (status 'delivering', one attempt counted)
 	// for the synchronous send path (SendTest). Not 'pending', so the poller's
@@ -69,7 +66,6 @@ type Querier interface {
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
 	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
 	DecideScheduleRequest(ctx context.Context, arg DecideScheduleRequestParams) (int64, error)
-	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt sqlitetype.Time) error
 	DeleteExpiredSessions(ctx context.Context) error
@@ -90,7 +86,6 @@ type Querier interface {
 	DeleteSchedule(ctx context.Context, id int64) error
 	DeleteScheduleRequest(ctx context.Context, arg DeleteScheduleRequestParams) (int64, error)
 	DeleteSession(ctx context.Context, hashedID string) error
-	DeleteSubscription(ctx context.Context, id string) error
 	DeleteTwitchPlaybackSession(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
@@ -114,7 +109,6 @@ type Querier interface {
 	GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (Job, error)
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error)
 	GetCategory(ctx context.Context, id string) (Category, error)
-	GetCategoryByName(ctx context.Context, name string) (Category, error)
 	GetCategoryDetail(ctx context.Context, id string) (GetCategoryDetailRow, error)
 	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (CategorySearchCache, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
@@ -122,7 +116,6 @@ type Querier interface {
 	GetChannelUserState(ctx context.Context, arg GetChannelUserStateParams) (ChannelUserState, error)
 	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
 	GetJob(ctx context.Context, id string) (Job, error)
-	GetJobByVideoID(ctx context.Context, videoID int64) (Job, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
@@ -142,12 +135,9 @@ type Querier interface {
 	GetSettings(ctx context.Context, userID string) (Setting, error)
 	GetStream(ctx context.Context, id string) (Stream, error)
 	GetSubscription(ctx context.Context, id string) (Subscription, error)
-	GetTag(ctx context.Context, id int64) (Tag, error)
-	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetTask(ctx context.Context, name string) (Task, error)
 	GetTwitchPlaybackSession(ctx context.Context) (TwitchPlaybackSession, error)
 	GetUser(ctx context.Context, id string) (User, error)
-	GetUserByLogin(ctx context.Context, login string) (User, error)
 	// Acquire the transaction's write lock without changing profile fields or
 	// timestamps. A plain SELECT cannot lock out a concurrent role change.
 	GetUserForUpdate(ctx context.Context, id string) (User, error)
@@ -155,12 +145,10 @@ type Querier interface {
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	// The first transaction statement reserves SQLite's writer before reading.
 	GetVideoForUpdate(ctx context.Context, id int64) (Video, error)
-	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (VideoPlaybackAsset, error)
 	GetVideoUserState(ctx context.Context, arg GetVideoUserStateParams) (VideoUserState, error)
 	GetVideoWaveformKey(ctx context.Context, videoID int64) (string, error)
-	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	// True when at least one part for this video has been remuxed and
 	// persisted (size_bytes > 0). Mirrors the postgres query — see
@@ -188,7 +176,6 @@ type Querier interface {
 	LinkStreamTag(ctx context.Context, arg LinkStreamTagParams) error
 	LinkStreamTitle(ctx context.Context, arg LinkStreamTitleParams) error
 	LinkVideoCategory(ctx context.Context, arg LinkVideoCategoryParams) error
-	LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) error
 	LinkVideoTitle(ctx context.Context, arg LinkVideoTitleParams) error
 	ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]DownloadSchedule, error)
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
@@ -281,11 +268,8 @@ type Querier interface {
 	ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([]EventsubSnapshot, error)
 	ListStoppedJobs(ctx context.Context, arg ListStoppedJobsParams) ([]Job, error)
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
-	ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error)
-	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID sql.NullString) ([]Subscription, error)
 	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
 	ListTags(ctx context.Context) ([]Tag, error)
-	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	// julianday('now') is UTC per SQLite docs; matches pg's NOW() at UTC,
 	// which the adapter forces in its connection setup. The
@@ -316,14 +300,10 @@ type Querier interface {
 	// Before initializing markerless storage, account for media even when a retry,
 	// running capture, deletion request or reversible tombstone excludes scanning.
 	ListVideosForStorageWitness(ctx context.Context, limit int64) ([]ListVideosForStorageWitnessRow, error)
-	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
 	// video_parts until any pending/delivering delivery has captured them.
 	ListVideosPendingManualDelete(ctx context.Context, arg ListVideosPendingManualDeleteParams) ([]Video, error)
-	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
-	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
-	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
 	LockRecordingIntent(ctx context.Context, id string) (RecordingIntent, error)
 	// A transient archive failure: the row fails like any other, and the retry
@@ -458,8 +438,6 @@ type Querier interface {
 	TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
-	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
-	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
 	UpdateCategoryDescription(ctx context.Context, arg UpdateCategoryDescriptionParams) error
 	// Refresh the Twitch-side category metadata returned by Helix /games.
 	// Empty inputs preserve the existing value so callers can safely write
@@ -470,7 +448,6 @@ type Querier interface {
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
-	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
 	UpdateTwitchPlaybackSessionValidation(ctx context.Context, arg UpdateTwitchPlaybackSessionValidationParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error

@@ -853,7 +853,7 @@ func TestReplacementRetryDoesNotEndCurrentLiveStream(t *testing.T) {
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "owner", Quality: "HIGH"}); err != nil {
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "owner", Quality: "HIGH"}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.UpsertStream(ctx, &repository.StreamInput{ID: "old", BroadcasterID: "b-1", Type: "live", StartedAt: time.Now().Add(-time.Hour)}); err != nil {

@@ -583,36 +583,6 @@ func (q *Queries) ToggleSchedule(ctx context.Context, id int64) (DownloadSchedul
 	return i, err
 }
 
-const unlinkScheduleCategory = `-- name: UnlinkScheduleCategory :exec
-DELETE FROM download_schedule_categories
-WHERE schedule_id = ? AND category_id = ?
-`
-
-type UnlinkScheduleCategoryParams struct {
-	ScheduleID int64  `json:"schedule_id"`
-	CategoryID string `json:"category_id"`
-}
-
-func (q *Queries) UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error {
-	_, err := q.db.ExecContext(ctx, unlinkScheduleCategory, arg.ScheduleID, arg.CategoryID)
-	return err
-}
-
-const unlinkScheduleTag = `-- name: UnlinkScheduleTag :exec
-DELETE FROM download_schedule_tags
-WHERE schedule_id = ? AND tag_id = ?
-`
-
-type UnlinkScheduleTagParams struct {
-	ScheduleID int64 `json:"schedule_id"`
-	TagID      int64 `json:"tag_id"`
-}
-
-func (q *Queries) UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error {
-	_, err := q.db.ExecContext(ctx, unlinkScheduleTag, arg.ScheduleID, arg.TagID)
-	return err
-}
-
 const updateSchedule = `-- name: UpdateSchedule :one
 UPDATE download_schedules SET
     recording_type      = ?,

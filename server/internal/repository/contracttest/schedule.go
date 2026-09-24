@@ -9,19 +9,19 @@ import (
 )
 
 // testScheduleUpsertPreservesTriggerCount guards operational history.
-// UpdateSchedule deliberately omits trigger_count and last_triggered_at from
-// the SET clause: if someone adds those fields later ("let me also update this
-// while I'm here"), operators lose the fire-history the dashboard uses to
-// answer "is this schedule actually working?" and the retention task uses to
-// pick what to prune.
+// The UpdateSchedule query deliberately omits trigger_count and
+// last_triggered_at from the SET clause: if someone adds those fields
+// later ("let me also update this while I'm here"), operators lose the
+// fire-history the dashboard uses to answer "is this schedule actually
+// working?" and the retention task uses to pick what to prune.
 func testScheduleUpsertPreservesTriggerCount(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
 	SeedUserChannel(t, ctx, repo, "u-1", "b-1")
 
-	created, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	created, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH",
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -47,10 +47,10 @@ func testScheduleUpsertPreservesTriggerCount(t *testing.T, h Harness) {
 		t.Fatalf("setup precondition failed: count=%d triggered=%v", before.TriggerCount, before.LastTriggeredAt)
 	}
 
-	updated, err := repo.UpdateSchedule(ctx, created.ID, &repository.ScheduleInput{
+	updated, err := repo.UpdateScheduleWithFilters(ctx, created.ID, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", RecordingType: repository.RecordingTypeAudio,
 		Quality: "MEDIUM", ForceH264: true, IsDisabled: true,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -64,10 +64,10 @@ func testScheduleUpsertPreservesTriggerCount(t *testing.T, h Harness) {
 		t.Errorf("audio update stored force_h264=true, want false")
 	}
 	if updated.TriggerCount != 2 {
-		t.Errorf("UpdateSchedule clobbered trigger_count: was 2, now %d", updated.TriggerCount)
+		t.Errorf("schedule update clobbered trigger_count: was 2, now %d", updated.TriggerCount)
 	}
 	if updated.LastTriggeredAt == nil || !updated.LastTriggeredAt.Equal(*before.LastTriggeredAt) {
-		t.Errorf("UpdateSchedule clobbered last_triggered_at: was %v, now %v", before.LastTriggeredAt, updated.LastTriggeredAt)
+		t.Errorf("schedule update clobbered last_triggered_at: was %v, now %v", before.LastTriggeredAt, updated.LastTriggeredAt)
 	}
 }
 

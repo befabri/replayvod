@@ -41,27 +41,6 @@ func (q *Queries) GetCategory(ctx context.Context, id string) (Category, error) 
 	return i, err
 }
 
-const getCategoryByName = `-- name: GetCategoryByName :one
-SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories WHERE name = $1
-`
-
-func (q *Queries) GetCategoryByName(ctx context.Context, name string) (Category, error) {
-	row := q.db.QueryRow(ctx, getCategoryByName, name)
-	var i Category
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.BoxArtUrl,
-		&i.IgdbID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Description,
-		&i.DescriptionCheckedAt,
-		&i.GameMetadataCheckedAt,
-	)
-	return i, err
-}
-
 const getCategoryDetail = `-- name: GetCategoryDetail :one
 SELECT
     c.id,

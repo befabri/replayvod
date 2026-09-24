@@ -118,9 +118,6 @@ ORDER BY
     broadcaster_login
 LIMIT sqlc.arg('limit');
 
--- name: DeleteChannel :exec
-DELETE FROM channels WHERE broadcaster_id = $1;
-
 -- name: UpsertUserFollow :exec
 INSERT INTO user_followed_channels (user_id, broadcaster_id, followed_at, followed)
 VALUES ($1, $2, $3, $4)

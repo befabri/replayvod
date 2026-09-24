@@ -7,15 +7,6 @@ INSERT INTO video_categories (video_id, category_id) VALUES (?, ?) ON CONFLICT D
 -- name: LinkStreamTag :exec
 INSERT INTO stream_tags (stream_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING;
 
--- name: LinkVideoTag :exec
-INSERT INTO video_tags (video_id, tag_id) VALUES (?, ?) ON CONFLICT DO NOTHING;
-
--- name: ListTagsForVideo :many
-SELECT t.* FROM tags t
-INNER JOIN video_tags vt ON vt.tag_id = t.id
-WHERE vt.video_id = ?
-ORDER BY t.name;
-
 -- name: CloseOtherOpenVideoCategorySpans :exec
 -- Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
 -- upsert. Called first inside the same tx as InsertVideoCategorySpan;

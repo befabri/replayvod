@@ -68,10 +68,6 @@ INSERT INTO download_schedule_categories (schedule_id, category_id)
 VALUES ($1, $2)
 ON CONFLICT DO NOTHING;
 
--- name: UnlinkScheduleCategory :exec
-DELETE FROM download_schedule_categories
-WHERE schedule_id = $1 AND category_id = $2;
-
 -- name: ClearScheduleCategories :exec
 DELETE FROM download_schedule_categories WHERE schedule_id = $1;
 
@@ -85,10 +81,6 @@ ORDER BY c.name;
 INSERT INTO download_schedule_tags (schedule_id, tag_id)
 VALUES ($1, $2)
 ON CONFLICT DO NOTHING;
-
--- name: UnlinkScheduleTag :exec
-DELETE FROM download_schedule_tags
-WHERE schedule_id = $1 AND tag_id = $2;
 
 -- name: ClearScheduleTags :exec
 DELETE FROM download_schedule_tags WHERE schedule_id = $1;

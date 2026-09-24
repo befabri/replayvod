@@ -79,15 +79,6 @@ func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscription
 	return i, err
 }
 
-const deleteSubscription = `-- name: DeleteSubscription :exec
-DELETE FROM subscriptions WHERE id = ?
-`
-
-func (q *Queries) DeleteSubscription(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteSubscription, id)
-	return err
-}
-
 const getActiveSubscriptionForBroadcasterType = `-- name: GetActiveSubscriptionForBroadcasterType :one
 SELECT id, status, type, version, cost, condition, broadcaster_id, transport_method, transport_callback, twitch_created_at, created_at, revoked_at, revoked_reason FROM subscriptions
 WHERE broadcaster_id = ?1 AND type = ?2 AND revoked_at IS NULL
@@ -158,49 +149,6 @@ type ListActiveSubscriptionsParams struct {
 
 func (q *Queries) ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error) {
 	rows, err := q.db.QueryContext(ctx, listActiveSubscriptions, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Subscription{}
-	for rows.Next() {
-		var i Subscription
-		if err := rows.Scan(
-			&i.ID,
-			&i.Status,
-			&i.Type,
-			&i.Version,
-			&i.Cost,
-			&i.Condition,
-			&i.BroadcasterID,
-			&i.TransportMethod,
-			&i.TransportCallback,
-			&i.TwitchCreatedAt,
-			&i.CreatedAt,
-			&i.RevokedAt,
-			&i.RevokedReason,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSubscriptionsByBroadcaster = `-- name: ListSubscriptionsByBroadcaster :many
-SELECT id, status, type, version, cost, condition, broadcaster_id, transport_method, transport_callback, twitch_created_at, created_at, revoked_at, revoked_reason FROM subscriptions
-WHERE broadcaster_id = ?
-ORDER BY created_at DESC
-`
-
-func (q *Queries) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID sql.NullString) ([]Subscription, error) {
-	rows, err := q.db.QueryContext(ctx, listSubscriptionsByBroadcaster, broadcasterID)
 	if err != nil {
 		return nil, err
 	}

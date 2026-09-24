@@ -551,7 +551,7 @@ func TestDispatchStreamOnline_ErrBusyIsIdempotent(t *testing.T) {
 	}
 	// A bare schedule (no filters) matches any stream.online for the broadcaster,
 	// so dispatch reaches dl.Start.
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}); err != nil {
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatalf("seed schedule: %v", err)
 	}
 
@@ -592,7 +592,7 @@ func TestDispatchStreamOnline_GlobalPauseSkipsDownload(t *testing.T) {
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"})
+	sched, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed schedule: %v", err)
 	}
@@ -650,7 +650,7 @@ func TestDispatchStreamOnline_PausedStillPublishesStatus(t *testing.T) {
 		t.Fatalf("seed channel: %v", err)
 	}
 	// A bare schedule would otherwise match and trigger a download.
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}); err != nil {
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatalf("seed schedule: %v", err)
 	}
 	if _, err := repo.SetSchedulesPaused(ctx, true); err != nil {
@@ -703,14 +703,10 @@ func TestDispatchStreamOnlineFromStream_MatchesFilteredScheduleWithoutHelix(t *t
 	if _, err := repo.UpsertCategory(ctx, &repository.Category{ID: "game-42", Name: "Game 42"}); err != nil {
 		t.Fatalf("seed category: %v", err)
 	}
-	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH", HasCategories: true,
-	})
-	if err != nil {
+	}, repository.ScheduleFilterInput{CategoryIDs: []string{"game-42"}}); err != nil {
 		t.Fatalf("seed schedule: %v", err)
-	}
-	if err := repo.LinkScheduleCategory(ctx, sched.ID, "game-42"); err != nil {
-		t.Fatalf("link schedule category: %v", err)
 	}
 
 	// nil Twitch client: the re-fetch path (Hydrate) returns an empty snapshot.
@@ -766,22 +762,22 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 	// created first so a "first caller wins" bug would pick it; the winner must
 	// be HIGH regardless of order.
 	lowRetention := int64(12)
-	low, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	low, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID:    "b-1",
 		RequestedBy:      "u-low",
 		Quality:          repository.QualityLow,
 		IsDeleteRediff:   true,
 		TimeBeforeDelete: &lowRetention,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed low schedule: %v", err)
 	}
-	high, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	high, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-high",
 		Quality:       repository.QualityHigh,
 		ForceH264:     true,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed high schedule: %v", err)
 	}
@@ -844,13 +840,13 @@ func TestDispatchStreamOnline_AudioScheduleStartsAudioDownload(t *testing.T) {
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-audio", BroadcasterLogin: "baudio", BroadcasterName: "BAudio"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	sched, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-audio",
 		RequestedBy:   "u-audio",
 		RecordingType: repository.RecordingTypeAudio,
 		Quality:       repository.QualityHigh,
 		ForceH264:     true,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed audio schedule: %v", err)
 	}
@@ -887,12 +883,12 @@ func TestDispatchStreamOnline_DownloaderUnavailableDoesNotRecordTrigger(t *testi
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-nil-dl", BroadcasterLogin: "bnildl", BroadcasterName: "BNilDL"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	sched, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-nil-dl",
 		RequestedBy:   "u-nil-dl",
 		RecordingType: repository.RecordingTypeVideo,
 		Quality:       repository.QualityHigh,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed schedule: %v", err)
 	}
@@ -926,7 +922,7 @@ func TestDispatchStreamOnlineForSchedule_TargetMustMatch(t *testing.T) {
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	target, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	target, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID:  "b-1",
 		RequestedBy:    "u-target",
 		Quality:        repository.QualityHigh,
@@ -934,16 +930,16 @@ func TestDispatchStreamOnlineForSchedule_TargetMustMatch(t *testing.T) {
 		RecordingType:  repository.RecordingTypeVideo,
 		HasMinViewers:  false,
 		IsDeleteRediff: false,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed target schedule: %v", err)
 	}
-	other, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	other, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-other",
 		Quality:       repository.QualityHigh,
 		RecordingType: repository.RecordingTypeVideo,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed other schedule: %v", err)
 	}
@@ -982,21 +978,21 @@ func TestDispatchStreamOnlineForSchedule_TargetMatchKeepsGlobalWinner(t *testing
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	target, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	target, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-target",
 		RecordingType: repository.RecordingTypeAudio,
 		Quality:       repository.QualityHigh,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed target schedule: %v", err)
 	}
-	video, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	video, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-video",
 		RecordingType: repository.RecordingTypeVideo,
 		Quality:       repository.QualityLow,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed video schedule: %v", err)
 	}
@@ -1047,20 +1043,20 @@ func TestDispatchStreamOnline_FilterLoadErrorDoesNotPoisonSuccessfulDispatch(t *
 	if _, err := realRepo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	winner, err := realRepo.CreateSchedule(ctx, &repository.ScheduleInput{
+	winner, err := realRepo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-winner",
 		Quality:       repository.QualityHigh,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed winner schedule: %v", err)
 	}
-	broken, err := realRepo.CreateSchedule(ctx, &repository.ScheduleInput{
+	broken, err := realRepo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-broken",
 		Quality:       repository.QualityLow,
 		HasCategories: true,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed broken schedule: %v", err)
 	}
@@ -1111,12 +1107,12 @@ func TestDispatchStreamOnline_FilterLoadErrorWithoutMatchesReturnsError(t *testi
 	if _, err := realRepo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
-	broken, err := realRepo.CreateSchedule(ctx, &repository.ScheduleInput{
+	broken, err := realRepo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1",
 		RequestedBy:   "u-broken",
 		Quality:       repository.QualityHigh,
 		HasCategories: true,
-	})
+	}, repository.ScheduleFilterInput{})
 	if err != nil {
 		t.Fatalf("seed broken schedule: %v", err)
 	}
@@ -1158,7 +1154,7 @@ func TestDispatchStreamOnline_StorageUnavailableWarnsOncePerOutage(t *testing.T)
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}); err != nil {
+	if _, err := repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}, repository.ScheduleFilterInput{}); err != nil {
 		t.Fatal(err)
 	}
 	event := twitch.StreamOnlineEvent{
