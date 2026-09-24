@@ -8,6 +8,7 @@ import type {
 	ChannelResponse,
 	VideoResponse,
 } from "@/api/generated/trpc";
+import { makeVideo } from "@/test/fixtures";
 
 const navigateMock = vi.hoisted(() => vi.fn());
 const searchState = vi.hoisted(() => ({
@@ -196,26 +197,12 @@ function byTextContent(text: string) {
 }
 
 function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
-	return {
-		id: 1,
-		job_id: "job-1",
-		filename: "vod",
-		display_name: "Display",
-		title: "Title",
-		status: "DONE",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p60",
-		is_audio_only: false,
-		broadcaster_id: "bc-1",
-		broadcaster_login: "streamer",
-		broadcaster_name: "Streamer",
-		viewer_count: 10,
-		language: "en",
-		start_download_at: "2026-06-03T00:00:00Z",
-		source: "live",
+	return makeVideo(0, {
+		thumbnail: undefined,
+		primary_category_id: undefined,
+		primary_category_name: undefined,
 		...overrides,
-	};
+	});
 }
 
 function channel(overrides: Partial<ChannelResponse> = {}): ChannelResponse {

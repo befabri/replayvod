@@ -8,6 +8,7 @@ import type {
 	StorageState,
 	VideoResponse,
 } from "@/api/generated/trpc";
+import { makeVideo, VIDEO_STATES } from "@/test/fixtures";
 
 const state = vi.hoisted(() => ({
 	queue: {
@@ -66,27 +67,17 @@ vi.mock("@tanstack/react-router", () => ({
 import { ArchiveQueue } from "./ArchiveQueue";
 
 function video(partial: Partial<VideoResponse>): VideoResponse {
-	return {
-		id: 1,
-		job_id: "job-1",
-		filename: "f",
-		display_name: "Streamer",
+	return makeVideo(0, {
+		...VIDEO_STATES.queued,
 		broadcaster_name: "Streamer",
-		title: "A stream",
-		status: "PENDING",
-		completion_kind: "complete",
-		truncated: false,
 		quality: "HIGH",
-		is_audio_only: false,
-		broadcaster_id: "b1",
-		viewer_count: 0,
-		language: "en",
-		start_download_at: "2026-09-01T00:00:00Z",
+		thumbnail: undefined,
 		source: "vod",
 		twitch_video_id: "100",
 		broadcast_at: "2026-08-20T12:00:00Z",
+		start_download_at: "2026-09-01T00:00:00Z",
 		...partial,
-	};
+	});
 }
 
 afterEach(() => {

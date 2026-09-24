@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VideoResponse } from "@/api/generated/trpc";
+import { makeVideo } from "@/test/fixtures";
 
 vi.mock("@tanstack/react-router", async () => {
 	const React = await vi.importActual<typeof import("react")>("react");
@@ -48,31 +49,21 @@ import {
 const t = ((key: string) => key) as unknown as TFunction;
 
 function removed(overrides: Partial<VideoResponse> = {}): VideoResponse {
-	return {
-		id: 95,
-		job_id: "job-95",
-		filename: "20260607-145422-yuchorinchan-02625d84",
-		display_name: "yuchorinchan",
+	return makeVideo(94, {
+		filename: "20260607-145422-byeolbitcaster-02625d84",
+		display_name: "byeolbitcaster",
 		title: "Ranked climb, day 3",
-		status: "DONE",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p60",
-		is_audio_only: false,
-		broadcaster_id: "1",
-		broadcaster_login: "yuchorinchan",
-		broadcaster_name: "유초린",
-		profile_image_url: "",
-		viewer_count: 0,
+		broadcaster_login: "byeolbitcaster",
+		broadcaster_name: "별빛",
 		language: "ko",
-		duration_seconds: 1007,
-		size_bytes: 1029394911,
+		thumbnail: undefined,
+		has_media: undefined,
+		downloaded_at: undefined,
 		start_download_at: "2026-06-07T14:54:22Z",
-		source: "live",
 		deleted_at: "2026-09-06T16:00:00Z",
 		deletion_kind: "missing",
 		...overrides,
-	};
+	});
 }
 
 // live() is the same recording before anything removed it.
@@ -92,7 +83,7 @@ describe("RecordingCell", () => {
 			<RecordingCell
 				row={removed({
 					thumbnail:
-						"thumbnails/20260607-145422-yuchorinchan-02625d84-part01.jpg",
+						"thumbnails/20260607-145422-byeolbitcaster-02625d84-part01.jpg",
 				})}
 				t={t}
 			/>,
@@ -100,9 +91,9 @@ describe("RecordingCell", () => {
 
 		const poster = container.querySelector("img");
 		expect(poster?.getAttribute("src")).toContain(
-			"/api/v1/thumbnails/20260607-145422-yuchorinchan-02625d84-part01.jpg",
+			"/api/v1/thumbnails/20260607-145422-byeolbitcaster-02625d84-part01.jpg",
 		);
-		expect(screen.getByText("유초린").closest("a")).toBeTruthy();
+		expect(screen.getByText("별빛").closest("a")).toBeTruthy();
 		expect(screen.getByText("Ranked climb, day 3")).toBeTruthy();
 	});
 
@@ -119,9 +110,9 @@ describe("RecordingCell", () => {
 	});
 
 	it("does not repeat the channel name as a title", () => {
-		render(<RecordingCell row={removed({ title: "유초린" })} t={t} />);
+		render(<RecordingCell row={removed({ title: "별빛" })} t={t} />);
 
-		expect(screen.getAllByText("유초린")).toHaveLength(1);
+		expect(screen.getAllByText("별빛")).toHaveLength(1);
 	});
 
 	it("opens the player from the poster and the title while the media is there", () => {

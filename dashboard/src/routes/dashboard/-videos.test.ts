@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { VideoResponse } from "@/api/generated/trpc";
+import { makeVideo } from "@/test/fixtures";
 import { PLAYBACK_SETTINGS } from "@/test/playback-settings";
 import {
 	filterLoadedVideosForSearch as filterWithPolicy,
@@ -245,24 +246,13 @@ describe("validateVideosSearch", () => {
 });
 
 function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
-	return {
-		id: overrides.id ?? 1,
-		job_id: overrides.job_id ?? `job-${overrides.id ?? 1}`,
-		filename: overrides.filename ?? `video-${overrides.id ?? 1}.mp4`,
-		display_name: overrides.display_name ?? "Channel",
-		title: overrides.title ?? "Video",
-		status: overrides.status ?? "DONE",
-		completion_kind: overrides.completion_kind ?? "complete",
-		truncated: overrides.truncated ?? false,
-		quality: overrides.quality ?? "1080p",
-		is_audio_only: overrides.is_audio_only ?? false,
-		broadcaster_id: overrides.broadcaster_id ?? "bc-1",
-		viewer_count: overrides.viewer_count ?? 0,
-		language: overrides.language ?? "en",
-		start_download_at: overrides.start_download_at ?? "2026-06-07T00:00:00Z",
-		source: "live",
-		user_state: overrides.user_state,
-	};
+	return makeVideo((overrides.id ?? 1) - 1, {
+		quality: "1080p",
+		language: "en",
+		duration_seconds: undefined,
+		start_download_at: "2026-06-07T00:00:00Z",
+		...overrides,
+	});
 }
 
 function filterLoadedVideosForSearch(

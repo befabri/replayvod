@@ -9,6 +9,7 @@ vi.mock("@/features/settings/playback", () => ({
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VideoResponse } from "@/api/generated/trpc";
+import { makeUserState, makeVideo } from "@/test/fixtures";
 
 const useContinueWatchingMock = vi.hoisted(() =>
 	vi.fn(() => ({ data: undefined as VideoResponse[] | undefined })),
@@ -44,30 +45,13 @@ afterEach(() => {
 });
 
 function video(id: number, position: number, duration = 3600): VideoResponse {
-	return {
-		id,
-		job_id: `job-${id}`,
-		filename: `video-${id}`,
-		display_name: "Channel",
-		title: `Video ${id}`,
-		status: "DONE",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p",
-		is_audio_only: false,
-		broadcaster_id: "bc-1",
-		viewer_count: 0,
-		language: "en",
+	return makeVideo(id - 1, {
 		duration_seconds: duration,
-		start_download_at: "2026-01-01T00:00:00Z",
-		source: "live",
-		user_state: {
-			watch_later: false,
+		user_state: makeUserState({
 			last_position_seconds: position,
 			watched_at: "2026-01-01T00:00:00Z",
-			updated_at: "2026-01-01T00:00:00Z",
-		},
-	};
+		}),
+	});
 }
 
 describe("ContinueWatching", () => {

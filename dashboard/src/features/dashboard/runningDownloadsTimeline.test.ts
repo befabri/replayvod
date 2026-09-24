@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-	ActiveDownloadResponse,
-	TimelineEvent,
-	VideoResponse,
-} from "@/api/generated/trpc";
+import type { VideoResponse } from "@/api/generated/trpc";
+import {
+	makeActiveDownload,
+	makeTimelineEvent,
+	makeVideo,
+	makeVideoPart,
+} from "@/test/fixtures";
 import {
 	clampMetadataMarkers,
 	contentSegments,
@@ -14,18 +16,20 @@ import {
 
 describe("running download timeline helpers", () => {
 	it("uses exact live media offset for elapsed time", () => {
-		expect(recordingElapsedSeconds(row({ media_offset_seconds: 95 }))).toBe(95);
+		expect(
+			recordingElapsedSeconds(makeActiveDownload({ media_offset_seconds: 95 })),
+		).toBe(95);
 	});
 
 	it("falls back to finalized part durations when media offset is unavailable", () => {
 		expect(
 			recordingElapsedSeconds(
-				row({
+				makeActiveDownload({
 					media_offset_seconds: undefined,
 					video: video({
 						parts: [
-							part({ part_index: 2, duration_seconds: 15 }),
-							part({ part_index: 1, duration_seconds: 30 }),
+							makeVideoPart({ part_index: 2, duration_seconds: 15 }),
+							makeVideoPart({ part_index: 1, duration_seconds: 30 }),
 						],
 					}),
 				}),
@@ -37,16 +41,16 @@ describe("running download timeline helpers", () => {
 		const markers = clampMetadataMarkers(
 			metadataMarkers(
 				[
-					event({
+					makeTimelineEvent({
 						media_offset_seconds: 10,
 						title: { id: 1, name: "Opening" },
 					}),
-					event({
+					makeTimelineEvent({
 						media_offset_seconds: 20,
 						category: { id: "game", name: "Game" },
 						title: { id: 2, name: "Boss" },
 					}),
-					event({
+					makeTimelineEvent({
 						media_offset_seconds: 200,
 						category: { id: "late", name: "Late" },
 					}),
@@ -69,7 +73,7 @@ describe("running download timeline helpers", () => {
 		const markers = clampMetadataMarkers(
 			metadataMarkers(
 				[
-					event({
+					makeTimelineEvent({
 						occurred_at: "2026-01-01T00:02:00Z", // 120s after the anchor
 						title: { id: 7, name: "Recent change" },
 					}),
@@ -87,12 +91,12 @@ describe("running download timeline helpers", () => {
 	it("marks only changed metadata fields when timeline rows include current state", () => {
 		const markers = metadataMarkers(
 			[
-				event({
+				makeTimelineEvent({
 					media_offset_seconds: 10,
 					category: { id: "game-a", name: "Game A" },
 					title: { id: 1, name: "Same title" },
 				}),
-				event({
+				makeTimelineEvent({
 					media_offset_seconds: 20,
 					category: { id: "game-b", name: "Game B" },
 					title: { id: 1, name: "Same title" },
@@ -193,63 +197,6 @@ function metaMarker(
 	};
 }
 
-function row(
-	partial: Partial<ActiveDownloadResponse> = {},
-): ActiveDownloadResponse {
-	return {
-		video: video(),
-		part_index: 1,
-		stage: "segments",
-		bytes_written: 100,
-		segments_done: 10,
-		segments_gaps: 0,
-		segments_ad_gaps: 0,
-		segments_total: -1,
-		percent: -1,
-		...partial,
-	};
-}
-
 function video(partial: Partial<VideoResponse> = {}): VideoResponse {
-	return {
-		id: 1,
-		job_id: "job",
-		filename: "vod",
-		display_name: "Streamer",
-		title: "Title",
-		status: "RUNNING",
-		completion_kind: "complete",
-		truncated: false,
-		quality: "1080p60",
-		is_audio_only: false,
-		broadcaster_id: "b1",
-		viewer_count: 0,
-		language: "fr",
-		start_download_at: "2026-01-01T00:00:00Z",
-		source: "live",
-		...partial,
-	};
-}
-
-function part(partial: Partial<NonNullable<VideoResponse["parts"]>[number]>) {
-	const partIndex = partial.part_index ?? 1;
-	return {
-		id: partial.id ?? partIndex,
-		part_index: partIndex,
-		filename: "vod-part01.mp4",
-		quality: "1080p60",
-		codec: "avc1",
-		segment_format: "ts",
-		duration_seconds: 10,
-		size_bytes: 100,
-		start_media_seq: 1,
-		...partial,
-	};
-}
-
-function event(partial: Partial<TimelineEvent>): TimelineEvent {
-	return {
-		occurred_at: "2026-01-01T00:00:00Z",
-		...partial,
-	};
+	return makeVideo(0, { status: "RUNNING", ...partial });
 }

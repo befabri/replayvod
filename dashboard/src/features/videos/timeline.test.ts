@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TimelineEvent } from "@/api/generated/trpc";
+import { makeTimelineEvent } from "@/test/fixtures";
 import {
 	eventStateKey,
 	timelineEventOffsetSeconds,
@@ -53,7 +53,7 @@ describe("timelineEventOffsetSeconds", () => {
 
 describe("timeline marker helpers", () => {
 	it("labels only changed fields and classifies mixed changes", () => {
-		const row = event({
+		const row = makeTimelineEvent({
 			category: { id: "game", name: " Game " },
 			title: { id: 1, name: " Boss run " },
 		});
@@ -68,7 +68,7 @@ describe("timeline marker helpers", () => {
 	it("uses the same trimmed event state key for dedup callers", () => {
 		expect(
 			eventStateKey(
-				event({
+				makeTimelineEvent({
 					category: { id: "game", name: "Game" },
 					title: { id: 1, name: " Same title " },
 				}),
@@ -76,10 +76,3 @@ describe("timeline marker helpers", () => {
 		).toBe("game:Same title");
 	});
 });
-
-function event(partial: Partial<TimelineEvent>): TimelineEvent {
-	return {
-		occurred_at: "2026-01-01T00:00:00Z",
-		...partial,
-	};
-}
