@@ -1,7 +1,16 @@
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import type * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "./loading-state";
 
 export function VirtualGrid<TItem>({
 	items,
@@ -35,7 +44,7 @@ export function VirtualGrid<TItem>({
 		setScrollMargin((prev) => (Math.abs(prev - next) < 1 ? prev : next));
 	}, []);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const node = rootRef.current;
 		if (!node) return;
 
@@ -55,7 +64,7 @@ export function VirtualGrid<TItem>({
 		return () => observer.disconnect();
 	}, []);
 
-	useEffect(updateScrollMargin);
+	useLayoutEffect(updateScrollMargin);
 
 	useEffect(() => {
 		window.addEventListener("resize", updateScrollMargin);
@@ -94,13 +103,19 @@ export function VirtualGrid<TItem>({
 	}, [columnCount, items.length, rowVirtualizer]);
 
 	const virtualRows = rowVirtualizer.getVirtualItems();
+	const totalSize = rowVirtualizer.getTotalSize();
+	const [, rerender] = useReducer((renders: number) => renders + 1, 0);
+	useLayoutEffect(() => {
+		const rows = rootRef.current?.querySelectorAll<HTMLElement>("[data-index]");
+		for (const row of rows ?? []) {
+			rowVirtualizer.resizeItem(Number(row.dataset.index), row.offsetHeight);
+		}
+		if (rowVirtualizer.getTotalSize() !== totalSize) rerender();
+	});
 
 	return (
 		<div ref={rootRef} className={cn("relative w-full", className)}>
-			<div
-				className="relative w-full"
-				style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-			>
+			<div className="relative w-full" style={{ height: `${totalSize}px` }}>
 				{virtualRows.map((virtualRow) => {
 					const startIndex = virtualRow.index * columnCount;
 					const rowItems = items.slice(startIndex, startIndex + columnCount);
@@ -130,5 +145,36 @@ export function VirtualGrid<TItem>({
 				})}
 			</div>
 		</div>
+	);
+}
+
+export function VirtualGridSkeleton({
+	count,
+	renderItem,
+	minItemWidth,
+	gap = 16,
+	className,
+}: {
+	count: number;
+	renderItem: (index: number) => React.ReactNode;
+	minItemWidth: number;
+	gap?: number;
+	className?: string;
+}) {
+	return (
+		<LoadingState
+			className={cn("grid w-full", className)}
+			style={{
+				gap: `${gap}px`,
+				gridTemplateColumns: `repeat(auto-fill, minmax(min(${minItemWidth}px, 100%), 1fr))`,
+			}}
+		>
+			{Array.from({ length: count }, (_, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: skeleton slots are positional and never reorder.
+				<div key={index} className="min-w-0">
+					{renderItem(index)}
+				</div>
+			))}
+		</LoadingState>
 	);
 }

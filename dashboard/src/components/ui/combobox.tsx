@@ -1,27 +1,61 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { CaretDownIcon, CheckIcon, XIcon } from "@phosphor-icons/react";
 import type * as React from "react";
+import { createContext, useContext } from "react";
 
+import { type PopupLabel, usePopupLabel } from "@/lib/element-label";
 import { cn } from "@/lib/utils";
+
+const ComboboxLabelContext = createContext<PopupLabel<HTMLInputElement> | null>(
+	null,
+);
+
+const ComboboxDisabledContext = createContext(false);
 
 function Combobox<Value, Multiple extends boolean | undefined = false>(
 	props: ComboboxPrimitive.Root.Props<Value, Multiple>,
 ) {
-	return <ComboboxPrimitive.Root {...props} />;
+	const labelling = usePopupLabel<HTMLInputElement>();
+	return (
+		<ComboboxLabelContext value={labelling}>
+			<ComboboxDisabledContext value={props.disabled ?? false}>
+				<ComboboxPrimitive.Root {...props} />
+			</ComboboxDisabledContext>
+		</ComboboxLabelContext>
+	);
 }
 
 function ComboboxInput({
 	className,
 	...props
 }: React.ComponentProps<typeof ComboboxPrimitive.Input>) {
+	const anchorRef = useContext(ComboboxLabelContext)?.anchorRef;
 	return (
 		<ComboboxPrimitive.Input
+			ref={anchorRef}
 			data-slot="combobox-input"
 			className={cn(
 				"flex h-9 w-full items-center rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs outline-none",
 				"focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-				"disabled:cursor-not-allowed disabled:opacity-50",
+				"disabled:cursor-not-allowed not-in-data-dimmed:disabled:opacity-50",
 				"aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+function ComboboxChipsInput({
+	className,
+	...props
+}: React.ComponentProps<typeof ComboboxPrimitive.Input>) {
+	return (
+		<ComboboxInput
+			data-slot="combobox-chips-input"
+			className={cn(
+				"h-auto min-w-[8rem] flex-1 border-0 bg-transparent px-0 py-0 shadow-none",
+				"focus-visible:border-0 focus-visible:ring-0",
 				className,
 			)}
 			{...props}
@@ -92,7 +126,14 @@ type ComboboxListProps<T> = Omit<
 };
 
 function ComboboxList<T = unknown>(props: ComboboxListProps<T>) {
-	return <ComboboxPrimitive.List {...props} />;
+	const labelling = useContext(ComboboxLabelContext);
+	return (
+		<ComboboxPrimitive.List
+			ref={labelling?.popupRef}
+			aria-label={labelling?.label}
+			{...props}
+		/>
+	);
 }
 
 function ComboboxItem({
@@ -195,12 +236,15 @@ function ComboboxChips({
 	className,
 	...props
 }: React.ComponentProps<typeof ComboboxPrimitive.Chips>) {
+	const disabled = useContext(ComboboxDisabledContext);
 	return (
 		<ComboboxPrimitive.Chips
 			data-slot="combobox-chips"
+			data-dimmed={disabled || undefined}
 			className={cn(
 				"flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 min-h-9 text-sm shadow-xs outline-none",
 				"focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+				"data-dimmed:pointer-events-none data-dimmed:opacity-50",
 				className,
 			)}
 			{...props}
@@ -251,6 +295,7 @@ export {
 	ComboboxChip,
 	ComboboxChipRemove,
 	ComboboxChips,
+	ComboboxChipsInput,
 	ComboboxCollection,
 	ComboboxContent,
 	ComboboxEmpty,

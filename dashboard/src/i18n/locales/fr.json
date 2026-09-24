@@ -140,7 +140,8 @@
 		"page": "Page {{n}}",
 		"total_count": "{{total}} au total",
 		"show_more": "Voir plus",
-		"show_less": "Voir moins"
+		"show_less": "Voir moins",
+		"remove_item": "Retirer {{item}}"
 	},
 	"search": {
 		"open": "Ouvrir la recherche",
@@ -510,6 +511,7 @@
 		"no_categories": "Saisissez au moins 2 caractères pour rechercher des catégories Twitch.",
 		"no_category_matches": "Aucune catégorie correspondante.",
 		"search_tags": "Rechercher des tags…",
+		"no_tag_matches": "Aucun tag correspondant.",
 		"no_tags": "Aucun tag — ils apparaissent quand les streams passent en live.",
 		"search_channels": "Rechercher des chaînes…",
 		"no_channels_found": "Aucune chaîne trouvée",

@@ -158,7 +158,7 @@ describe("ApproveRequestDialog", () => {
 		fireEvent.click(
 			screen.getByRole("checkbox", { name: "schedules.has_tags" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "English" }));
+		fireEvent.click(screen.getByRole("checkbox", { name: "English" }));
 		fireEvent.click(screen.getByRole("button", { name: "requests.approve" }));
 		await waitFor(() =>
 			expect(mutateAsync).toHaveBeenCalledWith({

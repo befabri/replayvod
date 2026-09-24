@@ -1,5 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { useTranslation } from "react-i18next";
+import { Alert } from "./alert";
 import { DataTable } from "./data-table";
 
 type QueryTableState<TData> = {
@@ -23,23 +23,20 @@ export function QueryTable<TData, Row, TValue>({
 	emptyMessage: string;
 	errorLabel: string;
 }) {
-	const { t } = useTranslation();
 	return (
 		<>
-			{query.isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
 			{query.error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+				<Alert variant="destructive">
 					{errorLabel}: {query.error.message}
-				</div>
+				</Alert>
 			)}
-			{query.data !== undefined && (
+			{(query.isLoading || query.data !== undefined) && (
 				<DataTable
 					columns={columns}
-					data={getRows(query.data)}
+					data={query.data === undefined ? [] : getRows(query.data)}
 					getRowId={getRowId}
 					emptyMessage={emptyMessage}
+					loading={query.isLoading}
 				/>
 			)}
 		</>

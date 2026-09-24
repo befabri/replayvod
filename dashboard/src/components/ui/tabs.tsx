@@ -33,7 +33,7 @@ function TabsTrigger({
 			className={cn(
 				"inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-sm font-medium transition-all outline-none",
 				"focus-visible:ring-[3px] focus-visible:ring-ring/50",
-				"disabled:pointer-events-none disabled:opacity-50",
+				"data-[disabled]:pointer-events-none not-in-data-dimmed:data-[disabled]:opacity-50",
 				"data-[active]:bg-background data-[active]:text-foreground data-[active]:shadow-sm",
 				className,
 			)}

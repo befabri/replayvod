@@ -6,12 +6,22 @@ import {
 	getSortedRowModel,
 	type OnChangeFn,
 	type Row,
+	type RowData,
 	type RowSelectionState,
 	type SortingState,
 	useReactTable,
 } from "@tanstack/react-table";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { cn } from "@/lib/utils";
+import { LoadingState } from "./loading-state";
+import { Skeleton } from "./skeleton";
 import {
 	Table,
 	TableBody,
@@ -21,10 +31,22 @@ import {
 	TableRow,
 } from "./table";
 
+declare module "@tanstack/react-table" {
+	interface ColumnMeta<TData extends RowData, TValue> {
+		skeleton?: ReactNode;
+	}
+}
+
+const SKELETON_WIDTHS = ["w-3/4", "w-1/2", "w-2/3", "w-2/5", "w-3/5"];
+
+const EMPTY_CELL_CLASS = "h-24 text-center text-muted-foreground";
+
 export function DataTable<TData, TValue>({
 	columns,
 	data,
 	emptyMessage,
+	loading = false,
+	loadingRows = 5,
 	virtualizeRows = false,
 	estimateRowHeight = 74,
 	overscan = 8,
@@ -39,6 +61,8 @@ export function DataTable<TData, TValue>({
 	columns: ColumnDef<TData, TValue>[];
 	data: TData[];
 	emptyMessage?: string;
+	loading?: boolean;
+	loadingRows?: number;
 	virtualizeRows?: boolean;
 	estimateRowHeight?: number;
 	overscan?: number;
@@ -125,85 +149,125 @@ export function DataTable<TData, TValue>({
 		: rows.map((row) => ({ virtualRow: null, row }));
 
 	return (
-		<Table>
-			<TableHeader>
-				{table.getHeaderGroups().map((headerGroup) => (
-					<TableRow key={headerGroup.id}>
-						{headerGroup.headers.map((header) => {
-							const sort = header.column.getIsSorted();
-							const canSort = header.column.getCanSort();
-							return (
-								<TableHead key={header.id}>
-									{header.isPlaceholder ? null : canSort ? (
-										<button
-											type="button"
-											onClick={header.column.getToggleSortingHandler()}
-											className="inline-flex items-center gap-1 uppercase hover:text-foreground"
-										>
-											{flexRender(
+		<>
+			{loading ? <LoadingState className="sr-only" /> : null}
+			<Table aria-busy={loading || undefined}>
+				<TableHeader>
+					{table.getHeaderGroups().map((headerGroup) => (
+						<TableRow key={headerGroup.id}>
+							{headerGroup.headers.map((header) => {
+								const sort = header.column.getIsSorted();
+								const canSort = header.column.getCanSort();
+								return (
+									<TableHead key={header.id}>
+										{header.isPlaceholder ? null : canSort ? (
+											<button
+												type="button"
+												onClick={header.column.getToggleSortingHandler()}
+												className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+											>
+												{flexRender(
+													header.column.columnDef.header,
+													header.getContext(),
+												)}
+												{sort === "asc" ? (
+													<CaretUpIcon className="size-3" />
+												) : sort === "desc" ? (
+													<CaretDownIcon className="size-3" />
+												) : null}
+											</button>
+										) : (
+											flexRender(
 												header.column.columnDef.header,
 												header.getContext(),
-											)}
-											{sort === "asc" ? (
-												<CaretUpIcon className="size-3" />
-											) : sort === "desc" ? (
-												<CaretDownIcon className="size-3" />
-											) : null}
-										</button>
-									) : (
-										flexRender(
-											header.column.columnDef.header,
-											header.getContext(),
-										)
-									)}
-								</TableHead>
-							);
-						})}
-					</TableRow>
-				))}
-			</TableHeader>
-			<TableBody ref={bodyRef}>
-				{rows.length === 0 ? (
-					<TableRow>
-						<TableCell
-							colSpan={columns.length}
-							className="h-24 text-center text-muted-foreground"
-						>
-							{emptyMessage ?? "No results."}
-						</TableCell>
-					</TableRow>
-				) : (
-					<>
-						{virtualPaddingTop > 0 && (
-							<TableSpacerRow
-								colSpan={columns.length}
-								height={virtualPaddingTop}
-							/>
-						)}
-						{visibleRows.map(({ row, virtualRow }) => (
+											)
+										)}
+									</TableHead>
+								);
+							})}
+						</TableRow>
+					))}
+				</TableHeader>
+				<TableBody ref={bodyRef}>
+					{loading && loadingRows === 0 ? (
+						<TableRow aria-hidden="true" className="hover:bg-transparent">
+							<TableCell colSpan={columns.length} className={EMPTY_CELL_CLASS}>
+								<div className="flex justify-center">
+									<Skeleton className="h-3.5 w-40" />
+								</div>
+							</TableCell>
+						</TableRow>
+					) : loading ? (
+						Array.from({ length: loadingRows }, (_, rowIndex) => (
 							<TableRow
-								key={row.id}
-								data-index={virtualRow?.index}
-								data-state={row.getIsSelected() ? "selected" : undefined}
-								ref={virtualizeRows ? rowVirtualizer.measureElement : undefined}
+								key={`loading-${rowIndex.toString()}`}
+								aria-hidden="true"
+								className="hover:bg-transparent"
 							>
-								{row.getVisibleCells().map((cell) => (
-									<TableCell key={cell.id}>
-										{flexRender(cell.column.columnDef.cell, cell.getContext())}
+								{table.getVisibleLeafColumns().map((column, columnIndex) => (
+									<TableCell key={column.id}>
+										{column.columnDef.meta?.skeleton !== undefined ? (
+											column.columnDef.meta.skeleton
+										) : (
+											<div className="flex h-5 items-center">
+												<Skeleton
+													className={cn(
+														"h-3.5",
+														SKELETON_WIDTHS[
+															(rowIndex + columnIndex) % SKELETON_WIDTHS.length
+														],
+													)}
+												/>
+											</div>
+										)}
 									</TableCell>
 								))}
 							</TableRow>
-						))}
-						{virtualPaddingBottom > 0 && (
-							<TableSpacerRow
-								colSpan={columns.length}
-								height={virtualPaddingBottom}
-							/>
-						)}
-					</>
-				)}
-			</TableBody>
-		</Table>
+						))
+					) : rows.length === 0 ? (
+						<TableRow>
+							<TableCell colSpan={columns.length} className={EMPTY_CELL_CLASS}>
+								{emptyMessage ?? "No results."}
+							</TableCell>
+						</TableRow>
+					) : (
+						<>
+							{virtualPaddingTop > 0 && (
+								<TableSpacerRow
+									colSpan={columns.length}
+									height={virtualPaddingTop}
+								/>
+							)}
+							{visibleRows.map(({ row, virtualRow }) => (
+								<TableRow
+									key={row.id}
+									data-index={virtualRow?.index}
+									data-state={row.getIsSelected() ? "selected" : undefined}
+									ref={
+										virtualizeRows ? rowVirtualizer.measureElement : undefined
+									}
+								>
+									{row.getVisibleCells().map((cell) => (
+										<TableCell key={cell.id}>
+											{flexRender(
+												cell.column.columnDef.cell,
+												cell.getContext(),
+											)}
+										</TableCell>
+									))}
+								</TableRow>
+							))}
+							{virtualPaddingBottom > 0 && (
+								<TableSpacerRow
+									colSpan={columns.length}
+									height={virtualPaddingBottom}
+								/>
+							)}
+						</>
+					)}
+				</TableBody>
+			</Table>
+		</>
 	);
 }
 

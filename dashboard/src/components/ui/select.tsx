@@ -2,11 +2,13 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
+import { createContext, useContext } from "react";
 
+import { type PopupLabel, usePopupLabel } from "@/lib/element-label";
 import { cn } from "@/lib/utils";
 
 const selectTriggerVariants = cva(
-	"flex h-9 items-center justify-between gap-2 rounded-md border border-border px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
+	"flex h-9 items-center justify-between gap-2 rounded-md border border-border px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed not-in-data-dimmed:disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
 	{
 		variants: {
 			variant: {
@@ -18,8 +20,17 @@ const selectTriggerVariants = cva(
 	},
 );
 
+const SelectLabelContext = createContext<PopupLabel<HTMLButtonElement> | null>(
+	null,
+);
+
 function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>) {
-	return <SelectPrimitive.Root data-slot="select" {...props} />;
+	const labelling = usePopupLabel<HTMLButtonElement>();
+	return (
+		<SelectLabelContext value={labelling}>
+			<SelectPrimitive.Root data-slot="select" {...props} />
+		</SelectLabelContext>
+	);
 }
 
 function SelectValue(
@@ -35,8 +46,10 @@ function SelectTrigger({
 	...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> &
 	VariantProps<typeof selectTriggerVariants>) {
+	const anchorRef = useContext(SelectLabelContext)?.anchorRef;
 	return (
 		<SelectPrimitive.Trigger
+			ref={anchorRef}
 			data-slot="select-trigger"
 			className={cn(selectTriggerVariants({ variant }), className)}
 			{...props}
@@ -54,6 +67,7 @@ function SelectContent({
 	children,
 	...props
 }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
+	const labelling = useContext(SelectLabelContext);
 	return (
 		<SelectPrimitive.Portal>
 			<SelectPrimitive.Positioner
@@ -62,6 +76,8 @@ function SelectContent({
 				className="z-50"
 			>
 				<SelectPrimitive.Popup
+					ref={labelling?.popupRef}
+					aria-label={labelling?.label}
 					data-slot="select-content"
 					className={cn(
 						"max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md",

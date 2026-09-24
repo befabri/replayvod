@@ -140,7 +140,8 @@
 		"page": "Page {{n}}",
 		"total_count": "{{total}} total",
 		"show_more": "Show more",
-		"show_less": "Show less"
+		"show_less": "Show less",
+		"remove_item": "Remove {{item}}"
 	},
 	"search": {
 		"open": "Open search",
@@ -510,6 +511,7 @@
 		"no_categories": "Type at least 2 characters to search Twitch categories.",
 		"no_category_matches": "No matching categories.",
 		"search_tags": "Search tags…",
+		"no_tag_matches": "No matching tags.",
 		"no_tags": "No tags yet — they populate as streams go live.",
 		"search_channels": "Search channels…",
 		"no_channels_found": "No channels found",

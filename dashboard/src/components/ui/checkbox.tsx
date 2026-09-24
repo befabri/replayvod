@@ -14,7 +14,7 @@ function Checkbox({
 			className={cn(
 				"peer inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-border bg-background shadow-xs outline-none",
 				"focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-				"disabled:cursor-not-allowed disabled:opacity-50",
+				"data-[disabled]:cursor-not-allowed not-in-data-dimmed:data-[disabled]:opacity-50",
 				"data-[checked]:border-primary data-[checked]:bg-primary data-[checked]:text-primary-foreground",
 				className,
 			)}

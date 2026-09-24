@@ -155,11 +155,13 @@ export function FiltersFieldset({
 							{(field) => (
 								<div className="space-y-1 pl-6">
 									<MultiSelectPicker<number>
+										aria-label={t("schedules.tags")}
 										options={tagOptions}
 										selected={field.state.value ?? []}
 										onChange={(next) => field.handleChange(next)}
 										placeholder={t("schedules.search_tags")}
 										emptyHint={t("schedules.no_tags")}
+										noMatchesHint={t("schedules.no_tag_matches")}
 										disabled={!enabled}
 									/>
 									<FieldError errors={field.state.meta.errors} />
@@ -224,7 +226,10 @@ function NumberInputRow({
 	errors: unknown[];
 }) {
 	return (
-		<div className={`flex flex-col gap-1 pl-6 ${disabled ? "opacity-50" : ""}`}>
+		<div
+			data-dimmed={disabled || undefined}
+			className="flex flex-col gap-1 pl-6 data-dimmed:opacity-50"
+		>
 			<Label htmlFor={id} className="text-xs text-muted-foreground">
 				{label}
 			</Label>

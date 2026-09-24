@@ -32,7 +32,7 @@ function ToggleGroupItem({
 				"hover:bg-accent hover:text-accent-foreground",
 				"data-[pressed]:bg-primary data-[pressed]:text-primary-foreground",
 				"focus-visible:ring-2 focus-visible:ring-ring",
-				"disabled:pointer-events-none disabled:opacity-50",
+				"disabled:pointer-events-none not-in-data-dimmed:disabled:opacity-50",
 				className,
 			)}
 			{...props}
