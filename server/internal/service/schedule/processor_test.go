@@ -82,7 +82,7 @@ func TestProcess_StreamOffline_EndsLastActiveStream(t *testing.T) {
 			BroadcasterUserName:  "b",
 		},
 	}
-	if err := p.Process(ctx, n); err != nil {
+	if err := p.Process(ctx, n, time.Now()); err != nil {
 		t.Fatalf("process: %v", err)
 	}
 
@@ -98,12 +98,49 @@ func TestProcess_StreamOffline_EndsLastActiveStream(t *testing.T) {
 	// and must not re-stamp ended_at backwards.
 	firstEnd := *got.EndedAt
 	time.Sleep(10 * time.Millisecond)
-	if err := p.Process(ctx, n); err != nil {
+	if err := p.Process(ctx, n, time.Now()); err != nil {
 		t.Fatalf("re-process: %v", err)
 	}
 	got2, _ := repo.GetStream(ctx, stream.ID)
 	if got2.EndedAt == nil || !got2.EndedAt.Equal(firstEnd) {
 		t.Errorf("ended_at must be stable across retries: first %v second %v", firstEnd, got2.EndedAt)
+	}
+}
+
+// A stream.offline whose first attempt crashed can be redelivered after the
+// channel went live again. The offline belongs to the earlier broadcast and
+// must leave the newer one open; only an offline sent after it started ends it.
+func TestProcess_StreamOfflineSentBeforeOpenStreamLeavesItOpen(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	p := NewEventProcessor(repo, nil, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-replay", BroadcasterLogin: "replay", BroadcasterName: "Replay",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	if _, err := repo.UpsertStream(ctx, &repository.StreamInput{
+		ID: "s-newer", BroadcasterID: "b-replay", Type: "live", StartedAt: started,
+	}); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+	n := &twitch.EventSubNotification{
+		MessageType: twitch.MsgTypeNotification,
+		Event:       twitch.StreamOfflineEvent{BroadcasterUserID: "b-replay"},
+	}
+
+	if err := p.Process(ctx, n, started.Add(-time.Minute)); err != nil {
+		t.Fatalf("process stale offline: %v", err)
+	}
+	if got, err := repo.GetStream(ctx, "s-newer"); err != nil || got.EndedAt != nil {
+		t.Fatalf("offline sent before the stream started ended it: %+v, %v", got, err)
+	}
+	if err := p.Process(ctx, n, started.Add(time.Minute)); err != nil {
+		t.Fatalf("process offline: %v", err)
+	}
+	if got, err := repo.GetStream(ctx, "s-newer"); err != nil || got.EndedAt == nil {
+		t.Fatalf("offline sent after the stream started left it open: %+v, %v", got, err)
 	}
 }
 
@@ -135,7 +172,7 @@ func TestProcess_DecodedPointerEventsDispatch(t *testing.T) {
 			BroadcasterUserLogin: "off",
 			BroadcasterUserName:  "Off",
 		},
-	}); err != nil {
+	}, time.Now()); err != nil {
 		t.Fatalf("process pointer stream.offline: %v", err)
 	}
 	gotStream, err := repo.GetStream(ctx, stream.ID)
@@ -185,7 +222,7 @@ func TestProcess_DecodedPointerEventsDispatch(t *testing.T) {
 			CategoryID:           "game-pointer",
 			CategoryName:         "Pointer Game",
 		},
-	}); err != nil {
+	}, time.Now()); err != nil {
 		t.Fatalf("process pointer channel.update: %v", err)
 	}
 
@@ -392,7 +429,7 @@ func TestProcess_StreamStatus_PublishedOnOfflineTransition(t *testing.T) {
 			BroadcasterUserName:  "BS",
 		},
 	}
-	if err := p.Process(ctx, n); err != nil {
+	if err := p.Process(ctx, n, time.Now()); err != nil {
 		t.Fatalf("process: %v", err)
 	}
 
@@ -515,7 +552,7 @@ func TestProcess_StreamStatus_PublishedOnOnlineTransition(t *testing.T) {
 			BroadcasterUserName:  "BO",
 		},
 	}
-	if err := p.Process(ctx, n); err != nil {
+	if err := p.Process(ctx, n, time.Now()); err != nil {
 		t.Fatalf("process: %v", err)
 	}
 

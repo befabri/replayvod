@@ -50,7 +50,7 @@ type capturingProcessor struct {
 	events []*twitch.EventSubNotification
 }
 
-func (p *capturingProcessor) Process(_ context.Context, n *twitch.EventSubNotification) error {
+func (p *capturingProcessor) Process(_ context.Context, n *twitch.EventSubNotification, _ time.Time) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.events = append(p.events, n)

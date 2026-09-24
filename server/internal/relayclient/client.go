@@ -281,7 +281,8 @@ func (c *Client) handleFrame(ctx context.Context, conn *websocket.Conn, data []b
 	// Track the relay's monotonic cursor only for frames the local handler
 	// accepted. A failed local callback should replay after reconnect; the
 	// webhook handler dedupes on Twitch-Eventsub-Message-Id (see
-	// internal/server/api/webhook/handler.go) so a replay is a no-op.
+	// internal/server/api/webhook/handler.go), so a replay of a finished
+	// event is a no-op and one left unfinished runs again.
 	c.advanceCursor(f.Cursor)
 
 	// Verification challenges are synchronous handshakes; never absorb them

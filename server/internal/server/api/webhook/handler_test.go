@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,8 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/go-chi/chi/v5"
@@ -29,12 +32,14 @@ const testSecret = "test-webhook-secret"
 // SQLite adapter. Callers mutate the returned processor's behavior via the
 // processorFn. The adapter is fully migrated.
 type fakeProcessor struct {
-	calls atomic.Int32
-	fn    func(context.Context, *twitch.EventSubNotification) error
+	calls  atomic.Int32
+	sentAt atomic.Pointer[time.Time]
+	fn     func(context.Context, *twitch.EventSubNotification) error
 }
 
-func (f *fakeProcessor) Process(ctx context.Context, n *twitch.EventSubNotification) error {
+func (f *fakeProcessor) Process(ctx context.Context, n *twitch.EventSubNotification, sentAt time.Time) error {
 	f.calls.Add(1)
+	f.sentAt.Store(&sentAt)
 	if f.fn != nil {
 		return f.fn(ctx, n)
 	}
@@ -43,10 +48,21 @@ func (f *fakeProcessor) Process(ctx context.Context, n *twitch.EventSubNotificat
 
 func newTestServer(t *testing.T, proc EventProcessor) (*httptest.Server, repository.Repository) {
 	t.Helper()
+	return newTestServerWithRepo(t, proc, func(r repository.Repository) repository.Repository { return r })
+}
+
+// newTestServerWithRepo lets a test wrap the repository the handler uses; the
+// returned repository is the unwrapped one, for assertions.
+func newTestServerWithRepo(t *testing.T, proc EventProcessor, wrap func(repository.Repository) repository.Repository) (*httptest.Server, repository.Repository) {
+	t.Helper()
 	db := testdb.NewSQLiteDB(t)
 	repo := sqliteadapter.New(db)
-	h := NewHandler(repo, testSecret, proc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHandler(wrap(repo), testSecret, proc, log)
 	r := chi.NewRouter()
+	// Keep the production recoverer in place to catch panics outside the
+	// processor's terminal-failure handling.
+	r.Use(middleware.Recoverer(log))
 	r.Route("/api/v1", func(r chi.Router) { h.SetupRoutes(r) })
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
@@ -491,8 +507,8 @@ func TestWebhook_Revocation_MarksSubscriptionRevoked(t *testing.T) {
 // TestWebhook_Notification_ProcessorFailure_StillReturns204 guards the
 // retry-storm prevention: if our processor (schedule matcher, downloader)
 // errors, we must still return 2xx or Twitch retries forever and floods the
-// audit log. The failure is instead recorded via MarkWebhookEventFailed so
-// the dashboard surfaces it.
+// audit log. The failure is instead recorded on the audit row, and a
+// redelivery of a failed event is not run again.
 func TestWebhook_Notification_ProcessorFailure_StillReturns204(t *testing.T) {
 	proc := &fakeProcessor{
 		fn: func(context.Context, *twitch.EventSubNotification) error {
@@ -527,13 +543,19 @@ func TestWebhook_Notification_ProcessorFailure_StillReturns204(t *testing.T) {
 	if stored.Error == nil || !strings.Contains(*stored.Error, "processor exploded") {
 		t.Errorf("Error = %v, want to contain processor error text", stored.Error)
 	}
+
+	if s := mustDeliverNotification(t, srv, "fail-msg-1", body); s != http.StatusNoContent {
+		t.Errorf("redelivery status = %d, want 204", s)
+	}
+	if got := proc.calls.Load(); got != 1 {
+		t.Errorf("processor calls = %d, want 1 (a failed event is not retried)", got)
+	}
 }
 
 // TestWebhook_Notification_ProcessorSuccess_MarksProcessed confirms the
 // success-path audit update. Without this assertion a future change that
 // returns early after Process() would silently drop the processed-at
-// marker; the dashboard's "stuck received" query would then falsely page
-// operators for events that actually succeeded.
+// marker, and a redelivery would then run an event that already succeeded.
 func TestWebhook_Notification_ProcessorSuccess_MarksProcessed(t *testing.T) {
 	srv, repo := newTestServer(t, &fakeProcessor{})
 	body := []byte(notificationBody("12345", "sub-ok1", "event-ok1"))
@@ -559,4 +581,263 @@ func TestWebhook_Notification_ProcessorSuccess_MarksProcessed(t *testing.T) {
 	if stored.ProcessedAt == nil {
 		t.Error("ProcessedAt must be set on success")
 	}
+}
+
+func deliverNotification(srv *httptest.Server, messageID string, body []byte) (int, error) {
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/webhook/callback", strings.NewReader(string(body)))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set(twitch.EventSubHeaderMessageType, string(twitch.MsgTypeNotification))
+	signRequest(req, messageID, time.Now().UTC().Format(time.RFC3339Nano), body, testSecret)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		return 0, err
+	}
+	resp.Body.Close()
+	return resp.StatusCode, nil
+}
+
+func mustDeliverNotification(t *testing.T, srv *httptest.Server, messageID string, body []byte) int {
+	t.Helper()
+	status, err := deliverNotification(srv, messageID, body)
+	if err != nil {
+		t.Fatalf("deliver %s: %v", messageID, err)
+	}
+	return status
+}
+
+func requireWebhookStatus(t *testing.T, repo repository.Repository, messageID, want string) {
+	t.Helper()
+	stored, err := repo.GetWebhookEventByEventID(context.Background(), messageID)
+	if err != nil {
+		t.Fatalf("audit lookup: %v", err)
+	}
+	if stored.Status != want {
+		t.Fatalf("Status = %q, want %q", stored.Status, want)
+	}
+}
+
+// A process killed mid-event leaves its row received. The redelivery that
+// reaches the restarted server must run the event, not dedupe it away, or a
+// lost stream.online means the broadcast is never recorded. It runs with the
+// time of the first delivery, which tells a replayed stream.offline apart from
+// a broadcast that started since.
+func TestWebhook_Notification_RedeliveryRunsEventLeftReceived(t *testing.T) {
+	proc := &fakeProcessor{}
+	srv, repo := newTestServer(t, proc)
+	body := []byte(notificationBody("12345", "sub-crash", "event-crash"))
+	firstSent := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	if _, err := repo.CreateWebhookEvent(context.Background(), &repository.WebhookEventInput{
+		EventID:          "crash-msg",
+		MessageType:      repository.WebhookMessageNotification,
+		MessageTimestamp: firstSent,
+		Payload:          body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if s := mustDeliverNotification(t, srv, "crash-msg", body); s != http.StatusNoContent {
+		t.Fatalf("redelivery status = %d, want 204", s)
+	}
+	if got := proc.calls.Load(); got != 1 {
+		t.Fatalf("processor calls = %d, want 1", got)
+	}
+	if got := proc.sentAt.Load(); got == nil || !got.Equal(firstSent) {
+		t.Fatalf("processor sentAt = %v, want the first delivery's %v", got, firstSent)
+	}
+	requireWebhookStatus(t, repo, "crash-msg", repository.WebhookStatusProcessed)
+}
+
+func TestWebhook_Notification_ProcessorPanicIsTerminal(t *testing.T) {
+	proc := &fakeProcessor{fn: func(_ context.Context, n *twitch.EventSubNotification) error {
+		if n.Subscription.ID == "sub-panic" {
+			panic("processor blew up")
+		}
+		return nil
+	}}
+	srv, repo := newTestServer(t, proc)
+	body := []byte(notificationBody("12345", "sub-panic", "event-panic"))
+
+	if s := mustDeliverNotification(t, srv, "panic-msg", body); s != http.StatusNoContent {
+		t.Fatalf("first delivery status = %d, want 204", s)
+	}
+	requireWebhookStatus(t, repo, "panic-msg", repository.WebhookStatusFailed)
+	stored, err := repo.GetWebhookEventByEventID(context.Background(), "panic-msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Error == nil || !strings.Contains(*stored.Error, "processor blew up") {
+		t.Errorf("Error = %v, want the panic recorded", stored.Error)
+	}
+	if stored.ProcessedAt == nil {
+		t.Error("ProcessedAt must be set on terminal failure")
+	}
+	if s := mustDeliverNotification(t, srv, "panic-msg", body); s != http.StatusNoContent {
+		t.Fatalf("redelivery status = %d, want 204", s)
+	}
+	if got := proc.calls.Load(); got != 1 {
+		t.Fatalf("processor calls = %d, want 1 (a panicked event is not retried)", got)
+	}
+
+	// The failed event must not stop another channel's stream.online from
+	// reaching the processor, including when it follows in a relay replay.
+	next := []byte(notificationBody("67890", "sub-next", "event-next"))
+	if s := mustDeliverNotification(t, srv, "next-msg", next); s != http.StatusNoContent {
+		t.Fatalf("next event status = %d, want 204", s)
+	}
+	if got := proc.calls.Load(); got != 2 {
+		t.Fatalf("processor calls = %d, want 2", got)
+	}
+	requireWebhookStatus(t, repo, "next-msg", repository.WebhookStatusProcessed)
+}
+
+func deliverNotificationAsync(srv *httptest.Server, messageID string, body []byte) <-chan int {
+	status := make(chan int, 1)
+	go func() {
+		s, err := deliverNotification(srv, messageID, body)
+		if err != nil {
+			s = -1
+		}
+		status <- s
+	}()
+	return status
+}
+
+func awaitSignal(t *testing.T, signal <-chan struct{}, failure string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatal(failure)
+	}
+}
+
+// requireUnanswered fails when a delivery gets its response while the attempt
+// it waits on is still blocked.
+func requireUnanswered(t *testing.T, status <-chan int, delivery string) {
+	t.Helper()
+	select {
+	case s := <-status:
+		t.Fatalf("%s answered %d before the first attempt finished", delivery, s)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// Twitch retries a delivery that has not answered in time, so a redelivery can
+// arrive while the first attempt is still running. It must wait for that
+// attempt instead of starting a second run of the same event.
+func TestWebhook_Notification_RedeliveryDuringFirstAttemptRunsOnce(t *testing.T) {
+	for _, outcome := range []string{"success", "panic"} {
+		t.Run(outcome, func(t *testing.T) {
+			started := make(chan struct{})
+			release := make(chan struct{})
+			var attempts atomic.Int32
+			proc := &fakeProcessor{fn: func(context.Context, *twitch.EventSubNotification) error {
+				if attempts.Add(1) == 1 {
+					close(started)
+					<-release
+				}
+				if outcome == "panic" {
+					panic("processor blew up")
+				}
+				return nil
+			}}
+			srv, repo := newTestServer(t, proc)
+			body := []byte(notificationBody("12345", "sub-slow", "event-slow"))
+
+			first := deliverNotificationAsync(srv, "slow-msg", body)
+			awaitSignal(t, started, "first delivery never reached the processor")
+			retry := deliverNotificationAsync(srv, "slow-msg", body)
+			requireUnanswered(t, retry, "redelivery")
+			close(release)
+			if s := <-first; s != http.StatusNoContent {
+				t.Errorf("first delivery status = %d, want 204", s)
+			}
+			if s := <-retry; s != http.StatusNoContent {
+				t.Errorf("redelivery status = %d, want 204", s)
+			}
+			if got := proc.calls.Load(); got != 1 {
+				t.Fatalf("processor calls = %d, want 1", got)
+			}
+			want := repository.WebhookStatusProcessed
+			if outcome == "panic" {
+				want = repository.WebhookStatusFailed
+			}
+			requireWebhookStatus(t, repo, "slow-msg", want)
+		})
+	}
+}
+
+// stallingRepo holds the first CreateWebhookEvent until released and then
+// fails it, as a database stuck behind a lock would.
+type stallingRepo struct {
+	repository.Repository
+	started, release chan struct{}
+	calls            atomic.Int32
+}
+
+func (r *stallingRepo) CreateWebhookEvent(ctx context.Context, input *repository.WebhookEventInput) (*repository.WebhookEvent, error) {
+	if r.calls.Add(1) == 1 {
+		close(r.started)
+		<-r.release
+		return nil, errors.New("database is locked")
+	}
+	return r.Repository.CreateWebhookEvent(ctx, input)
+}
+
+// A redelivery that arrives while the first attempt is still inserting its
+// audit row must not be acknowledged on that attempt's behalf: when the insert
+// then fails, Twitch would stop retrying an event nothing stored or ran.
+func TestWebhook_Notification_RedeliveryDuringFailedInsertRunsEvent(t *testing.T) {
+	stall := &stallingRepo{started: make(chan struct{}), release: make(chan struct{})}
+	proc := &fakeProcessor{}
+	srv, repo := newTestServerWithRepo(t, proc, func(r repository.Repository) repository.Repository {
+		stall.Repository = r
+		return stall
+	})
+	body := []byte(notificationBody("12345", "sub-stall", "event-stall"))
+
+	first := deliverNotificationAsync(srv, "stall-msg", body)
+	awaitSignal(t, stall.started, "first delivery never reached the insert")
+	retry := deliverNotificationAsync(srv, "stall-msg", body)
+	requireUnanswered(t, retry, "redelivery")
+	close(stall.release)
+	if s := <-first; s != http.StatusInternalServerError {
+		t.Errorf("first delivery status = %d, want 500", s)
+	}
+	if s := <-retry; s != http.StatusNoContent {
+		t.Errorf("redelivery status = %d, want 204", s)
+	}
+	if got := proc.calls.Load(); got != 1 {
+		t.Fatalf("processor calls = %d, want 1", got)
+	}
+	requireWebhookStatus(t, repo, "stall-msg", repository.WebhookStatusProcessed)
+}
+
+// Server.Stop shuts the downloader down before the HTTP server, so a
+// stream.online can arrive while downloads are refused. It must stay
+// retryable instead of being marked failed and acknowledged.
+func TestWebhook_Notification_ShutdownDefersEventToRedelivery(t *testing.T) {
+	var attempts atomic.Int32
+	proc := &fakeProcessor{fn: func(context.Context, *twitch.EventSubNotification) error {
+		if attempts.Add(1) == 1 {
+			return fmt.Errorf("start download: %w", downloader.ErrShuttingDown)
+		}
+		return nil
+	}}
+	srv, repo := newTestServer(t, proc)
+	body := []byte(notificationBody("12345", "sub-stop", "event-stop"))
+
+	if s := mustDeliverNotification(t, srv, "stop-msg", body); s != http.StatusServiceUnavailable {
+		t.Fatalf("delivery during shutdown status = %d, want 503", s)
+	}
+	requireWebhookStatus(t, repo, "stop-msg", repository.WebhookStatusReceived)
+	if s := mustDeliverNotification(t, srv, "stop-msg", body); s != http.StatusNoContent {
+		t.Fatalf("redelivery status = %d, want 204", s)
+	}
+	if got := proc.calls.Load(); got != 2 {
+		t.Fatalf("processor calls = %d, want 2", got)
+	}
+	requireWebhookStatus(t, repo, "stop-msg", repository.WebhookStatusProcessed)
 }

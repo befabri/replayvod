@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
+	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/go-chi/chi/v5"
@@ -16,9 +20,10 @@ import (
 
 const maxWebhookBodyBytes = 1 << 20
 
-// EventProcessor dispatches decoded notifications to domain logic.
+// EventProcessor dispatches decoded notifications to domain logic. sentAt is
+// when Twitch first sent the notification, which a redelivery keeps.
 type EventProcessor interface {
-	Process(ctx context.Context, n *twitch.EventSubNotification) error
+	Process(ctx context.Context, n *twitch.EventSubNotification, sentAt time.Time) error
 }
 
 type Handler struct {
@@ -27,6 +32,10 @@ type Handler struct {
 	processor  EventProcessor
 	log        *slog.Logger
 	maxAge     time.Duration
+	// inFlight maps the Message-Ids this process is running to a channel
+	// closed when that attempt ends. A redelivery waits for it instead of
+	// running the event a second time or acknowledging one not yet stored.
+	inFlight sync.Map
 }
 
 func NewHandler(repo repository.Repository, hmacSecret string, processor EventProcessor, log *slog.Logger) *Handler {
@@ -76,7 +85,8 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	input := buildEventInput(eventID, ts, body, notif)
 
-	// Keep audit writes alive after a client/proxy disconnect.
+	// Finish processing and audit writes even if Twitch or the relay times out.
+	// A redelivery waits for this attempt and reads its persisted outcome.
 	dbCtx := context.WithoutCancel(r.Context())
 
 	// Verification can arrive before the mirrored subscription row exists.
@@ -128,14 +138,36 @@ func (h *Handler) handleRevocation(w http.ResponseWriter, ctx context.Context, i
 }
 
 func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context, input *repository.WebhookEventInput, notif *twitch.EventSubNotification) {
+	done := make(chan struct{})
+	for {
+		running, ok := h.inFlight.LoadOrStore(input.EventID, done)
+		if !ok {
+			break
+		}
+		h.log.Debug("webhook event already in progress, waiting", "event_id", input.EventID)
+		<-running.(chan struct{})
+	}
+	defer func() {
+		h.inFlight.Delete(input.EventID)
+		close(done)
+	}()
+
 	event, err := h.repo.CreateWebhookEvent(ctx, input)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			// ON CONFLICT DO NOTHING: this Message-Id was already processed.
+	if errors.Is(err, repository.ErrNotFound) {
+		event, err = h.repo.GetWebhookEventByEventID(ctx, input.EventID)
+		if err != nil {
+			h.log.Error("failed to look up duplicate webhook event", "error", err, "event_id", input.EventID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if event.Status != repository.WebhookStatusReceived {
 			h.log.Debug("duplicate webhook event, dedupd", "event_id", input.EventID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		h.log.Info("running webhook event an earlier delivery left unfinished",
+			"event_id", input.EventID, "id", event.ID)
+	} else if err != nil {
 		h.log.Error("failed to record notification event", "error", err, "event_id", input.EventID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -151,7 +183,13 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 		return
 	}
 
-	if procErr := h.processor.Process(ctx, notif); procErr != nil {
+	if procErr := h.processNotification(ctx, notif, event); procErr != nil {
+		if errors.Is(procErr, downloader.ErrShuttingDown) {
+			h.log.Warn("deferring webhook event until restart",
+				"event_id", input.EventID, "event_type", notif.Subscription.Type)
+			http.Error(w, "shutting down", http.StatusServiceUnavailable)
+			return
+		}
 		h.log.Error("event processor failed",
 			"error", procErr, "event_id", input.EventID,
 			"event_type", notif.Subscription.Type)
@@ -165,6 +203,23 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 		h.log.Error("failed to mark webhook processed", "error", err, "id", event.ID)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// processNotification runs the processor and returns a panic as an error, so a
+// panicking event is marked failed like any other processor error. Left to the
+// HTTP recoverer it would stay received, and every redelivery would run it
+// again: a poison event then stalls relay replay and keeps failing direct Twitch
+// deliveries. Storage errors are outside the recover and keep their retries.
+func (h *Handler) processNotification(ctx context.Context, notif *twitch.EventSubNotification, event *repository.WebhookEvent) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("event processor panicked: %v", rec)
+			h.log.Error("event processor panic recovered",
+				"error", rec, "event_id", event.EventID,
+				"event_type", notif.Subscription.Type, "stack", string(debug.Stack()))
+		}
+	}()
+	return h.processor.Process(ctx, notif, event.MessageTimestamp)
 }
 
 func (h *Handler) logVerifyError(err error, r *http.Request) {

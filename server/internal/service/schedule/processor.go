@@ -55,7 +55,7 @@ func NewEventProcessor(repo repository.Repository, dl StreamDownloader, tc *twit
 }
 
 // Process handles supported stream notifications and ignores unrelated events.
-func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotification) error {
+func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotification, sentAt time.Time) error {
 	switch ev := n.Event.(type) {
 	case twitch.StreamOnlineEvent:
 		return p.processStreamOnlineEvent(ctx, ev)
@@ -65,12 +65,12 @@ func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotifica
 		}
 		return p.processStreamOnlineEvent(ctx, *ev)
 	case twitch.StreamOfflineEvent:
-		return p.processStreamOfflineEvent(ctx, ev)
+		return p.dispatchStreamOffline(ctx, ev, sentAt)
 	case *twitch.StreamOfflineEvent:
 		if ev == nil {
 			return nil
 		}
-		return p.processStreamOfflineEvent(ctx, *ev)
+		return p.dispatchStreamOffline(ctx, *ev, sentAt)
 	case twitch.ChannelUpdateEvent:
 		return p.processChannelUpdateEvent(ctx, ev)
 	case *twitch.ChannelUpdateEvent:
@@ -85,10 +85,6 @@ func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotifica
 
 func (p *EventProcessor) processStreamOnlineEvent(ctx context.Context, ev twitch.StreamOnlineEvent) error {
 	return p.DispatchStreamOnline(ctx, ev)
-}
-
-func (p *EventProcessor) processStreamOfflineEvent(ctx context.Context, ev twitch.StreamOfflineEvent) error {
-	return p.DispatchStreamOffline(ctx, ev)
 }
 
 func (p *EventProcessor) processChannelUpdateEvent(ctx context.Context, ev twitch.ChannelUpdateEvent) error {
@@ -117,6 +113,13 @@ func (p *EventProcessor) dispatchChannelUpdate(ctx context.Context, ev twitch.Ch
 // DispatchStreamOffline closes the latest stream and notifies live-status subscribers.
 // Recording acquisition still drains HLS independently.
 func (p *EventProcessor) DispatchStreamOffline(ctx context.Context, event twitch.StreamOfflineEvent) error {
+	return p.dispatchStreamOffline(ctx, event, time.Time{})
+}
+
+// dispatchStreamOffline leaves open a stream that started after sentAt: the
+// offline belongs to an earlier broadcast, as when a crashed attempt is
+// redelivered once the channel is live again. A zero sentAt ends any stream.
+func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch.StreamOfflineEvent, sentAt time.Time) error {
 	if p.dl != nil {
 		p.dl.ObserveStreamOffline(event.BroadcasterUserID)
 	}
@@ -140,6 +143,13 @@ func (p *EventProcessor) DispatchStreamOffline(ctx context.Context, event twitch
 		return fmt.Errorf("get last live stream: %w", err)
 	}
 	if stream.EndedAt != nil {
+		return nil
+	}
+	if !sentAt.IsZero() && stream.StartedAt.After(sentAt) {
+		p.log.Info("stream.offline predates the open stream; ignoring",
+			"stream_id", stream.ID,
+			"broadcaster_id", event.BroadcasterUserID,
+			"sent_at", sentAt)
 		return nil
 	}
 	if err := p.repo.EndStream(persistCtx, stream.ID, time.Now().UTC()); err != nil {
