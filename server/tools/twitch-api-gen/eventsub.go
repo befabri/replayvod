@@ -269,9 +269,9 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 
 	// Event anchor resolution, in order of preference:
 	//   0. Manual override — for subscription types whose reference-page anchor
-	//      lacks the `-event` suffix that isEventAnchor recognizes. The schema
-	//      was routed into NamedSchemas by parseReferenceSchemas; promote it
-	//      into Events so emitSchemaStructs materializes a typed event struct.
+	//      lacks the `-event` suffix. isEventAnchor already classified the
+	//      anchor via manualEventAnchors, so parseReferenceSchemas filed its
+	//      schema in Events and this is a plain lookup.
 	//   1. The Notification Payload table in the same per-type section has an
 	//      `event` row whose href points at a reference-page anchor.
 	//   2. Swap "-condition" suffix for "-event" on the condition anchor —

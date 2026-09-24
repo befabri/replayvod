@@ -358,6 +358,27 @@ func TestEventSubScraper_resolvesKnownTypes(t *testing.T) {
 	for typ := range want {
 		t.Errorf("%s not resolved by scraper", typ)
 	}
+
+	// These event anchors lack the -event suffix and resolve only through
+	// manualEventAnchorOverrides.
+	wantEvent := map[[2]string]string{
+		{"channel.shield_mode.begin", "1"}: "shield-mode",
+		{"channel.shield_mode.end", "1"}:   "shield-mode",
+		{"channel.shoutout.create", "1"}:   "shoutout-create",
+		{"channel.shoutout.receive", "1"}:  "shoutout-received",
+	}
+	for _, s := range subs {
+		key := [2]string{s.Type, s.Version}
+		if expect, ok := wantEvent[key]; ok {
+			if s.EventAnchor != expect {
+				t.Errorf("%s/%s event anchor = %q; want %q", s.Type, s.Version, s.EventAnchor, expect)
+			}
+			delete(wantEvent, key)
+		}
+	}
+	for key := range wantEvent {
+		t.Errorf("%s/%s not resolved by scraper", key[0], key[1])
+	}
 }
 
 // TestIsDeprecatedField locks each entry in deprecatedFieldMarkers against

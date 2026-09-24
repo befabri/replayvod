@@ -180,44 +180,18 @@ func TestReachability_Diamond(t *testing.T) {
 
 // TestValidateManualEventAnchorOverrides_catchesMissingTarget simulates a
 // typo in manualEventAnchorOverrides by running validation against a ref
-// whose Events map is missing one override target. Fails loud is the contract.
+// whose Events map holds every override target but one. Fails loud is the
+// contract.
 func TestValidateManualEventAnchorOverrides_catchesMissingTarget(t *testing.T) {
-	ref := &EventSubReference{
-		Events: map[string]EventSubSchema{
-			"shoutout-create":   {AnchorID: "shoutout-create"},
-			"shoutout-received": {AnchorID: "shoutout-received"},
-			// shield-mode intentionally missing
-		},
-	}
-	if err := validateManualEventAnchorOverrides(ref); err == nil {
-		t.Fatalf("expected error for missing shield-mode; got nil")
-	}
-}
-
-// TestValidateManualEventAnchorOverrides_acceptsAllTargets — every override
-// target present in ref.Events (where parseReferenceSchemas files them via
-// isEventAnchor + manualEventAnchors). No errors expected.
-func TestValidateManualEventAnchorOverrides_acceptsAllTargets(t *testing.T) {
-	ref := &EventSubReference{
-		Events: map[string]EventSubSchema{
-			"shield-mode":       {AnchorID: "shield-mode"},
-			"shoutout-create":   {AnchorID: "shoutout-create"},
-			"shoutout-received": {AnchorID: "shoutout-received"},
-		},
-	}
-	if err := validateManualEventAnchorOverrides(ref); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// TestIsEventAnchor_includesManualOverrides locks the classification: each
-// anchor in manualEventAnchorOverrides is recognized as an event by
-// isEventAnchor, so parseReferenceSchemas routes them into ref.Events at
-// parse time without any post-hoc promotion.
-func TestIsEventAnchor_includesManualOverrides(t *testing.T) {
-	for _, anchor := range manualEventAnchorOverrides {
-		if !isEventAnchor(anchor) {
-			t.Errorf("isEventAnchor(%q) = false; want true (in manualEventAnchors)", anchor)
+	for _, missing := range manualEventAnchorOverrides {
+		ref := &EventSubReference{Events: map[string]EventSubSchema{}}
+		for _, target := range manualEventAnchorOverrides {
+			if target != missing {
+				ref.Events[target] = EventSubSchema{AnchorID: target}
+			}
+		}
+		if err := validateManualEventAnchorOverrides(ref); err == nil {
+			t.Errorf("expected error for missing %s; got nil", missing)
 		}
 	}
 }
