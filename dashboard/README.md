@@ -16,6 +16,7 @@ it.
 - [Configuration](#configuration)
 - [Internationalisation](#internationalisation)
 - [Testing](#testing)
+- [Storybook](#storybook)
 - [Build output](#build-output)
 - [License](#license)
 
@@ -31,7 +32,7 @@ it.
 | Styling     | Tailwind CSS v4 |
 | Validation  | Zod v4, `@t3-oss/env-core` |
 | i18n        | i18next + browser language detection (en, fr) |
-| Tooling     | TypeScript 5.7, Biome v2 (lint + format), Vitest, Playwright |
+| Tooling     | TypeScript 7, Biome v2 (lint + format), Vitest, Storybook 10, Playwright |
 
 The dark purple palette and sidebar layout are intentional and stable —
 treat them as design constants, not defaults to be swapped for shadcn's
@@ -57,8 +58,10 @@ dashboard/
 │   │   ├── index.ts        # i18next bootstrap
 │   │   └── locales/{en,fr} # translation JSON
 │   ├── lib/                # small utilities (cn(), date helpers, …)
+│   ├── test/               # shared fixtures, tRPC mock, story helpers
 │   ├── env.ts              # Zod-validated `import.meta.env`
 │   └── styles.css          # Tailwind directives + theme variables
+├── .storybook/             # Storybook config, providers, fixture media
 ├── tests/                  # Playwright specs
 ├── public/                 # static assets copied verbatim
 ├── components.json         # shadcn v4 config
@@ -69,16 +72,20 @@ dashboard/
 
 ## Scripts
 
-| Script             | What it does |
-| ------------------ | ------------ |
-| `npm run dev`      | Vite dev server on port 3000 with hot reload |
-| `npm run build`    | Production bundle to `dist/` |
-| `npm run preview`  | Serve the built bundle locally |
-| `npm test`         | Vitest unit tests |
-| `npm run lint`     | Biome lint |
-| `npm run format`   | Biome format |
-| `npm run check`    | Biome lint + format check |
-| `npm run routes`   | Regenerate `routeTree.gen.ts` from `src/routes/` |
+| Script                    | What it does |
+| ------------------------- | ------------ |
+| `npm run dev`             | Vite dev server on port 3000 with hot reload |
+| `npm run build`           | Production bundle to `dist/` |
+| `npm run preview`         | Serve the built bundle locally |
+| `npm test`                | Vitest unit tests |
+| `npm run test:storybook`  | Stories as Vitest browser tests |
+| `npm run test:e2e`        | Playwright end-to-end tests |
+| `npm run storybook`       | Storybook on port 6006 |
+| `npm run build-storybook` | Static Storybook to `storybook-static/` |
+| `npm run lint`            | Biome lint |
+| `npm run format`          | Biome format |
+| `npm run check`           | Biome lint + format check |
+| `npm run routes`          | Regenerate `routeTree.gen.ts` from `src/routes/` |
 
 Install dependencies with `npm install`.
 
@@ -93,57 +100,13 @@ Types and Zod schemas come from the Go side. Regenerate them by running
 `task trpcgen` in [`server/`](../server/) — output lands in
 `src/api/generated/` and is committed.
 
-Live data (live indicators, task status) arrives over the shared WebSocket link wired into
-the same tRPC client, backed by the server's event bus.
-
-### Live subscription transport
-
-The dashboard multiplexes live subscriptions over one cookie-authenticated WebSocket at
-`/trpc/ws` per tab. Queries and mutations continue to use HTTP batching; watch-progress
-writes keep their independent HTTP keepalive transport. The original SSE procedures
-remain available to other clients.
-
-Reverse proxies must forward WebSocket upgrades on `/trpc/ws`. Caddy handles this
-through `reverse_proxy`; nginx needs HTTP/1.1 plus the `Upgrade` and `Connection`
-headers forwarded. The Vite development proxy already enables upgrades. External
-frontend origins must be listed in the server's trusted browser origins.
-
-Connections open lazily, close after their last subscription is removed, and reconnect
-with backoff. Snapshot-backed feeds refetch on subscription start to recover transitions
-missed while disconnected. Native server WebSocket pings detect dead connections
-without depending on browser JavaScript timers or quiet application traffic.
-
-Live-status consumers share one cache and subscription. Snapshot requests capture
-an event revision before fetching; online/offline transitions received during that
-request override its result. Cancelled snapshots cannot overwrite newer state.
-
-Deletion queueing, completed removal, missing-media scans, and restoration publish
-invalidation notifications after the database change succeeds. The dashboard
-refreshes the affected video query families and history counts on notification and
-reconnect. Waiting for deletion does not repeatedly refetch loaded video pages.
-
-### Direct downloads
-
-Use the shared `DirectDownloadForm` for download entry points. It checks
-`stream.isLive` for the selected broadcaster; absence from the followed-channel
-snapshot cannot establish that a channel is offline. The check runs when opened
-or focused and every 30 seconds while mounted. Pending checks and failures block
-submission with distinct messages. Audio recording does not wait for video
-renditions. Live events and reconnects refresh the broadcaster check and
-rendition lists.
-
-Rendition lists depend on the shared Twitch playback session. Successful
-connection, check, and disconnect actions must reset all rendition caches and
-cancel older requests, including for dialogs that are currently closed, so
-returning to a recording form shows the current session's available qualities.
+Live data (live indicators, task status) arrives over one WebSocket per tab at
+`/trpc/ws`, shared by every subscription, while queries and mutations stay on
+HTTP batching. A reverse proxy in front of the server must forward WebSocket
+upgrades on `/trpc/ws`. Caddy's `reverse_proxy` does so already, and nginx
+needs HTTP/1.1 plus the `Upgrade` and `Connection` headers.
 
 ## Configuration
-
-Users can adjust resume and completion thresholds in **Settings → Playback**.
-Preferences are stored per account and returned by `settings.get`. The dashboard
-loads them before mounting playback consumers, so playback, Continue Watching,
-and its counts use the same settings. `settings.updatePlayback` updates playback
-preferences independently of locale settings.
 
 Environment variables are validated by `src/env.ts` (Zod). Normal Docker and
 production builds leave the dashboard same-origin with the Go server. For local
@@ -166,19 +129,30 @@ without the other.
 
 ## Testing
 
-| Kind  | Runner    | Where |
-| ----- | --------- | ----- |
-| Unit  | Vitest    | colocated `*.test.ts(x)` next to source |
-| E2E   | Playwright (Chromium) | `tests/` |
+| Kind    | Runner                         | Where |
+| ------- | ------------------------------ | ----- |
+| Unit    | Vitest                         | colocated `*.test.ts(x)` next to source |
+| Stories | Vitest browser mode (Chromium) | colocated `*.stories.tsx` |
+| E2E     | Playwright (Chromium)          | `tests/` |
 
 ```bash
-npm test                    # vitest
-npx playwright test         # e2e
+npm test                    # unit
+npm run test:storybook      # stories
+npm run test:e2e            # e2e
 ```
 
-The browser suite builds the dashboard and requires Chromium (`npx playwright
+The e2e suite builds the dashboard and requires Chromium (`npx playwright
 install chromium`). Its subscription test starts a small Go fixture against the
 real transport, so install the Go version specified by `server/go.mod` as well.
+
+## Storybook
+
+Stories sit next to the component they document as `*.stories.tsx`, under
+`UI/…` for `src/components/ui` and `Features/<Feature>/…` for feature
+components, and are written as CSF Factories (`preview.meta`, `meta.story`).
+`npm run test:storybook` runs every story in Chromium twice, dark in English
+and light in French, with its `play` function and an axe check. Accessibility
+violations fail the run.
 
 ## Build output
 
