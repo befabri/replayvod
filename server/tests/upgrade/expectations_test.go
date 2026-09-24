@@ -76,6 +76,9 @@ var transformations = map[string]map[string]tableRule{
 	"062_canonical_recording_timeline": {
 		"video_metadata_changes": grows(),
 	},
+	"067_drop_unused_video_tags_and_webhook_indexes": {
+		"video_tags": {dropped: true},
+	},
 }
 
 func restoreLegacyQuality(rows []map[string]any, _ snapshot) {

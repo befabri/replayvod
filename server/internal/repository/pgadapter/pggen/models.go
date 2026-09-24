@@ -460,11 +460,6 @@ type VideoRequest struct {
 	RequestedAt time.Time `json:"requested_at"`
 }
 
-type VideoTag struct {
-	VideoID int64 `json:"video_id"`
-	TagID   int64 `json:"tag_id"`
-}
-
 type VideoTitle struct {
 	VideoID  int64     `json:"video_id"`
 	TitleID  int64     `json:"title_id"`

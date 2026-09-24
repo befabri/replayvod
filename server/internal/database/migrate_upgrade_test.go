@@ -296,7 +296,6 @@ func seedExistingInstallation(t *testing.T, db *sql.DB, version string) []string
 			VALUES (81, 71, 0, 'recording-1-part0', 'HIGH', 'h264', 'ts', 0, 30);
 		INSERT INTO video_titles (video_id, title_id) VALUES (71, 51);
 		INSERT INTO video_categories (video_id, category_id) VALUES (71, 'game');
-		INSERT INTO video_tags (video_id, tag_id) VALUES (71, 31);
 		INSERT INTO video_requests (video_id, user_id, requested_at) VALUES
 			(71, 'viewer', '2025-02-03 04:05:06'), (72, 'viewer', '2025-02-03 04:05:06'),
 			(71, 'admin', '2025-02-04 01:02:03');
@@ -316,7 +315,7 @@ func seedExistingInstallation(t *testing.T, db *sql.DB, version string) []string
 		t.Fatal(err)
 	}
 	tables := []string{"users", "whitelist", "sessions", "channels", "categories", "tags", "titles", "videos", "video_parts",
-		"video_titles", "video_categories", "video_tags", "video_requests", "download_schedules", "download_schedule_categories", "download_schedule_tags"}
+		"video_titles", "video_categories", "video_requests", "download_schedules", "download_schedule_categories", "download_schedule_tags"}
 	if version >= "040" {
 		execMigrationSQL(t, db, `INSERT INTO server_settings (id, server_mode, hmac_secret, playback_cache_enabled, playback_cache_max_percent)
 			VALUES (1, 'poll', 'existing-hmac-secret', TRUE, 25)`)
