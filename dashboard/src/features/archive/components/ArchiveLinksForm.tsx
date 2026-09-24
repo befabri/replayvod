@@ -4,13 +4,13 @@ import { toast } from "sonner";
 import type { EnqueueArchiveItem } from "@/api/generated/trpc";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { parseVodLines } from "@/features/archive/parse";
 import { useEnqueueArchive } from "@/features/archive/queries";
 import {
 	type ArchiveSettings,
 	archivePayloadSettings,
 } from "@/features/archive/settings";
-import { cn } from "@/lib/utils";
 import { MAX_VODS_PER_ENQUEUE } from "../limits";
 import { EnqueueResults } from "./EnqueueResults";
 
@@ -68,18 +68,14 @@ export function ArchiveLinksForm({ settings }: { settings: ArchiveSettings }) {
 		>
 			<div className="space-y-2">
 				<Label htmlFor={`${id}-links`}>{t("archive.links_label")}</Label>
-				<textarea
+				<Textarea
 					id={`${id}-links`}
 					value={text}
 					onChange={(e) => setText(e.target.value)}
 					placeholder={t("archive.links_placeholder")}
 					rows={5}
 					spellCheck={false}
-					className={cn(
-						"flex w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm shadow-xs transition-colors outline-none",
-						"placeholder:font-sans placeholder:text-muted-foreground",
-						"focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-					)}
+					className="font-mono placeholder:font-sans"
 				/>
 				<p className="text-xs text-muted-foreground">
 					{tooMany

@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -194,9 +195,9 @@ export function InvitesSection() {
 					</form>
 
 					{create.isError && (
-						<div className="mt-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+						<Alert variant="destructive" className="mt-4">
 							{create.error?.message ?? t("invites.failed_to_create")}
-						</div>
+						</Alert>
 					)}
 				</CardContent>
 			</Card>

@@ -5,6 +5,8 @@ import type {
 	EnqueueArchiveItem,
 } from "@/api/generated/trpc";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const STATUS_VARIANT: Record<
 	ArchiveEnqueueStatus,
@@ -50,7 +52,10 @@ export function EnqueueResults({ items }: { items: EnqueueArchiveItem[] }) {
 								to="/dashboard/watch/$videoId"
 								params={{ videoId: String(item.video_id) }}
 								search={{ t: undefined }}
-								className="text-xs text-link hover:underline"
+								className={cn(
+									buttonVariants({ variant: "link", size: "inline" }),
+									"text-xs",
+								)}
 							>
 								{t("archive.open_recording")}
 							</Link>

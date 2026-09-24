@@ -14,6 +14,7 @@ import type {
 	RecordingWebhookConfigResponse as ConfigResponse,
 	RecordingWebhookUpdateConfigInput as UpdateConfigInput,
 } from "@/api/generated/trpc";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +35,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingState } from "@/components/ui/loading-state";
+import {
+	BadgeSkeleton,
+	ButtonSkeleton,
+	FieldSkeleton,
+	Skeleton,
+	SwitchSkeleton,
+} from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
 	useRegenerateRecordingWebhookSecret,
@@ -259,15 +268,13 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 					)}
 
 					{update.isError && (
-						<div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+						<Alert variant="destructive">
 							{update.error?.message ?? t("webhook.save_failed")}
-						</div>
+						</Alert>
 					)}
 
 					{update.isSuccess && (
-						<div className="rounded-md border border-primary/20 bg-primary/10 p-3 text-sm text-foreground">
-							{t("webhook.saved")}
-						</div>
+						<Alert variant="success">{t("webhook.saved")}</Alert>
 					)}
 
 					{test.isSuccess && <TestResultBanner result={test.data} />}
@@ -347,6 +354,67 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 	);
 }
 
+export function RecordingWebhookCardSkeleton() {
+	const { t } = useTranslation();
+	return (
+		<LoadingState>
+			<Card>
+				<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<CardTitle>{t("webhook.title")}</CardTitle>
+						<CardDescription>{t("webhook.description")}</CardDescription>
+					</div>
+					<BadgeSkeleton />
+				</CardHeader>
+				<CardContent>
+					<div className="grid gap-4">
+						<div className="flex items-center gap-3">
+							<SwitchSkeleton />
+							<Label>{t("webhook.enable")}</Label>
+						</div>
+						<div className="grid gap-1.5">
+							<Label>{t("webhook.url")}</Label>
+							<FieldSkeleton />
+							<span className="text-xs text-muted-foreground">
+								{t("webhook.url_hint")}
+							</span>
+						</div>
+						<fieldset className="grid gap-2">
+							<legend className="text-sm font-medium">
+								{t("webhook.events")}
+							</legend>
+							<div className="flex items-center gap-2">
+								<Skeleton className="size-4 shrink-0 rounded-sm" />
+								<Label>{t("webhook.event_completed")}</Label>
+							</div>
+							<div className="flex items-center gap-2">
+								<Skeleton className="size-4 shrink-0 rounded-sm" />
+								<Label>{t("webhook.event_failed")}</Label>
+							</div>
+						</fieldset>
+						<div className="grid gap-1.5">
+							<Label>{t("webhook.secret")}</Label>
+							<div className="flex items-center gap-2">
+								<FieldSkeleton />
+								<ButtonSkeleton className="w-9" />
+								<ButtonSkeleton className="w-9" />
+							</div>
+							<span className="text-xs text-muted-foreground">
+								{t("webhook.secret_hint")}
+							</span>
+						</div>
+						<div className="flex flex-wrap gap-2">
+							<ButtonSkeleton className="w-24" />
+							<ButtonSkeleton className="w-32" />
+							<ButtonSkeleton className="w-44" />
+						</div>
+					</div>
+				</CardContent>
+			</Card>
+		</LoadingState>
+	);
+}
+
 function TestResultBanner({
 	result,
 }: {
@@ -355,16 +423,16 @@ function TestResultBanner({
 	const { t } = useTranslation();
 	if (result.ok) {
 		return (
-			<div className="rounded-md border border-primary/20 bg-primary/10 p-3 text-sm text-foreground">
+			<Alert variant="success">
 				{t("webhook.test_ok", { status: result.status })}
-			</div>
+			</Alert>
 		);
 	}
 	return (
-		<div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+		<Alert variant="destructive">
 			{result.error
 				? t("webhook.test_failed_reason", { reason: result.error })
 				: t("webhook.test_failed", { status: result.status })}
-		</div>
+		</Alert>
 	);
 }

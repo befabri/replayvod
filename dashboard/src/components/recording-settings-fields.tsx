@@ -202,7 +202,8 @@ function ModeOption({
 	return (
 		<Label
 			htmlFor={id}
-			className={cn("text-sm font-normal", disabled && "opacity-50")}
+			data-dimmed={disabled || undefined}
+			className="text-sm font-normal data-dimmed:opacity-50"
 		>
 			<RadioGroupItem value={value} id={id} />
 			<span>{label}</span>

@@ -1,5 +1,14 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { Avatar } from "@/components/ui/avatar";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { FieldSkeleton, Skeleton } from "@/components/ui/skeleton";
 import type { UserInfo } from "@/features/users";
 import { useUpdateUserRole } from "@/features/users";
 import { isRole, ROLES, type Role } from "@/stores/auth";
@@ -26,38 +35,45 @@ function RoleSelect({
 	t: TFunction;
 }) {
 	const update = useUpdateUserRole();
-	const value = isRole(user.role) ? user.role : "";
-	const roles = callerIsOwner ? ROLES : ROLES.filter((r) => r !== "owner");
+	const value = isRole(user.role) ? user.role : null;
+	const lockedOwner = !callerIsOwner && value === "owner";
+	const items = [
+		...(lockedOwner
+			? [{ value: "owner", label: t(ROLE_LABEL_KEYS.owner), disabled: true }]
+			: []),
+		...(callerIsOwner ? ROLES : ROLES.filter((r) => r !== "owner")).map(
+			(role) => ({
+				value: role,
+				label: t(ROLE_LABEL_KEYS[role]),
+				disabled: false,
+			}),
+		),
+	];
 	return (
-		<select
+		<Select
 			value={value}
-			disabled={isSelf || (!callerIsOwner && value === "owner")}
-			onChange={(e) => {
-				const role = e.target.value;
-				if (!isRole(role)) return;
-				update.mutate({
-					user_id: user.id,
-					role,
-				});
+			items={items}
+			disabled={isSelf || lockedOwner}
+			onValueChange={(next) => {
+				if (typeof next !== "string" || !isRole(next)) return;
+				update.mutate({ user_id: user.id, role: next });
 			}}
-			className="rounded-md border border-border bg-background px-2 py-1 text-sm disabled:opacity-60"
 		>
-			{value === "" && (
-				<option value="" disabled>
-					{t("users.role_unknown")}
-				</option>
-			)}
-			{!callerIsOwner && value === "owner" && (
-				<option value="owner" disabled>
-					{t(ROLE_LABEL_KEYS.owner)}
-				</option>
-			)}
-			{roles.map((role) => (
-				<option key={role} value={role}>
-					{t(ROLE_LABEL_KEYS[role])}
-				</option>
-			))}
-		</select>
+			<SelectTrigger className="w-36" aria-label={t("users.col_role")}>
+				<SelectValue placeholder={t("users.role_unknown")} />
+			</SelectTrigger>
+			<SelectContent>
+				{items.map((item) => (
+					<SelectItem
+						key={item.value}
+						value={item.value}
+						disabled={item.disabled}
+					>
+						{item.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }
 
@@ -71,18 +87,20 @@ export function userColumns(
 			accessorKey: "display_name",
 			header: t("users.col_user"),
 			enableSorting: true,
+			meta: {
+				skeleton: (
+					<div className="flex items-center gap-2">
+						<Skeleton className="size-8 shrink-0 rounded-full" />
+						<Skeleton className="h-3.5 w-24" />
+					</div>
+				),
+			},
 			cell: ({ row }) => {
 				const u = row.original;
 				const isSelf = u.id === currentUserId;
 				return (
 					<div className="flex items-center gap-2">
-						{u.profile_image_url && (
-							<img
-								src={u.profile_image_url}
-								alt=""
-								className="w-8 h-8 rounded-full"
-							/>
-						)}
+						<Avatar src={u.profile_image_url} name={u.display_name} size="md" />
 						<span>{u.display_name}</span>
 						{isSelf && (
 							<span className="text-xs text-muted-foreground">
@@ -115,6 +133,7 @@ export function userColumns(
 			accessorKey: "role",
 			header: t("users.col_role"),
 			enableSorting: true,
+			meta: { skeleton: <FieldSkeleton className="w-36" /> },
 			cell: ({ row }) => (
 				<RoleSelect
 					user={row.original}

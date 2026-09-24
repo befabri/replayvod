@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	keepPreviousData,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useTRPC } from "@/api/trpc";
 
 export function useFetchLogs(
@@ -8,11 +13,14 @@ export function useFetchLogs(
 ) {
 	const trpc = useTRPC();
 	return useQuery(
-		trpc.system.fetchLogs.queryOptions({
-			limit,
-			offset,
-			fetch_type: fetchType ?? "",
-		}),
+		trpc.system.fetchLogs.queryOptions(
+			{
+				limit,
+				offset,
+				fetch_type: fetchType ?? "",
+			},
+			{ placeholderData: keepPreviousData },
+		),
 	);
 }
 

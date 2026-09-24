@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { DataTable } from "@/components/ui/data-table";
 import { Pager } from "@/components/ui/pager";
 import {
@@ -16,6 +17,7 @@ import { eventLogColumns } from "@/features/eventlogs/components/columns";
 import { useFetchLogs } from "@/features/system";
 import { fetchLogColumns } from "@/features/system/components/logColumns";
 import { requireRole } from "@/lib/route-guards";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
@@ -119,7 +121,7 @@ function EventsView({
 }) {
 	const { t } = useTranslation();
 	const [page, setPage] = useState(0);
-	const { data, isLoading, error } = useEventLogs({
+	const { data, isLoading, isPlaceholderData, error } = useEventLogs({
 		limit: PAGE_SIZE,
 		offset: page * PAGE_SIZE,
 		domain,
@@ -131,29 +133,29 @@ function EventsView({
 
 	return (
 		<>
-			{isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
 			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+				<Alert variant="destructive">
 					{t("events.failed_to_load")}: {error.message}
-				</div>
+				</Alert>
 			)}
-			{data && (
-				<>
+			{(isLoading || data) && (
+				<PageFlip busy={isPlaceholderData}>
 					<DataTable
 						columns={columns}
-						data={data.data}
+						data={data?.data ?? []}
+						loading={isLoading}
 						emptyMessage={t("events.empty")}
 					/>
-					<Pager
-						page={page}
-						total={data.total}
-						hasNext={(page + 1) * PAGE_SIZE < data.total}
-						onPrev={() => setPage((p) => Math.max(0, p - 1))}
-						onNext={() => setPage((p) => p + 1)}
-					/>
-				</>
+					{data && (
+						<Pager
+							page={page}
+							total={data.total}
+							hasNext={(page + 1) * PAGE_SIZE < data.total}
+							onPrev={() => setPage((p) => Math.max(0, p - 1))}
+							onNext={() => setPage((p) => p + 1)}
+						/>
+					)}
+				</PageFlip>
 			)}
 		</>
 	);
@@ -162,24 +164,25 @@ function EventsView({
 function ApiLogsView() {
 	const { t } = useTranslation();
 	const [page, setPage] = useState(0);
-	const { data, isLoading, error } = useFetchLogs(PAGE_SIZE, page * PAGE_SIZE);
+	const { data, isLoading, isPlaceholderData, error } = useFetchLogs(
+		PAGE_SIZE,
+		page * PAGE_SIZE,
+	);
 	const columns = useMemo(() => fetchLogColumns(t), [t]);
 
 	return (
 		<>
-			{isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
 			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+				<Alert variant="destructive">
 					{t("logs.api_failed")}: {error.message}
-				</div>
+				</Alert>
 			)}
-			{!isLoading && !error && (
-				<>
+			{!error && (
+				<PageFlip busy={isPlaceholderData}>
 					<DataTable
 						columns={columns}
 						data={data?.data ?? []}
+						loading={isLoading}
 						emptyMessage={t("logs.api_empty")}
 					/>
 					<Pager
@@ -189,8 +192,19 @@ function ApiLogsView() {
 						onPrev={() => setPage((p) => Math.max(0, p - 1))}
 						onNext={() => setPage((p) => p + 1)}
 					/>
-				</>
+				</PageFlip>
 			)}
 		</>
+	);
+}
+
+function PageFlip({ busy, children }: { busy: boolean; children: ReactNode }) {
+	return (
+		<div
+			aria-busy={busy || undefined}
+			className={cn("transition-opacity", busy && "opacity-60")}
+		>
+			{children}
+		</div>
 	);
 }

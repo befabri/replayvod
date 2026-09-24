@@ -1,18 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
-import { DataTable } from "@/components/ui/data-table";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
 	EventSubSetupCard,
+	EventSubSetupCardSkeleton,
 	useEventSubConfig,
 	useSnapshotNow,
 	useSnapshots,
 	useSubscriptions,
 } from "@/features/eventsub";
-import { subscriptionColumns } from "@/features/eventsub/components/columns";
 import { QuotaCard } from "@/features/eventsub/components/QuotaCard";
-import { SnapshotChart } from "@/features/eventsub/components/SnapshotChart";
+import {
+	SnapshotChart,
+	SnapshotChartSkeleton,
+} from "@/features/eventsub/components/SnapshotChart";
+import { SubscriptionsTable } from "@/features/eventsub/components/SubscriptionsTable";
 import { requireRole } from "@/lib/route-guards";
 
 export const Route = createFileRoute("/dashboard/system/eventsub")({
@@ -27,20 +31,13 @@ function EventSubPage() {
 	const poll = useSnapshotNow();
 	const config = useEventSubConfig();
 
-	const columns = useMemo(() => subscriptionColumns(t), [t]);
-
 	return (
 		<TitledLayout
 			title={t("eventsub.title")}
 			actions={
-				<button
-					type="button"
-					onClick={() => poll.mutate()}
-					disabled={poll.isPending}
-					className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-				>
+				<Button onClick={() => poll.mutate()} disabled={poll.isPending}>
 					{poll.isPending ? t("eventsub.polling") : t("eventsub.poll_now")}
-				</button>
+				</Button>
 			}
 		>
 			<p className="text-muted-foreground mb-6 -mt-6">
@@ -48,12 +45,14 @@ function EventSubPage() {
 			</p>
 
 			{config.isLoading && (
-				<div className="mb-4 text-muted-foreground">{t("common.loading")}</div>
+				<div className="mb-6">
+					<EventSubSetupCardSkeleton />
+				</div>
 			)}
 			{config.isError && (
-				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive" className="mb-4">
 					{config.error?.message ?? t("eventsub.config_load_failed")}
-				</div>
+				</Alert>
 			)}
 			{config.data && (
 				<div className="mb-6">
@@ -62,18 +61,16 @@ function EventSubPage() {
 			)}
 
 			{poll.isError && (
-				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive" className="mb-4">
 					{poll.error?.message ?? t("eventsub.poll_failed")}
-				</div>
+				</Alert>
 			)}
 
 			<QuotaCard />
 
 			<section className="mb-8">
 				<h2 className="text-xl font-medium mb-3">{t("eventsub.snapshots")}</h2>
-				{snapshots.isLoading && (
-					<div className="text-muted-foreground">{t("common.loading")}</div>
-				)}
+				{snapshots.isLoading && <SnapshotChartSkeleton />}
 				{snapshots.data && snapshots.data.data.length === 0 && (
 					<div className="text-muted-foreground text-sm">
 						{t("eventsub.no_snapshots")}
@@ -86,16 +83,13 @@ function EventSubPage() {
 
 			<section>
 				<h2 className="text-xl font-medium mb-3">
-					{t("eventsub.subscriptions")} ({subs.data?.total ?? 0})
+					{t("eventsub.subscriptions")}
+					{subs.data ? ` (${subs.data.total})` : null}
 				</h2>
-				{subs.isLoading && (
-					<div className="text-muted-foreground">{t("common.loading")}</div>
-				)}
-				{subs.data && (
-					<DataTable
-						columns={columns}
-						data={subs.data.data}
-						emptyMessage={t("eventsub.no_subscriptions")}
+				{(subs.isLoading || subs.data) && (
+					<SubscriptionsTable
+						rows={subs.data?.data ?? []}
+						loading={subs.isLoading}
 					/>
 				)}
 			</section>

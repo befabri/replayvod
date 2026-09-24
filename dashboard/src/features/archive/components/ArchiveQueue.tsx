@@ -8,6 +8,7 @@ import type {
 	StorageState,
 	VideoResponse,
 } from "@/api/generated/trpc";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { TimestampValue } from "@/components/ui/timestamp";
@@ -101,18 +102,15 @@ function ArchiveQueueTables() {
 						</div>
 					) : null}
 				</div>
-				{queue.isLoading ? (
-					<div className="text-sm text-muted-foreground">
-						{t("common.loading")}
-					</div>
-				) : queue.isError ? (
-					<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				{queue.isError ? (
+					<Alert variant="destructive">
 						{t("archive.queue_failed")}: {queue.error.message}
-					</div>
+					</Alert>
 				) : (
 					<DataTable
 						columns={columns}
 						data={rows}
+						loading={queue.isLoading}
 						emptyMessage={t("archive.queue_empty")}
 					/>
 				)}

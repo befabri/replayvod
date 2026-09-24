@@ -185,15 +185,16 @@ test.describe("admin permissions", () => {
 		await page.goto("/dashboard/system/users");
 		const viewerSelect = page
 			.getByRole("row", { name: /Vera Viewer/ })
-			.locator("select");
+			.getByRole("combobox", { name: "Role" });
 		await expect(viewerSelect).toBeEnabled();
-		await expect(viewerSelect.locator("option")).toHaveText([
-			"Viewer",
-			"Admin",
-		]);
+		await viewerSelect.click();
+		await expect(
+			page.getByRole("listbox", { name: "Role" }).getByRole("option"),
+		).toHaveText(["Viewer", "Admin"]);
+		await page.keyboard.press("Escape");
 		const ownerSelect = page
 			.getByRole("row", { name: /Oscar Owner/ })
-			.locator("select");
+			.getByRole("combobox", { name: "Role" });
 		await expect(ownerSelect).toBeDisabled();
 	});
 
@@ -476,15 +477,15 @@ test.describe("owner permissions", () => {
 		await page.goto("/dashboard/system/users");
 		const viewerSelect = page
 			.getByRole("row", { name: /Vera Viewer/ })
-			.locator("select");
-		await expect(viewerSelect.locator("option")).toHaveText([
-			"Viewer",
-			"Admin",
-			"Owner",
-		]);
+			.getByRole("combobox", { name: "Role" });
+		await viewerSelect.click();
+		await expect(
+			page.getByRole("listbox", { name: "Role" }).getByRole("option"),
+		).toHaveText(["Viewer", "Admin", "Owner"]);
+		await page.keyboard.press("Escape");
 		const ownerSelect = page
 			.getByRole("row", { name: /Oscar Owner/ })
-			.locator("select");
+			.getByRole("combobox", { name: "Role" });
 		await expect(ownerSelect).toBeEnabled();
 	});
 });

@@ -1,4 +1,12 @@
 import { useTranslation } from "react-i18next";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+const STATUS_VARIANTS = {
+	success: "green",
+	failed: "red",
+	running: "blue",
+} as const;
 
 export function StatusBadge({
 	status,
@@ -11,28 +19,18 @@ export function StatusBadge({
 }) {
 	const { t } = useTranslation();
 	if (!enabled) {
-		return (
-			<span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs bg-muted text-muted-foreground">
-				{t("tasks.status_paused")}
-			</span>
-		);
+		return <Badge variant="muted">{t("tasks.status_paused")}</Badge>;
 	}
 	const variant =
-		{
-			success: "bg-badge-green-bg text-badge-green-fg",
-			failed: "bg-destructive/20 text-destructive",
-			running: "bg-badge-blue-bg text-badge-blue-fg animate-pulse",
-			pending: "bg-muted text-muted-foreground",
-			skipped: "bg-muted text-muted-foreground",
-			interrupted: "bg-muted text-muted-foreground",
-		}[status] ?? "bg-muted text-muted-foreground";
+		STATUS_VARIANTS[status as keyof typeof STATUS_VARIANTS] ?? "muted";
 	return (
 		<>
-			<span
-				className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs ${variant}`}
+			<Badge
+				variant={variant}
+				className={cn(status === "running" && "animate-pulse")}
 			>
 				{t(`tasks.status_${status}`, { defaultValue: status })}
-			</span>
+			</Badge>
 			{error && (
 				<div
 					className="text-xs text-destructive mt-1 max-w-sm truncate"

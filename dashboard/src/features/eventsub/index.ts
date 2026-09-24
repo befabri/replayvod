@@ -4,7 +4,10 @@ export type {
 	SubscriptionResponse,
 	UpdateConfigInput,
 } from "@/api/generated/trpc";
-export { EventSubSetupCard } from "./components/EventSubSetupCard";
+export {
+	EventSubSetupCard,
+	EventSubSetupCardSkeleton,
+} from "./components/EventSubSetupCard";
 export { EventSubSetupNudge } from "./components/EventSubSetupNudge";
 export {
 	useEventSubConfig,

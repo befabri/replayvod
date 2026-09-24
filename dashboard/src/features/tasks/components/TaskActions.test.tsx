@@ -34,8 +34,12 @@ it("prevents unavailable work while letting the operator preserve a pause", () =
 	};
 	const { rerender } = render(<TaskActions task={task} />);
 	const run = screen.getByRole("button", { name: "tasks.run_now" });
-	expect((run as HTMLButtonElement).disabled).toBe(true);
-	expect(run.getAttribute("title")).toBe("tasks.unavailable");
+	expect(run.getAttribute("aria-disabled")).toBe("true");
+	expect(run.tabIndex).toBe(0);
+	const reason = document.getElementById(
+		run.getAttribute("aria-describedby") ?? "",
+	);
+	expect(reason?.textContent).toBe("tasks.unavailable");
 	fireEvent.click(run);
 	expect(actions.run).not.toHaveBeenCalled();
 	fireEvent.click(screen.getByRole("button", { name: "tasks.pause" }));
@@ -47,5 +51,9 @@ it("prevents unavailable work while letting the operator preserve a pause", () =
 		<TaskActions task={{ ...task, is_available: true, is_enabled: false }} />,
 	);
 	expect(screen.getByRole("button", { name: "tasks.resume" })).toBeTruthy();
-	expect((run as HTMLButtonElement).disabled).toBe(false);
+	const available = screen.getByRole("button", { name: "tasks.run_now" });
+	expect(available.getAttribute("aria-disabled")).toBeNull();
+	expect(available.getAttribute("aria-describedby")).toBeNull();
+	fireEvent.click(available);
+	expect(actions.run).toHaveBeenCalledWith({ name: task.name });
 });

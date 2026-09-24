@@ -1,9 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { useSettings } from "@/features/settings";
-import { PlaybackSettingsForm } from "@/features/settings/components/PlaybackSettingsForm";
-import { SettingsForm } from "@/features/settings/components/SettingsForm";
+import {
+	PlaybackSettingsForm,
+	PlaybackSettingsFormSkeleton,
+} from "@/features/settings/components/PlaybackSettingsForm";
+import {
+	SettingsForm,
+	SettingsFormSkeleton,
+} from "@/features/settings/components/SettingsForm";
 
 export const Route = createFileRoute("/dashboard/settings")({
 	component: SettingsPage,
@@ -20,12 +27,15 @@ function SettingsPage() {
 			</p>
 
 			{isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
+				<div className="space-y-6">
+					<SettingsFormSkeleton />
+					<PlaybackSettingsFormSkeleton />
+				</div>
 			)}
 			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+				<Alert variant="destructive">
 					{t("settings.failed_to_load")}: {error.message}
-				</div>
+				</Alert>
 			)}
 
 			{data && (

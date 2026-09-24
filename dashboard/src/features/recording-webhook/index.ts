@@ -3,8 +3,14 @@ export type {
 	RecordingWebhookDeliveryResponse,
 	RecordingWebhookUpdateConfigInput,
 } from "@/api/generated/trpc";
-export { RecordingWebhookCard } from "./components/RecordingWebhookCard";
-export { RecordingWebhookDeliveries } from "./components/RecordingWebhookDeliveries";
+export {
+	RecordingWebhookCard,
+	RecordingWebhookCardSkeleton,
+} from "./components/RecordingWebhookCard";
+export {
+	RecordingWebhookDeliveries,
+	RecordingWebhookDeliveriesSkeleton,
+} from "./components/RecordingWebhookDeliveries";
 export {
 	useRecordingWebhookConfig,
 	useRecordingWebhookDeliveries,

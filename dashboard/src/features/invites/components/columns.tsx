@@ -2,6 +2,8 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { BadgeSkeleton, Skeleton } from "@/components/ui/skeleton";
 import type {
 	InviteCreatedInfo,
 	InviteInfo,
@@ -49,8 +51,7 @@ function InviteRowActions({
 	return (
 		<div className="flex justify-end gap-3 whitespace-nowrap">
 			{status === "pending" && (
-				<button
-					type="button"
+				<Button
 					disabled={pending}
 					onClick={() =>
 						rotate.mutate(
@@ -61,14 +62,14 @@ function InviteRowActions({
 							},
 						)
 					}
-					className="text-link hover:underline disabled:opacity-60"
+					variant="link"
+					size="inline"
 				>
 					{t("invites.new_link")}
-				</button>
+				</Button>
 			)}
 			{status !== "redeemed" && (
-				<button
-					type="button"
+				<Button
 					disabled={pending}
 					onClick={() =>
 						revoke.mutate(
@@ -76,10 +77,11 @@ function InviteRowActions({
 							{ onSuccess: () => actions.onRevoked(invite.id) },
 						)
 					}
-					className="text-destructive hover:underline disabled:opacity-60"
+					variant="link-destructive"
+					size="inline"
 				>
 					{t("invites.revoke")}
-				</button>
+				</Button>
 			)}
 		</div>
 	);
@@ -113,6 +115,7 @@ export function inviteColumns(
 			id: "status",
 			header: t("invites.col_status"),
 			enableSorting: false,
+			meta: { skeleton: <BadgeSkeleton className="w-16" /> },
 			cell: ({ row }) => {
 				const status = inviteStatus(row.original);
 				return (
@@ -149,6 +152,14 @@ export function inviteColumns(
 				<span className="text-right w-full block">{t("common.actions")}</span>
 			),
 			enableSorting: false,
+			meta: {
+				skeleton: (
+					<div className="flex justify-end gap-3">
+						<Skeleton className="h-5.5 w-16" />
+						<Skeleton className="h-5.5 w-12" />
+					</div>
+				),
+			},
 			cell: ({ row }) => (
 				<InviteRowActions invite={row.original} actions={actions} t={t} />
 			),

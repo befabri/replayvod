@@ -1,14 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useSelector } from "@tanstack/react-store";
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsLink } from "@/components/layout/docs-link";
 import { TitledLayout } from "@/components/layout/titled-layout";
-import { QueryTable } from "@/components/ui/query-table";
 import { InvitesSection } from "@/features/invites/components/InvitesSection";
-import { useUsers } from "@/features/users";
-import { userColumns } from "@/features/users/components/columns";
-import { authStore } from "@/stores/auth";
+import { UsersTable } from "@/features/users/components/UsersTable";
 
 export const Route = createFileRoute("/dashboard/system/users")({
 	component: UsersPage,
@@ -16,26 +11,13 @@ export const Route = createFileRoute("/dashboard/system/users")({
 
 function UsersPage() {
 	const { t } = useTranslation();
-	const currentUser = useSelector(authStore, (s) => s.user);
-	const users = useUsers();
-
-	const columns = useMemo(
-		() => userColumns(currentUser?.id, currentUser?.role === "owner", t),
-		[currentUser?.id, currentUser?.role, t],
-	);
 
 	return (
 		<TitledLayout
 			title={t("users.title")}
 			actions={<DocsLink page="access/">{t("docs.access")}</DocsLink>}
 		>
-			<QueryTable
-				query={users}
-				columns={columns}
-				getRows={(data) => data}
-				emptyMessage={t("users.empty")}
-				errorLabel={t("users.failed_to_load")}
-			/>
+			<UsersTable />
 			<InvitesSection />
 		</TitledLayout>
 	);

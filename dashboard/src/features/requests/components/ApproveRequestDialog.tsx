@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -96,13 +98,11 @@ function ApproveRequestDialogBody({
 						{t("schedules.broadcaster_id")}
 					</Label>
 					<div className="flex items-center gap-2">
-						{request.profile_image_url && (
-							<img
-								src={request.profile_image_url}
-								alt=""
-								className="w-8 h-8 rounded-full"
-							/>
-						)}
+						<Avatar
+							src={request.profile_image_url}
+							name={request.broadcaster_name}
+							size="md"
+						/>
 						<span>{request.broadcaster_name}</span>
 						<span className="text-xs text-muted-foreground">
 							@{request.broadcaster_login}
@@ -128,9 +128,9 @@ function ApproveRequestDialogBody({
 				<FiltersFieldset form={form} />
 
 				{approve.isError && (
-					<div className="rounded-md bg-destructive/10 p-3 text-destructive text-sm">
+					<Alert variant="destructive">
 						{approve.error?.message ?? t("requests.approve_failed")}
-					</div>
+					</Alert>
 				)}
 
 				<div className="flex items-center justify-end gap-2 border-t border-border pt-4 -mx-6 px-6 -mb-6 pb-6">

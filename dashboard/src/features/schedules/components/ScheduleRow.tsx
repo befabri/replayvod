@@ -11,6 +11,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { QualityTag } from "@/components/ui/quality-tag";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useChannel } from "@/features/channels";
 import type { ScheduleResponse } from "@/features/schedules";
 import { scheduleQualityLabel } from "@/features/schedules/quality";
@@ -18,6 +19,10 @@ import { useToggleSchedule } from "@/features/schedules/queries";
 import { scheduleRecordingTypeLabel } from "@/features/schedules/recording";
 import { cn } from "@/lib/utils";
 import { EditForm } from "./EditForm";
+
+const ROW_CLASS = "relative flex overflow-hidden rounded-lg bg-card shadow-sm";
+const EDIT_COLUMN_CLASS =
+	"flex w-[12.5%] shrink-0 flex-col items-center justify-center gap-1.5 border-l border-foreground/10";
 
 export function ScheduleRow({
 	schedule,
@@ -47,7 +52,7 @@ export function ScheduleRow({
 	};
 
 	return (
-		<div className="relative flex overflow-hidden rounded-lg bg-card shadow-sm">
+		<div className={ROW_CLASS}>
 			<button
 				type="button"
 				onClick={handleToggle}
@@ -129,7 +134,8 @@ export function ScheduleRow({
 					onClick={() => setEditing(true)}
 					aria-label={t("schedules.edit")}
 					className={cn(
-						"flex w-[12.5%] shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 border-l border-foreground/10 text-muted-foreground transition-colors hover:text-foreground",
+						EDIT_COLUMN_CLASS,
+						"cursor-pointer text-muted-foreground transition-colors hover:text-foreground",
 						dimmed && "opacity-50",
 					)}
 				>
@@ -161,6 +167,41 @@ export function ScheduleRow({
 					<EditForm schedule={schedule} onDone={() => setEditing(false)} />
 				</DialogContent>
 			</Dialog>
+		</div>
+	);
+}
+
+export function ScheduleRowSkeleton({
+	canManage = true,
+}: {
+	canManage?: boolean;
+}) {
+	const { t } = useTranslation();
+	return (
+		<div className={ROW_CLASS}>
+			<div className="relative min-w-0 flex-1 p-4">
+				<div className="mb-3 flex min-w-0 items-center gap-3">
+					<Skeleton className="size-8 shrink-0 rounded-full" />
+					<div className="flex h-7 items-center">
+						<Skeleton className="h-5 w-40" />
+					</div>
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Skeleton className="h-5.5 w-28 rounded-md" />
+					<Skeleton className="h-5.5 w-20 rounded-md" />
+					<Skeleton className="h-5.5 w-16 rounded-md" />
+				</div>
+				<div className="mt-3 flex h-4 items-center">
+					<Skeleton className="h-3 w-64 max-w-full" />
+				</div>
+				<Skeleton className="absolute inset-x-0 bottom-0 h-1 rounded-none" />
+			</div>
+			{canManage ? (
+				<div className={cn(EDIT_COLUMN_CLASS, "text-muted-foreground")}>
+					<GearSixIcon className="size-5" />
+					<span className="text-xs">{t("schedules.edit")}</span>
+				</div>
+			) : null}
 		</div>
 	);
 }

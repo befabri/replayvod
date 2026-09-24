@@ -1,6 +1,9 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useUnsubscribe } from "@/features/eventsub";
+import { cn } from "@/lib/utils";
 
 export type SubRowData = {
 	id: string;
@@ -11,17 +14,26 @@ export type SubRowData = {
 	broadcaster_id?: string;
 };
 
+function CellLineSkeleton({ className }: { className: string }) {
+	return (
+		<div className="flex h-5 items-center">
+			<Skeleton className={cn("h-3.5", className)} />
+		</div>
+	);
+}
+
 function UnsubButton({ id, label }: { id: string; label: string }) {
 	const unsub = useUnsubscribe();
 	return (
-		<button
-			type="button"
+		<Button
 			onClick={() => unsub.mutate({ id, reason: "manual" })}
 			disabled={unsub.isPending}
-			className="text-destructive hover:underline text-xs disabled:opacity-60"
+			variant="link-destructive"
+			size="inline"
+			className="text-xs"
 		>
 			{label}
-		</button>
+		</Button>
 	);
 }
 
@@ -31,6 +43,7 @@ export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
 			accessorKey: "type",
 			header: t("eventsub.col_type"),
 			enableSorting: true,
+			meta: { skeleton: <CellLineSkeleton className="w-32" /> },
 			cell: ({ row }) => (
 				<span className="font-mono text-xs">
 					{row.original.type}{" "}
@@ -42,6 +55,7 @@ export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
 			accessorKey: "broadcaster_id",
 			header: t("eventsub.col_broadcaster"),
 			enableSorting: true,
+			meta: { skeleton: <CellLineSkeleton className="w-20" /> },
 			cell: ({ row }) => (
 				<span className="font-mono text-xs">
 					{row.original.broadcaster_id ?? "—"}
@@ -52,6 +66,7 @@ export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
 			accessorKey: "status",
 			header: t("eventsub.col_status"),
 			enableSorting: true,
+			meta: { skeleton: <CellLineSkeleton className="w-16" /> },
 		},
 		{
 			accessorKey: "cost",
@@ -59,12 +74,14 @@ export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
 				<span className="text-right w-full">{t("eventsub.col_cost")}</span>
 			),
 			enableSorting: true,
+			meta: { skeleton: <CellLineSkeleton className="ml-auto w-4" /> },
 			cell: ({ row }) => <div className="text-right">{row.original.cost}</div>,
 		},
 		{
 			id: "actions",
-			header: "",
+			header: () => <span className="sr-only">{t("common.actions")}</span>,
 			enableSorting: false,
+			meta: { skeleton: <CellLineSkeleton className="ml-auto w-20" /> },
 			cell: ({ row }) => (
 				<div className="text-right">
 					<UnsubButton id={row.original.id} label={t("eventsub.unsubscribe")} />

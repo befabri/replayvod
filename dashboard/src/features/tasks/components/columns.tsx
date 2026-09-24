@@ -1,5 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { BadgeSkeleton, Skeleton } from "@/components/ui/skeleton";
 import type { TaskResponse } from "@/features/tasks";
 import { StatusBadge } from "./StatusBadge";
 import { TaskActions } from "./TaskActions";
@@ -10,6 +11,21 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			accessorKey: "name",
 			header: t("tasks.col_name"),
 			enableSorting: true,
+			meta: {
+				skeleton: (
+					<div>
+						<div className="flex h-4 items-center">
+							<Skeleton className="h-3 w-32" />
+						</div>
+						<div className="mt-0.5 flex h-4 items-center">
+							<Skeleton className="h-3 w-72 max-w-full" />
+						</div>
+						<div className="mt-1 flex h-4 items-center">
+							<Skeleton className="h-3 w-24" />
+						</div>
+					</div>
+				),
+			},
 			cell: ({ row }) => {
 				const task = row.original;
 				return (
@@ -33,6 +49,7 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			accessorKey: "last_status",
 			header: t("tasks.col_status"),
 			enableSorting: true,
+			meta: { skeleton: <BadgeSkeleton className="w-16" /> },
 			cell: ({ row }) => {
 				const task = row.original;
 				return (
@@ -83,8 +100,18 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 		},
 		{
 			id: "actions",
-			header: "",
+			header: () => (
+				<span className="block w-full text-right">{t("common.actions")}</span>
+			),
 			enableSorting: false,
+			meta: {
+				skeleton: (
+					<div className="flex flex-col items-end gap-1">
+						<Skeleton className="h-6 w-18" />
+						<Skeleton className="h-6 w-14" />
+					</div>
+				),
+			},
 			cell: ({ row }) => <TaskActions task={row.original} />,
 		},
 	];

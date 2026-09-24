@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
-import { PlaybackCacheCard } from "@/features/system/components/PlaybackCacheCard";
+import { Alert } from "@/components/ui/alert";
+import {
+	PlaybackCacheCard,
+	PlaybackCacheCardSkeleton,
+} from "@/features/system/components/PlaybackCacheCard";
 import { usePlaybackCacheConfig } from "@/features/system/queries";
 import { requireRole } from "@/lib/route-guards";
 
@@ -21,12 +25,14 @@ function PlaybackCachePage() {
 			</p>
 
 			{config.isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
+				<div className="grid gap-6">
+					<PlaybackCacheCardSkeleton />
+				</div>
 			)}
 			{config.isError && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive">
 					{config.error?.message ?? t("playback_cache.load_failed")}
-				</div>
+				</Alert>
 			)}
 			{config.data && (
 				<div className="grid gap-6">

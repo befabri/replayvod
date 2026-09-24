@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ChannelPicker } from "@/features/channels/components/ChannelPicker";
@@ -81,9 +82,9 @@ export function CreateForm({ onDone }: { onDone: () => void }) {
 			<FiltersFieldset form={form} />
 
 			{create.isError && (
-				<div className="rounded-md bg-destructive/10 p-3 text-destructive text-sm">
+				<Alert variant="destructive">
 					{create.error?.message ?? t("schedules.create_failed")}
-				</div>
+				</Alert>
 			)}
 
 			<div className="flex items-center justify-end gap-2 border-t border-border pt-4 -mx-6 px-6 -mb-6 pb-6">

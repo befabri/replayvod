@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +13,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { QualityTag } from "@/components/ui/quality-tag";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ViewAllLink } from "@/components/ui/view-all-link";
 import { useChannel } from "@/features/channels";
 import type { ScheduleResponse } from "@/features/schedules";
@@ -20,10 +22,11 @@ import { scheduleQualityLabel } from "@/features/schedules/quality";
 import { useMineSchedules } from "@/features/schedules/queries";
 import { scheduleRecordingTypeLabel } from "@/features/schedules/recording";
 import { authStore, hasRole } from "@/stores/auth";
+import { AvatarRowsSkeleton } from "./AvatarRowsSkeleton";
 
 export function ScheduleStatistics() {
 	const { t } = useTranslation();
-	const { data, isLoading, isError } = useMineSchedules();
+	const { data, isLoading, isError, isFetching, refetch } = useMineSchedules();
 	const user = useSelector(authStore, (s) => s.user);
 	const canManage = hasRole(user, "admin");
 
@@ -39,9 +42,26 @@ export function ScheduleStatistics() {
 				{total > 0 ? <ViewAllLink to="/dashboard/schedules" /> : null}
 			</div>
 			{isLoading ? (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
+				<AvatarRowsSkeleton
+					rowClassName="gap-2"
+					trailing={<Skeleton className="h-5.5 w-14 shrink-0 rounded-md" />}
+				/>
 			) : isError ? (
-				<div className="text-destructive">{t("schedules.failed_to_load")}</div>
+				<Alert
+					variant="destructive"
+					action={
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={isFetching}
+							onClick={() => void refetch()}
+						>
+							{t("common.retry")}
+						</Button>
+					}
+				>
+					{t("schedules.failed_to_load")}
+				</Alert>
 			) : items.length === 0 ? (
 				<Link
 					to="/dashboard/schedules"

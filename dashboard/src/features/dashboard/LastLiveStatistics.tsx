@@ -1,14 +1,19 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ViewAllLink } from "@/components/ui/view-all-link";
 import { useFollowedStreams } from "@/features/streams-live";
 import { useTick } from "@/hooks/useTick";
 import { formatRelative } from "@/lib/format-relative";
+import { AvatarRowsSkeleton } from "./AvatarRowsSkeleton";
 
 export function LastLiveStatistics() {
 	const { t, i18n } = useTranslation();
-	const { data, isLoading, isError } = useFollowedStreams();
+	const { data, isLoading, isError, isFetching, refetch } =
+		useFollowedStreams();
 	useTick(60_000);
 
 	const items = (data ?? []).slice(0, 4);
@@ -28,13 +33,27 @@ export function LastLiveStatistics() {
 				) : null}
 			</div>
 			{isLoading ? (
-				<div className="text-muted-foreground text-sm">
-					{t("common.loading")}
-				</div>
+				<AvatarRowsSkeleton
+					subtitle
+					rowClassName="gap-3"
+					trailing={<Skeleton className="h-3 w-12 shrink-0" />}
+				/>
 			) : isError ? (
-				<div className="text-destructive text-sm">
-					{t("videos.failed_to_load")}
-				</div>
+				<Alert
+					variant="destructive"
+					action={
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={isFetching}
+							onClick={() => void refetch()}
+						>
+							{t("common.retry")}
+						</Button>
+					}
+				>
+					{t("streams_live.failed_to_load")}
+				</Alert>
 			) : items.length === 0 ? (
 				<div className="text-muted-foreground text-sm">
 					{t("streams_live.empty")}

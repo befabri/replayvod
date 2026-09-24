@@ -1,5 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { SessionInfo } from "@/features/sessions";
 import { useRevokeSession } from "@/features/sessions";
 
@@ -14,14 +16,15 @@ function RevokeButton({
 }) {
 	const revoke = useRevokeSession();
 	return (
-		<button
-			type="button"
+		<Button
 			disabled={revoke.isPending}
 			onClick={() => revoke.mutate({ hashed_id: hashedId })}
-			className="text-destructive hover:underline text-xs disabled:opacity-60"
+			variant="link-destructive"
+			size="inline"
+			className="text-xs"
 		>
 			{isCurrent ? t("sessions.sign_out") : t("sessions.revoke")}
-		</button>
+		</Button>
 	);
 }
 
@@ -83,6 +86,13 @@ export function sessionColumns(t: TFunction): ColumnDef<SessionInfo>[] {
 				<span className="text-right w-full block">{t("common.actions")}</span>
 			),
 			enableSorting: false,
+			meta: {
+				skeleton: (
+					<div className="flex h-5 items-center justify-end">
+						<Skeleton className="h-3 w-14" />
+					</div>
+				),
+			},
 			cell: ({ row }) => (
 				<div className="text-right">
 					<RevokeButton

@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import {
 	RecordingWebhookCard,
+	RecordingWebhookCardSkeleton,
 	RecordingWebhookDeliveries,
+	RecordingWebhookDeliveriesSkeleton,
 	useRecordingWebhookConfig,
 } from "@/features/recording-webhook";
 import { requireRole } from "@/lib/route-guards";
@@ -24,12 +27,15 @@ function WebhookPage() {
 			</p>
 
 			{config.isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
+				<div className="grid gap-6">
+					<RecordingWebhookCardSkeleton />
+					<RecordingWebhookDeliveriesSkeleton />
+				</div>
 			)}
 			{config.isError && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive">
 					{config.error?.message ?? t("webhook.load_failed")}
-				</div>
+				</Alert>
 			)}
 			{config.data && (
 				<div className="grid gap-6">

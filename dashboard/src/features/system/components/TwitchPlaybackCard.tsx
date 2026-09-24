@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { browserCredentialTransportAllowed } from "@/api/credential-transport";
 import { useTRPC, useTRPCClient } from "@/api/trpc";
 import { handleApiError } from "@/api/unauthorized";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +17,11 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingState } from "@/components/ui/loading-state";
+import { BadgeSkeleton, ButtonSkeleton } from "@/components/ui/skeleton";
 import { API_URL } from "@/env";
+
+const STATUS_ROW_CLASS = "flex min-h-9 flex-wrap items-center gap-3";
 
 export function TwitchPlaybackCard() {
 	const { t } = useTranslation();
@@ -83,14 +88,18 @@ export function TwitchPlaybackCard() {
 				<CardDescription>{t("twitch_playback.description")}</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-5">
-				{status.isPending && <p>{t("common.loading")}</p>}
+				{status.isPending && (
+					<LoadingState className={STATUS_ROW_CLASS}>
+						<BadgeSkeleton />
+					</LoadingState>
+				)}
 				{status.isError && (
-					<p role="alert" className="text-destructive">
+					<Alert variant="destructive">
 						{t("twitch_playback.load_failed")}
-					</p>
+					</Alert>
 				)}
 				{status.data && (
-					<div className="flex flex-wrap items-center gap-3">
+					<div className={STATUS_ROW_CLASS}>
 						<Badge
 							variant={status.data.state === "connected" ? "green" : "muted"}
 						>
@@ -118,9 +127,9 @@ export function TwitchPlaybackCard() {
 					</div>
 				)}
 				{status.data?.state === "reconnect_required" && (
-					<p role="alert" className="text-destructive text-sm">
+					<Alert variant="destructive">
 						{t("twitch_playback.reconnect_hint")}
-					</p>
+					</Alert>
 				)}
 				<p className="text-sm text-muted-foreground">
 					{t("twitch_playback.shared_hint")}
@@ -145,9 +154,9 @@ export function TwitchPlaybackCard() {
 					</ol>
 				</details>
 				{!transportAllowed && (
-					<p role="alert" className="text-destructive text-sm">
+					<Alert variant="destructive">
 						{t("twitch_playback.https_required")}
-					</p>
+					</Alert>
 				)}
 				<form
 					className="space-y-4"
@@ -194,35 +203,31 @@ export function TwitchPlaybackCard() {
 							{t("twitch_playback.consent")}
 						</Label>
 					</div>
-					<Button
-						type="submit"
-						disabled={
-							busy ||
-							!transportAllowed ||
-							!consent ||
-							!token.trim() ||
-							!status.data
-						}
-					>
-						{busy
-							? t("common.loading")
-							: t(
-									connected
-										? "twitch_playback.replace"
-										: "twitch_playback.connect",
-								)}
-					</Button>
+					{status.isPending ? (
+						<ButtonSkeleton />
+					) : (
+						<Button
+							type="submit"
+							disabled={
+								busy ||
+								!transportAllowed ||
+								!consent ||
+								!token.trim() ||
+								!status.data
+							}
+						>
+							{busy
+								? t("common.loading")
+								: t(
+										connected
+											? "twitch_playback.replace"
+											: "twitch_playback.connect",
+									)}
+						</Button>
+					)}
 				</form>
-				{error && (
-					<p role="alert" className="text-destructive text-sm">
-						{error}
-					</p>
-				)}
-				{message && (
-					<p role="status" className="text-sm">
-						{message}
-					</p>
-				)}
+				{error && <Alert variant="destructive">{error}</Alert>}
+				{message && <Alert variant="success">{message}</Alert>}
 				<p className="text-sm text-muted-foreground">
 					{t("twitch_playback.quality_hint")}
 				</p>

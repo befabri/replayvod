@@ -5,25 +5,33 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsLink } from "@/components/layout/docs-link";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
+import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
-import type { ScheduleRequestResponse } from "@/features/requests";
+import { LoadingState } from "@/components/ui/loading-state";
+import { ButtonSkeleton } from "@/components/ui/skeleton";
 import {
 	useAllScheduleRequests,
 	useMyScheduleRequests,
 } from "@/features/requests";
-import { ApproveRequestDialog } from "@/features/requests/components/ApproveRequestDialog";
-import {
-	adminRequestColumns,
-	myRequestColumns,
-} from "@/features/requests/components/columns";
+import { myRequestColumns } from "@/features/requests/components/columns";
+import { MyRequests } from "@/features/requests/components/MyRequests";
 import { RequestScheduleDialog } from "@/features/requests/components/RequestScheduleDialog";
-import { RequestTable } from "@/features/requests/components/RequestTable";
+import { RequestsQueue } from "@/features/requests/components/RequestsQueue";
 import { useSchedules, useSchedulesPaused } from "@/features/schedules";
 import { CreateScheduleDialog } from "@/features/schedules/components/CreateScheduleDialog";
 import { PauseAllButton } from "@/features/schedules/components/PauseAllButton";
-import { ScheduleRow } from "@/features/schedules/components/ScheduleRow";
+import {
+	ScheduleRow,
+	ScheduleRowSkeleton,
+} from "@/features/schedules/components/ScheduleRow";
 import { SchedulesPausedBanner } from "@/features/schedules/components/SchedulesPausedBanner";
 import { authStore, hasRole } from "@/stores/auth";
+
+const SCHEDULE_GRID_CLASS =
+	"grid grid-cols-1 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))] gap-4";
+
+const SKELETON_ROWS = ["schedule-1", "schedule-2", "schedule-3", "schedule-4"];
 
 export const Route = createFileRoute("/dashboard/schedules")({
 	component: SchedulesPage,
@@ -31,12 +39,19 @@ export const Route = createFileRoute("/dashboard/schedules")({
 
 function SchedulesPage() {
 	const { t } = useTranslation();
-	const { data, isLoading, error } = useSchedules();
-	const { data: pauseState } = useSchedulesPaused();
-	const hasSchedules = (data?.data.length ?? 0) > 0;
-	const globallyPaused = pauseState?.paused ?? false;
 	const user = useSelector(authStore, (s) => s.user);
 	const canManage = hasRole(user, "admin");
+	const { data, isPending, error } = useSchedules();
+	const pauseState = useSchedulesPaused();
+	const queue = useAllScheduleRequests({ enabled: canManage });
+	const mine = useMyScheduleRequests({ enabled: !canManage });
+	const requests = canManage ? queue : mine;
+	const pending = isPending || pauseState.isPending || requests.isPending;
+	const [settled, setSettled] = useState(false);
+	if (!pending && !settled) setSettled(true);
+	const loading = !settled;
+	const hasSchedules = (data?.data.length ?? 0) > 0;
+	const globallyPaused = pauseState.data?.paused ?? false;
 	const cta = canManage ? <CreateScheduleDialog /> : <RequestScheduleDialog />;
 
 	return (
@@ -46,97 +61,100 @@ function SchedulesPage() {
 			actions={
 				<>
 					<DocsLink page="schedules/">{t("docs.schedules")}</DocsLink>
-					{hasSchedules && (
-						<>
-							{canManage && <PauseAllButton />}
-							{cta}
-						</>
+					{loading ? (
+						<SchedulesActionsSkeleton canManage={canManage} />
+					) : (
+						hasSchedules && (
+							<>
+								{canManage && <PauseAllButton />}
+								{cta}
+							</>
+						)
 					)}
 				</>
 			}
 		>
-			<SchedulesPausedBanner />
+			{loading ? (
+				<SchedulesSkeleton canManage={canManage} />
+			) : (
+				<>
+					<SchedulesPausedBanner />
 
-			{canManage ? <RequestsQueue /> : <MyRequests />}
+					{canManage ? (
+						<RequestsQueue requests={queue} />
+					) : (
+						<MyRequests requests={mine} />
+					)}
 
-			{isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
-			{error && (
-				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
-					{t("schedules.failed_to_load")}: {error.message}
-				</div>
-			)}
-			{data && data.data.length === 0 && !isLoading && !error && (
-				<EmptyState
-					icon={<CalendarPlusIcon weight="duotone" />}
-					title={t("schedules.empty_title")}
-					description={
-						canManage ? t("schedules.empty") : t("schedules.empty_viewer")
-					}
-					action={cta}
-				/>
-			)}
-
-			{data && data.data.length > 0 && (
-				<div className="grid grid-cols-1 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))] gap-4">
-					{data.data.map((s) => (
-						<ScheduleRow
-							key={s.id}
-							schedule={s}
-							globallyPaused={globallyPaused}
-							canManage={canManage}
+					{error && (
+						<Alert variant="destructive">
+							{t("schedules.failed_to_load")}: {error.message}
+						</Alert>
+					)}
+					{data && data.data.length === 0 && (
+						<EmptyState
+							icon={<CalendarPlusIcon weight="duotone" />}
+							title={t("schedules.empty_title")}
+							description={
+								canManage ? t("schedules.empty") : t("schedules.empty_viewer")
+							}
+							action={cta}
 						/>
-					))}
-				</div>
+					)}
+
+					{data && data.data.length > 0 && (
+						<div className={SCHEDULE_GRID_CLASS}>
+							{data.data.map((s) => (
+								<ScheduleRow
+									key={s.id}
+									schedule={s}
+									globallyPaused={globallyPaused}
+									canManage={canManage}
+								/>
+							))}
+						</div>
+					)}
+				</>
 			)}
 		</TitledLayout>
 	);
 }
 
-function RequestsQueue() {
-	const { t } = useTranslation();
-	const requests = useAllScheduleRequests();
-	const [approving, setApproving] = useState<ScheduleRequestResponse | null>(
-		null,
-	);
-	const columns = useMemo(() => adminRequestColumns(t, setApproving), [t]);
-
-	if (!requests.isError && (requests.data?.length ?? 0) === 0) return null;
-
-	return (
-		<section className="mb-8">
-			<h2 className="mb-3 text-lg font-semibold">
-				{t("requests.queue_title")}
-			</h2>
-			<RequestTable
-				query={requests}
-				columns={columns}
-				emptyMessage={t("requests.empty_queue")}
-				errorLabel={t("requests.failed_to_load")}
-			/>
-			<ApproveRequestDialog
-				request={approving}
-				onClose={() => setApproving(null)}
-			/>
-		</section>
+function SchedulesActionsSkeleton({ canManage }: { canManage: boolean }) {
+	return canManage ? (
+		<>
+			<ButtonSkeleton className="w-26" />
+			<ButtonSkeleton className="w-34" />
+		</>
+	) : (
+		<ButtonSkeleton className="w-36" />
 	);
 }
 
-function MyRequests() {
+function SchedulesSkeleton({ canManage }: { canManage: boolean }) {
 	const { t } = useTranslation();
-	const requests = useMyScheduleRequests();
 	const columns = useMemo(() => myRequestColumns(t), [t]);
-
 	return (
-		<section className="mb-8">
-			<h2 className="mb-3 text-lg font-semibold">{t("requests.mine_title")}</h2>
-			<RequestTable
-				query={requests}
-				columns={columns}
-				emptyMessage={t("requests.empty")}
-				errorLabel={t("requests.failed_to_load")}
-			/>
-		</section>
+		<LoadingState>
+			{canManage ? null : (
+				<section className="mb-8">
+					<h2 className="mb-3 text-lg font-semibold">
+						{t("requests.mine_title")}
+					</h2>
+					<DataTable
+						columns={columns}
+						data={[]}
+						emptyMessage={t("requests.empty")}
+						loading
+						loadingRows={0}
+					/>
+				</section>
+			)}
+			<div className={SCHEDULE_GRID_CLASS}>
+				{SKELETON_ROWS.map((key) => (
+					<ScheduleRowSkeleton key={key} canManage={canManage} />
+				))}
+			</div>
+		</LoadingState>
 	);
 }

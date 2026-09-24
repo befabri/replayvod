@@ -6,7 +6,11 @@ import {
 import type { RequestPageResponse } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
 
-export function useMyScheduleRequests() {
+export function useMyScheduleRequests({
+	enabled = true,
+}: {
+	enabled?: boolean;
+} = {}) {
 	const trpc = useTRPC();
 	return useInfiniteQuery({
 		...trpc.schedule.myRequests.infiniteQueryOptions(
@@ -17,10 +21,15 @@ export function useMyScheduleRequests() {
 			},
 		),
 		select: (data) => data.pages.flatMap((page) => page.items),
+		enabled,
 	});
 }
 
-export function useAllScheduleRequests() {
+export function useAllScheduleRequests({
+	enabled = true,
+}: {
+	enabled?: boolean;
+} = {}) {
 	const trpc = useTRPC();
 	return useInfiniteQuery({
 		...trpc.schedule.requests.infiniteQueryOptions(
@@ -31,6 +40,7 @@ export function useAllScheduleRequests() {
 			},
 		),
 		select: (data) => data.pages.flatMap((page) => page.items),
+		enabled,
 	});
 }
 

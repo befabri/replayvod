@@ -1,5 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -38,13 +39,11 @@ function channelColumn(t: TFunction): ColumnDef<ScheduleRequestResponse> {
 			const r = row.original;
 			return (
 				<div className="flex items-center gap-2">
-					{r.profile_image_url && (
-						<img
-							src={r.profile_image_url}
-							alt=""
-							className="w-8 h-8 rounded-full"
-						/>
-					)}
+					<Avatar
+						src={r.profile_image_url}
+						name={r.broadcaster_name}
+						size="md"
+					/>
 					<span>{r.broadcaster_name}</span>
 					<span className="text-xs text-muted-foreground">
 						@{r.broadcaster_login}
@@ -98,14 +97,14 @@ function requestedColumn(t: TFunction): ColumnDef<ScheduleRequestResponse> {
 function CancelButton({ id, t }: { id: number; t: TFunction }) {
 	const cancel = useCancelScheduleRequest();
 	return (
-		<button
-			type="button"
+		<Button
 			disabled={cancel.isPending}
 			onClick={() => cancel.mutate({ id })}
-			className="text-destructive hover:underline disabled:opacity-60"
+			variant="link-destructive"
+			size="inline"
 		>
 			{t("requests.cancel")}
-		</button>
+		</Button>
 	);
 }
 
@@ -137,14 +136,14 @@ export function myRequestColumns(
 function RejectButton({ id, t }: { id: number; t: TFunction }) {
 	const reject = useRejectScheduleRequest();
 	return (
-		<button
-			type="button"
+		<Button
 			disabled={reject.isPending}
 			onClick={() => reject.mutate({ id })}
-			className="text-destructive hover:underline disabled:opacity-60"
+			variant="link-destructive"
+			size="inline"
 		>
 			{t("requests.reject")}
-		</button>
+		</Button>
 	);
 }
 

@@ -3,9 +3,12 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { SettingsResponse } from "@/api/generated/trpc";
 import { UpdatePlaybackInputSchema } from "@/api/generated/zod";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingState } from "@/components/ui/loading-state";
+import { ButtonSkeleton, FieldSkeleton } from "@/components/ui/skeleton";
 import { useUpdatePlaybackSettings } from "../queries";
 
 const FIELDS = [
@@ -13,6 +16,7 @@ const FIELDS = [
 	"resume_end_margin_seconds",
 	"resume_end_margin_percent",
 ] as const;
+const FORM_CLASS = "rounded-lg border border-border bg-card p-6 space-y-4";
 
 export function PlaybackSettingsForm({ data }: { data: SettingsResponse }) {
 	const { t } = useTranslation();
@@ -39,7 +43,7 @@ export function PlaybackSettingsForm({ data }: { data: SettingsResponse }) {
 	}, [data.playback, form]);
 	return (
 		<form
-			className="rounded-lg border border-border bg-card p-6 space-y-4"
+			className={FORM_CLASS}
 			aria-labelledby="playback-settings-heading"
 			onSubmit={(event) => {
 				event.preventDefault();
@@ -100,18 +104,12 @@ export function PlaybackSettingsForm({ data }: { data: SettingsResponse }) {
 				))}
 			</div>
 			{update.isError && (
-				<p role="alert" className="text-sm text-destructive">
-					{update.error.message}
-				</p>
+				<Alert variant="destructive">{update.error.message}</Alert>
 			)}
 			<form.Subscribe selector={(state) => state.isDirty}>
 				{(dirty) =>
 					update.isSuccess &&
-					!dirty && (
-						<p role="status" className="text-sm text-primary">
-							{t("settings.saved")}
-						</p>
-					)
+					!dirty && <Alert variant="success">{t("settings.saved")}</Alert>
 				}
 			</form.Subscribe>
 			<form.Subscribe
@@ -127,5 +125,35 @@ export function PlaybackSettingsForm({ data }: { data: SettingsResponse }) {
 				)}
 			</form.Subscribe>
 		</form>
+	);
+}
+
+export function PlaybackSettingsFormSkeleton() {
+	const { t } = useTranslation();
+	return (
+		<LoadingState>
+			<div className={FORM_CLASS}>
+				<div>
+					<h2 className="text-lg font-medium">
+						{t("settings.playback_title")}
+					</h2>
+					<p className="text-sm text-muted-foreground">
+						{t("settings.playback_description")}
+					</p>
+				</div>
+				<div className="grid gap-4 md:grid-cols-3">
+					{FIELDS.map((name) => (
+						<div key={name} className="flex flex-col gap-1">
+							<Label>{t(`settings.${name}`)}</Label>
+							<FieldSkeleton />
+							<p className="text-xs text-muted-foreground">
+								{t(`settings.${name}_hint`)}
+							</p>
+						</div>
+					))}
+				</div>
+				<ButtonSkeleton />
+			</div>
+		</LoadingState>
 	);
 }

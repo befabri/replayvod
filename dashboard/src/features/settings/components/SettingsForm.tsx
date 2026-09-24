@@ -3,9 +3,11 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
 import { SettingsUpdateInputSchema } from "@/api/generated/zod";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
 	Select,
 	SelectContent,
@@ -13,6 +15,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { ButtonSkeleton, FieldSkeleton } from "@/components/ui/skeleton";
 import { type SettingsResponse, useUpdateSettings } from "@/features/settings";
 
 type SettingsFormValues = z.infer<typeof SettingsUpdateInputSchema>;
@@ -22,6 +25,7 @@ type SettingsLanguage = SettingsFormValues["language"];
 const DATE_TIME_FORMATS: readonly DateTimeFormat[] = ["ISO", "EU", "US"];
 const SETTINGS_LANGUAGES: readonly SettingsLanguage[] = ["en", "fr"];
 const FIELDS = ["timezone", "datetime_format", "language"] as const;
+const FORM_CLASS = "rounded-lg border border-border bg-card p-6 space-y-4";
 
 function isDateTimeFormat(value: unknown): value is DateTimeFormat {
 	return DATE_TIME_FORMATS.some((format) => format === value);
@@ -73,7 +77,7 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 				e.stopPropagation();
 				void form.handleSubmit();
 			}}
-			className="rounded-lg border border-border bg-card p-6 space-y-4"
+			className={FORM_CLASS}
 		>
 			<form.Field name="timezone">
 				{(field) => (
@@ -144,22 +148,15 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 			</form.Field>
 
 			{update.isError && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive">
 					{update.error?.message ?? t("settings.save_failed")}
-				</div>
+				</Alert>
 			)}
 
 			<form.Subscribe selector={(state) => state.isDirty}>
 				{(dirty) =>
 					update.isSuccess &&
-					!dirty && (
-						<div
-							role="status"
-							className="rounded-md bg-primary/10 border border-primary/20 p-3 text-sm"
-						>
-							{t("settings.saved")}
-						</div>
-					)
+					!dirty && <Alert variant="success">{t("settings.saved")}</Alert>
 				}
 			</form.Subscribe>
 
@@ -176,5 +173,31 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 				)}
 			</form.Subscribe>
 		</form>
+	);
+}
+
+export function SettingsFormSkeleton() {
+	const { t } = useTranslation();
+	return (
+		<LoadingState>
+			<div className={FORM_CLASS}>
+				<div className="flex flex-col gap-1">
+					<Label>{t("settings.timezone")}</Label>
+					<FieldSkeleton />
+					<span className="text-xs text-muted-foreground">
+						{t("settings.timezone_hint")}
+					</span>
+				</div>
+				<div className="flex flex-col gap-1">
+					<Label>{t("settings.datetime_format")}</Label>
+					<FieldSkeleton />
+				</div>
+				<div className="flex flex-col gap-1">
+					<Label>{t("settings.language")}</Label>
+					<FieldSkeleton />
+				</div>
+				<ButtonSkeleton />
+			</div>
+		</LoadingState>
 	);
 }

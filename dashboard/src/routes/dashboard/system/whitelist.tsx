@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { DocsLink } from "@/components/layout/docs-link";
 import { TitledLayout } from "@/components/layout/titled-layout";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QueryTable } from "@/components/ui/query-table";
@@ -99,9 +100,9 @@ function WhitelistPage() {
 			</form>
 
 			{add.isError && (
-				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive" className="mb-4">
 					{add.error?.message ?? t("whitelist.failed_to_add")}
-				</div>
+				</Alert>
 			)}
 
 			<QueryTable

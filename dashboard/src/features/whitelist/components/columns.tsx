@@ -1,5 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { WhitelistEntryInfo } from "@/features/whitelist";
 import { useRemoveWhitelist } from "@/features/whitelist";
 
@@ -12,14 +14,14 @@ function RemoveButton({
 }) {
 	const remove = useRemoveWhitelist();
 	return (
-		<button
-			type="button"
+		<Button
 			disabled={remove.isPending}
 			onClick={() => remove.mutate({ twitch_user_id: twitchUserId })}
-			className="text-destructive hover:underline disabled:opacity-60"
+			variant="link-destructive"
+			size="inline"
 		>
 			{t("whitelist.remove")}
-		</button>
+		</Button>
 	);
 }
 
@@ -51,6 +53,13 @@ export function whitelistColumns(
 				<span className="text-right w-full block">{t("common.actions")}</span>
 			),
 			enableSorting: false,
+			meta: {
+				skeleton: (
+					<div className="flex justify-end">
+						<Skeleton className="h-5.5 w-16" />
+					</div>
+				),
+			},
 			cell: ({ row }) => (
 				<div className="text-right">
 					<RemoveButton twitchUserId={row.original.twitch_user_id} t={t} />

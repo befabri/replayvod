@@ -15,8 +15,14 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { useAdoptStorage } from "@/features/storage/queries";
+
+const HEADER_CLASS = "sm:flex-row sm:items-start sm:justify-between";
+const FACTS_CLASS =
+	"grid gap-2 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-6";
 
 const STATE_VARIANT: Record<StorageState, "green" | "yellow" | "red"> = {
 	attached: "green",
@@ -53,17 +59,14 @@ export function StorageCard({ data }: { data: StorageDetailsResponse }) {
 
 	return (
 		<Card>
-			<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
-				<div>
-					<CardTitle>{t("storage.card_title")}</CardTitle>
-					<CardDescription>{t("storage.card_description")}</CardDescription>
-				</div>
+			<CardHeader className={HEADER_CLASS}>
+				<StorageCardHeading />
 				<Badge variant={STATE_VARIANT[data.state]} data-testid="storage-state">
 					{t(`storage.state_${data.state}`)}
 				</Badge>
 			</CardHeader>
 			<CardContent className="grid gap-4">
-				<dl className="grid gap-2 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-6">
+				<dl className={FACTS_CLASS}>
 					<dt className="text-muted-foreground">{t("storage.backend")}</dt>
 					<dd>{t(`storage.backend_${data.backend}`)}</dd>
 					<dt className="text-muted-foreground">{t("storage.location")}</dt>
@@ -124,5 +127,57 @@ export function StorageCard({ data }: { data: StorageDetailsResponse }) {
 				destructive
 			/>
 		</Card>
+	);
+}
+
+function StorageCardHeading() {
+	const { t } = useTranslation();
+	return (
+		<div>
+			<CardTitle>{t("storage.card_title")}</CardTitle>
+			<CardDescription>{t("storage.card_description")}</CardDescription>
+		</div>
+	);
+}
+
+export function StorageCardSkeleton() {
+	const { t } = useTranslation();
+	return (
+		<LoadingState>
+			<Card>
+				<CardHeader className={HEADER_CLASS}>
+					<StorageCardHeading />
+					<Skeleton className="h-5.5 w-20 rounded-md" />
+				</CardHeader>
+				<CardContent className="grid gap-4">
+					<dl className={FACTS_CLASS}>
+						<dt className="text-muted-foreground">{t("storage.backend")}</dt>
+						<dd className="flex h-5 items-center">
+							<Skeleton className="h-3.5 w-28" />
+						</dd>
+						<dt className="text-muted-foreground">{t("storage.location")}</dt>
+						<dd className="flex h-4 items-center">
+							<Skeleton className="h-3 w-64 max-w-full" />
+						</dd>
+						<dt className="text-muted-foreground">{t("storage.storage_id")}</dt>
+						<dd>
+							<div className="flex h-4 items-center">
+								<Skeleton className="h-3 w-72 max-w-full" />
+							</div>
+							<div className="text-xs text-muted-foreground">
+								{t("storage.storage_id_hint")}
+							</div>
+						</dd>
+						<dt className="text-muted-foreground">{t("storage.checked_at")}</dt>
+						<dd className="flex h-5 items-center">
+							<Skeleton className="h-3.5 w-36" />
+						</dd>
+					</dl>
+					<div className="flex h-5 items-center">
+						<Skeleton className="h-3.5 w-3/4" />
+					</div>
+				</CardContent>
+			</Card>
+		</LoadingState>
 	);
 }

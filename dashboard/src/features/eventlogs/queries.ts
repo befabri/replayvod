@@ -1,4 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	keepPreviousData,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useTRPC } from "@/api/trpc";
 import { resyncQuery } from "@/lib/query";
@@ -12,12 +16,15 @@ export function useEventLogs(params: {
 }) {
 	const trpc = useTRPC();
 	return useQuery(
-		trpc.system.eventLogs.queryOptions({
-			limit: params.limit,
-			offset: params.offset,
-			domain: params.domain ?? "",
-			severity: params.severity ?? "",
-		}),
+		trpc.system.eventLogs.queryOptions(
+			{
+				limit: params.limit,
+				offset: params.offset,
+				domain: params.domain ?? "",
+				severity: params.severity ?? "",
+			},
+			{ placeholderData: keepPreviousData },
+		),
 	);
 }
 

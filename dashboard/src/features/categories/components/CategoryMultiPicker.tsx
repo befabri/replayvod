@@ -6,9 +6,9 @@ import {
 	ComboboxChip,
 	ComboboxChipRemove,
 	ComboboxChips,
+	ComboboxChipsInput,
 	ComboboxContent,
 	ComboboxEmpty,
-	ComboboxInput,
 	ComboboxItem,
 	ComboboxList,
 	ComboboxStatus,
@@ -99,51 +99,49 @@ export function CategoryMultiPicker({
 	}, [results, selectedItems]);
 
 	return (
-		<div className={disabled ? "opacity-50" : undefined}>
-			<Combobox<CategoryPickerCategory, true>
-				multiple
-				items={items}
-				filter={null}
-				value={selectedItems}
-				onValueChange={(list) => onChange(list.map((c) => c.id))}
-				onInputValueChange={(v) => setQuery(v)}
-				itemToStringLabel={(c) => c.name}
-				itemToStringValue={(c) => c.id}
-				isItemEqualToValue={(a, b) => a.id === b.id}
-				disabled={disabled}
-			>
-				<ComboboxChips>
-					{selectedItems.map((c) => (
-						<ComboboxChip key={c.id}>
-							{c.name}
-							<ComboboxChipRemove />
-						</ComboboxChip>
-					))}
-					<ComboboxInput
-						placeholder={t("schedules.search_categories")}
-						className="flex-1 min-w-[8rem] border-0 bg-transparent px-0 h-auto shadow-none focus-visible:ring-0 focus-visible:border-0"
-					/>
-				</ComboboxChips>
-				<ComboboxContent>
-					<ComboboxList<CategoryPickerCategory>>
-						{(item) => (
-							<ComboboxItem key={item.id} value={item}>
-								<PickerThumb url={item.box_art_url} name={item.name} />
-								<span className="truncate">{item.name}</span>
-							</ComboboxItem>
-						)}
-					</ComboboxList>
-					{isFetching ? (
-						<ComboboxStatus>{t("common.loading")}</ComboboxStatus>
-					) : (
-						<ComboboxEmpty>
-							{canSearchTwitch
-								? t("schedules.no_category_matches")
-								: t("schedules.no_categories")}
-						</ComboboxEmpty>
+		<Combobox<CategoryPickerCategory, true>
+			multiple
+			items={items}
+			filter={null}
+			value={selectedItems}
+			onValueChange={(list) => onChange(list.map((c) => c.id))}
+			onInputValueChange={(v) => setQuery(v)}
+			itemToStringLabel={(c) => c.name}
+			itemToStringValue={(c) => c.id}
+			isItemEqualToValue={(a, b) => a.id === b.id}
+			disabled={disabled}
+		>
+			<ComboboxChips>
+				{selectedItems.map((c) => (
+					<ComboboxChip key={c.id}>
+						{c.name}
+						<ComboboxChipRemove />
+					</ComboboxChip>
+				))}
+				<ComboboxChipsInput
+					aria-label={t("schedules.search_categories")}
+					placeholder={t("schedules.search_categories")}
+				/>
+			</ComboboxChips>
+			<ComboboxContent>
+				<ComboboxList<CategoryPickerCategory>>
+					{(item) => (
+						<ComboboxItem key={item.id} value={item}>
+							<PickerThumb url={item.box_art_url} name={item.name} />
+							<span className="truncate">{item.name}</span>
+						</ComboboxItem>
 					)}
-				</ComboboxContent>
-			</Combobox>
-		</div>
+				</ComboboxList>
+				{isFetching ? (
+					<ComboboxStatus>{t("common.loading")}</ComboboxStatus>
+				) : (
+					<ComboboxEmpty>
+						{canSearchTwitch
+							? t("schedules.no_category_matches")
+							: t("schedules.no_categories")}
+					</ComboboxEmpty>
+				)}
+			</ComboboxContent>
+		</Combobox>
 	);
 }

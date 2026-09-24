@@ -544,7 +544,8 @@
 	"streams_live": {
 		"title": "Live en direct",
 		"matched": "{{count}} planification(s) déclenchée(s)",
-		"empty": "Aucun live récent"
+		"empty": "Aucun live récent",
+		"failed_to_load": "Impossible de charger les chaînes en direct"
 	},
 	"tasks": {
 		"title": "Tâches planifiées",

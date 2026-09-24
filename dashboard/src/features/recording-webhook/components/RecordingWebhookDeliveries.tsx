@@ -1,4 +1,5 @@
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { RecordingWebhookDeliveryResponse as Delivery } from "@/api/generated/trpc";
@@ -11,11 +12,18 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { LoadingState } from "@/components/ui/loading-state";
+import { BadgeSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import {
 	useRecordingWebhookDeliveries,
 	useRetryRecordingWebhookDelivery,
 } from "../queries";
+
+const ROW_CLASS =
+	"flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2 text-sm";
+
+const SKELETON_ROWS = ["delivery-1", "delivery-2", "delivery-3"];
 
 function outcomeVariant(outcome: string): "green" | "yellow" | "red" | "muted" {
 	switch (outcome) {
@@ -39,31 +47,68 @@ export function RecordingWebhookDeliveries() {
 	const rows = deliveries.data ?? [];
 
 	return (
+		<DeliveriesCard>
+			{deliveries.isLoading && (
+				<LoadingState>
+					<DeliveryRowsSkeleton />
+				</LoadingState>
+			)}
+			{!deliveries.isLoading && rows.length === 0 && (
+				<div className="text-muted-foreground text-sm">
+					{t("webhook.deliveries_empty")}
+				</div>
+			)}
+			{rows.length > 0 && (
+				<ul className="grid gap-2">
+					{rows.map((d) => (
+						<DeliveryRow key={d.id} delivery={d} />
+					))}
+				</ul>
+			)}
+		</DeliveriesCard>
+	);
+}
+
+export function RecordingWebhookDeliveriesSkeleton() {
+	return (
+		<LoadingState>
+			<DeliveriesCard>
+				<DeliveryRowsSkeleton />
+			</DeliveriesCard>
+		</LoadingState>
+	);
+}
+
+function DeliveriesCard({ children }: { children: ReactNode }) {
+	const { t } = useTranslation();
+	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>{t("webhook.deliveries_title")}</CardTitle>
 				<CardDescription>{t("webhook.deliveries_description")}</CardDescription>
 			</CardHeader>
-			<CardContent>
-				{deliveries.isLoading && (
-					<div className="text-muted-foreground text-sm">
-						{t("common.loading")}
-					</div>
-				)}
-				{!deliveries.isLoading && rows.length === 0 && (
-					<div className="text-muted-foreground text-sm">
-						{t("webhook.deliveries_empty")}
-					</div>
-				)}
-				{rows.length > 0 && (
-					<ul className="grid gap-2">
-						{rows.map((d) => (
-							<DeliveryRow key={d.id} delivery={d} />
-						))}
-					</ul>
-				)}
-			</CardContent>
+			<CardContent>{children}</CardContent>
 		</Card>
+	);
+}
+
+function DeliveryRowsSkeleton() {
+	return (
+		<ul className="grid gap-2">
+			{SKELETON_ROWS.map((key) => (
+				<li key={key} className={ROW_CLASS}>
+					<div className="flex items-center gap-2">
+						<BadgeSkeleton />
+						<div className="flex h-4 items-center">
+							<Skeleton className="h-3 w-32" />
+						</div>
+					</div>
+					<div className="flex h-4 items-center">
+						<Skeleton className="h-3 w-40" />
+					</div>
+				</li>
+			))}
+		</ul>
 	);
 }
 
@@ -83,7 +128,7 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
 		);
 	};
 	return (
-		<li className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2 text-sm">
+		<li className={ROW_CLASS}>
 			<div className="flex items-center gap-2">
 				<Badge variant={outcomeVariant(delivery.outcome)}>
 					{t(`webhook.outcome_${delivery.outcome}`)}

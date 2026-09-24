@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useChannel } from "@/features/channels";
@@ -104,9 +105,9 @@ export function EditForm({
 			<FiltersFieldset form={form} initialCategories={schedule.categories} />
 
 			{update.isError && (
-				<div className="rounded-md bg-destructive/10 p-3 text-destructive text-sm">
+				<Alert variant="destructive">
 					{update.error?.message ?? t("schedules.update_failed")}
-				</div>
+				</Alert>
 			)}
 
 			<div className="flex items-center justify-between gap-3 border-t border-border pt-4 -mx-6 px-6 -mb-6 pb-6">

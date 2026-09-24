@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { z } from "zod";
 import type { PlaybackCacheConfigResponse } from "@/api/generated/trpc";
 import { UpdatePlaybackCacheConfigInputSchema } from "@/api/generated/zod";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +16,13 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingState } from "@/components/ui/loading-state";
+import {
+	BadgeSkeleton,
+	ButtonSkeleton,
+	FieldSkeleton,
+	SwitchSkeleton,
+} from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useUpdatePlaybackCacheConfig } from "@/features/system/queries";
 
@@ -154,14 +162,12 @@ export function PlaybackCacheCard({
 					</form.Field>
 
 					{update.isError && (
-						<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+						<Alert variant="destructive">
 							{update.error?.message ?? t("playback_cache.save_failed")}
-						</div>
+						</Alert>
 					)}
 					{update.isSuccess && (
-						<div className="rounded-md bg-primary/10 border border-primary/20 p-3 text-sm">
-							{t("playback_cache.saved")}
-						</div>
+						<Alert variant="success">{t("playback_cache.saved")}</Alert>
 					)}
 
 					<form.Subscribe
@@ -186,6 +192,47 @@ export function PlaybackCacheCard({
 				</form>
 			</CardContent>
 		</Card>
+	);
+}
+
+export function PlaybackCacheCardSkeleton() {
+	const { t } = useTranslation();
+	return (
+		<LoadingState>
+			<Card>
+				<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<CardTitle>{t("playback_cache.card_title")}</CardTitle>
+						<CardDescription>
+							{t("playback_cache.card_description")}
+						</CardDescription>
+					</div>
+					<BadgeSkeleton />
+				</CardHeader>
+				<CardContent>
+					<div className="grid gap-5">
+						<div className="flex items-center gap-3">
+							<SwitchSkeleton />
+							<Label>{t("playback_cache.enable")}</Label>
+						</div>
+						<div className="flex items-center gap-3">
+							<SwitchSkeleton />
+							<Label>{t("playback_cache.auto_generate")}</Label>
+						</div>
+						<div className="grid gap-1.5">
+							<Label>{t("playback_cache.max_percent")}</Label>
+							<FieldSkeleton />
+							<span className="text-xs text-muted-foreground">
+								{t("playback_cache.max_percent_hint")}
+							</span>
+						</div>
+						<div>
+							<ButtonSkeleton />
+						</div>
+					</div>
+				</CardContent>
+			</Card>
+		</LoadingState>
 	);
 }
 

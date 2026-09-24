@@ -1,6 +1,7 @@
 import { TwitchLogoIcon } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { Alert } from "@/components/ui/alert";
 import { API_URL } from "@/env";
 
 export const Route = createFileRoute("/login")({
@@ -37,12 +38,9 @@ function LoginPage() {
 				</h1>
 
 				{errorMessage && (
-					<div
-						role="alert"
-						className="mb-4 w-full max-w-sm rounded-md bg-destructive/10 p-3 text-destructive text-sm"
-					>
+					<Alert variant="destructive" className="mb-4 w-full max-w-sm">
 						{errorMessage}
-					</div>
+					</Alert>
 				)}
 
 				<a

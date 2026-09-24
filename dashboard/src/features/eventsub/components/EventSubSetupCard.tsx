@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
 import type { TFunction } from "i18next";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
 import type {
@@ -20,12 +20,19 @@ import type {
 	UpdateConfigInput,
 } from "@/api/generated/trpc";
 import { UpdateConfigInputSchema } from "@/api/generated/zod";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingState } from "@/components/ui/loading-state";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+	BadgeSkeleton,
+	ButtonSkeleton,
+	Skeleton,
+} from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useUpdateEventSubConfig } from "../queries";
 
@@ -34,6 +41,11 @@ type Mode = ServerMode;
 type FormValues = z.infer<typeof UpdateConfigInputSchema>;
 
 const MODE_ORDER: readonly Mode[] = ["direct", "relay", "poll", "off"];
+
+const MODE_OPTION_CLASS =
+	"flex items-start gap-3 rounded-lg border p-3.5 transition-colors";
+
+const IDLE_MODE_OPTION_CLASS = "border-border bg-background";
 
 const MODE_ICON: Record<Mode, Icon> = {
 	direct: GlobeSimpleIcon,
@@ -156,21 +168,45 @@ function ModeOption({
 	selected: boolean;
 	disabled: boolean;
 }) {
+	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: the control is the nested Base UI radio (RadioGroupItem); biome can't see it statically.
+		<label
+			data-dimmed={disabled || undefined}
+			className={cn(
+				MODE_OPTION_CLASS,
+				disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+				selected
+					? "border-accent bg-accent"
+					: cn(
+							IDLE_MODE_OPTION_CLASS,
+							"hover:border-ring-muted hover:bg-accent/40",
+						),
+			)}
+		>
+			<ModeOptionBody
+				mode={mode}
+				selected={selected}
+				control={<RadioGroupItem value={mode} className="mt-0.5 shrink-0" />}
+			/>
+		</label>
+	);
+}
+
+function ModeOptionBody({
+	mode,
+	selected,
+	control,
+}: {
+	mode: Mode;
+	selected: boolean;
+	control: ReactNode;
+}) {
 	const { t } = useTranslation();
 	const ModeGlyph = MODE_ICON[mode];
 	const { label, desc } = modeCopy(t, mode);
 
 	return (
-		// biome-ignore lint/a11y/noLabelWithoutControl: the control is the nested Base UI radio (RadioGroupItem); biome can't see it statically.
-		<label
-			className={cn(
-				"flex items-start gap-3 rounded-lg border p-3.5 transition-colors",
-				disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-				selected
-					? "border-accent bg-accent"
-					: "border-border bg-background hover:border-ring-muted hover:bg-accent/40",
-			)}
-		>
+		<>
 			<span
 				className={cn(
 					"flex size-9 shrink-0 items-center justify-center rounded-md transition-colors",
@@ -184,13 +220,13 @@ function ModeOption({
 			<div className="min-w-0 flex-1">
 				<div className="flex items-center justify-between gap-2">
 					<span className="text-sm font-medium text-foreground">{label}</span>
-					<RadioGroupItem value={mode} className="mt-0.5 shrink-0" />
+					{control}
 				</div>
 				<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
 					{desc}
 				</p>
 			</div>
-		</label>
+		</>
 	);
 }
 
@@ -366,9 +402,9 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 						</form.Subscribe>
 
 						{update.isError && (
-							<div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+							<Alert variant="destructive">
 								{update.error?.message ?? t("eventsub.config_save_failed")}
-							</div>
+							</Alert>
 						)}
 
 						{restartRequired && (
@@ -383,9 +419,7 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 						<form.Subscribe selector={(s) => s.isDirty}>
 							{(dirty) =>
 								update.isSuccess && !dirty && !restartRequired ? (
-									<div className="rounded-md border border-primary/20 bg-primary/10 p-3 text-sm text-foreground">
-										{t("eventsub.config_saved")}
-									</div>
+									<Alert variant="success">{t("eventsub.config_saved")}</Alert>
 								) : null
 							}
 						</form.Subscribe>
@@ -412,5 +446,49 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 				)}
 			</CardContent>
 		</Card>
+	);
+}
+
+export function EventSubSetupCardSkeleton() {
+	const { t } = useTranslation();
+	return (
+		<LoadingState>
+			<Card>
+				<CardHeader className="sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<CardTitle className="flex items-center gap-2">
+							{t("eventsub.config_title")}
+						</CardTitle>
+					</div>
+					<BadgeSkeleton />
+				</CardHeader>
+				<CardContent>
+					<div className="grid gap-5">
+						<div className="grid gap-2.5">
+							<Label>{t("eventsub.choose_mode")}</Label>
+							<div className="grid gap-3 sm:grid-cols-2">
+								{MODE_ORDER.map((mode) => (
+									<div
+										key={mode}
+										className={cn(MODE_OPTION_CLASS, IDLE_MODE_OPTION_CLASS)}
+									>
+										<ModeOptionBody
+											mode={mode}
+											selected={false}
+											control={
+												<Skeleton className="mt-0.5 size-4 shrink-0 rounded-full" />
+											}
+										/>
+									</div>
+								))}
+							</div>
+						</div>
+						<div>
+							<ButtonSkeleton className="w-36" />
+						</div>
+					</div>
+				</CardContent>
+			</Card>
+		</LoadingState>
 	);
 }

@@ -8,6 +8,7 @@ import type {
 	EnqueueArchiveItem,
 	TwitchVODResponse,
 } from "@/api/generated/trpc";
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -117,9 +118,9 @@ export function ChannelVodBrowser({ settings }: { settings: ArchiveSettings }) {
 			</form>
 
 			{vods.isError ? (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<Alert variant="destructive">
 					{vods.error.message || t("archive.channel_failed")}
-				</div>
+				</Alert>
 			) : null}
 
 			{header ? (

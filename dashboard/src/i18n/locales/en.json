@@ -544,7 +544,8 @@
 	"streams_live": {
 		"title": "Just went live",
 		"matched": "{{count}} schedule(s) matched",
-		"empty": "No recent live streams"
+		"empty": "No recent live streams",
+		"failed_to_load": "Failed to load live channels"
 	},
 	"tasks": {
 		"title": "Scheduled tasks",

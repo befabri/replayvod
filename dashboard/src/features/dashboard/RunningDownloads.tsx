@@ -2,8 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActiveDownloadResponse } from "@/api/generated/trpc";
+import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
 	Tooltip,
 	TooltipContent,
@@ -66,13 +69,11 @@ export function RunningDownloads({ limit }: { limit?: number }) {
 			</div>
 
 			{isLoading ? (
-				<div className="pt-6 text-sm text-muted-foreground">
-					{t("common.loading")}
-				</div>
+				<LoadingState className="pt-6" />
 			) : isError && error ? (
-				<div className="pt-6 text-sm text-destructive">
+				<Alert variant="destructive" className="mt-6">
 					{t("dashboard.running_now_failed")}: {error.message}
-				</div>
+				</Alert>
 			) : rows.length === 0 ? (
 				<div className="pt-6 text-sm text-muted-foreground">
 					{t("dashboard.running_now_empty")}
@@ -93,7 +94,7 @@ export function RunningDownloads({ limit }: { limit?: number }) {
 						<div className="pt-4">
 							<Link
 								to="/dashboard/downloads"
-								className="text-sm text-link hover:underline"
+								className={buttonVariants({ variant: "link", size: "inline" })}
 							>
 								{t("dashboard.view_all_downloads", { count: rows.length })}
 							</Link>
@@ -240,14 +241,15 @@ function CancelDownloadButton({ jobId }: { jobId: string }) {
 	}
 
 	return (
-		<button
-			type="button"
+		<Button
 			onClick={() => cancel.mutate({ job_id: jobId })}
 			disabled={cancel.isPending}
-			className="text-xs text-destructive hover:underline disabled:opacity-60"
+			variant="link-destructive"
+			size="inline"
+			className="text-xs"
 		>
 			{t("downloads.cancel")}
-		</button>
+		</Button>
 	);
 }
 
