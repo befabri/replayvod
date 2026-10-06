@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
-INSTALL_SCRIPT=${INSTALL_SCRIPT:-/workspace/landing/public/install.sh}
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+INSTALL_SCRIPT=${INSTALL_SCRIPT:-"$SCRIPT_DIR/../../public/install.sh"}
+# Resolve the asset before leaving the checkout, including relative overrides.
+INSTALL_SCRIPT=$(CDPATH='' cd -- "$(dirname -- "$INSTALL_SCRIPT")" && printf '%s/%s' "$PWD" "$(basename -- "$INSTALL_SCRIPT")")
 BASE=$(mktemp -d "${TMPDIR:-/tmp}/replayvod-install-tests.XXXXXX")
 
 pass_count=0
@@ -25,6 +28,10 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+# A bind-mounted worktree's .git file can point outside the container. None of
+# the fixture Git commands should discover or depend on the caller's checkout.
+cd "$BASE"
 
 assert_eq() {
   got=$1
@@ -557,7 +564,7 @@ EOF
 
 test_public_installer_assets() {
   [ -f "$INSTALL_SCRIPT" ] || fail "missing install.sh"
-  [ ! -e /workspace/landing/public/install.ps1 ] || fail "install.ps1 should not exist; Windows uses manual docker compose"
+  [ ! -e "$(dirname -- "$INSTALL_SCRIPT")/install.ps1" ] || fail "install.ps1 should not exist; Windows uses manual docker compose"
 
   assert_file_not_contains "$INSTALL_SCRIPT" 'REPLAYVOD_PROFILE' 'no profile env override'
   assert_file_not_contains "$INSTALL_SCRIPT" 'REPLAYVOD_DIR' 'no install directory env override'
