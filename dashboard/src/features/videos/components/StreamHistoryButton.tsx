@@ -1,9 +1,9 @@
 import { InfoIcon, ListBulletsIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import type { TimelineEvent } from "@/api/generated/trpc";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
 	Dialog,
 	DialogContent,
@@ -19,13 +19,12 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { useVideoTimeline } from "@/features/videos";
-import { formatDuration } from "@/features/videos/format";
 import {
 	timelineEventKey,
 	timelineEventOffsetSeconds,
 } from "@/features/videos/timeline";
+import { CategoryEvent, TimelineRow, TitleEvent } from "./TimelineRow";
 
 function dedupConsecutiveEvents(
 	events: TimelineEvent[] | undefined,
@@ -100,7 +99,7 @@ function StreamHistoryDialogContent({
 	const events = dedupConsecutiveEvents(rawEvents);
 
 	return (
-		<DialogContent className="max-w-lg">
+		<DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg grid-rows-[auto_minmax(0,1fr)]">
 			<DialogHeader>
 				<DialogTitle className="flex items-center gap-2">
 					<span>{t("videos.history.heading")}</span>
@@ -126,71 +125,41 @@ function StreamHistoryDialogContent({
 				</DialogDescription>
 			</DialogHeader>
 
-			{isLoading && <LoadingState className="py-4" />}
+			<div className="min-h-0 overflow-y-auto">
+				{isLoading && <LoadingState className="py-4" />}
 
-			{!isLoading && events && events.length === 0 && (
-				<div className="text-muted-foreground text-sm py-4">
-					{t("videos.history.empty")}
-				</div>
-			)}
+				{!isLoading && events && events.length === 0 && (
+					<div className="text-muted-foreground text-sm py-4">
+						{t("videos.history.empty")}
+					</div>
+				)}
 
-			{events && events.length > 0 && (
-				<ol className="flex flex-col py-2">
-					{events.map((event, idx) => {
-						const offsetSec = Math.max(
-							0,
-							timelineEventOffsetSeconds(event, videoStartDownloadAt),
-						);
-						const offsetLabel =
-							offsetSec === 0
-								? t("videos.history.start")
-								: formatDuration(offsetSec);
-						const isLast = idx === events.length - 1;
-						return (
-							<li key={timelineEventKey(event)} className="flex gap-3">
-								<Link
-									to="/dashboard/watch/$videoId"
-									params={{ videoId: String(videoId) }}
-									search={{ t: offsetSec }}
-									onClick={onNavigate}
-									className="w-14 shrink-0 pt-1.5 text-right text-xs font-mono text-muted-foreground transition-colors hover:text-link"
+				{events && events.length > 0 && (
+					<Card className="overflow-hidden p-0 gap-0">
+						<ol className="flex flex-col divide-y divide-foreground/10">
+							{events.map((event) => (
+								<TimelineRow
+									key={timelineEventKey(event)}
+									align={event.category ? "center" : "baseline"}
+									offsetSec={Math.max(
+										0,
+										timelineEventOffsetSeconds(event, videoStartDownloadAt),
+									)}
+									videoId={videoId}
+									onNavigate={onNavigate}
 								>
-									{offsetLabel}
-								</Link>
-								<div className="relative flex shrink-0 flex-col items-center">
-									<span className="mt-2 size-2 rounded-full bg-primary" />
-									{!isLast && <span className="w-px flex-1 bg-border" />}
-								</div>
-								<div className="flex min-w-0 flex-1 flex-col gap-1.5 pb-4">
-									{event.category && (
-										<Link
-											to="/dashboard/categories/$categoryId"
-											params={{ categoryId: event.category.id }}
-											className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 transition-colors hover:bg-accent"
-										>
-											<CategoryBoxArt
-												url={event.category.box_art_url}
-												name={event.category.name}
-												width={28}
-												height={36}
-												className="w-7 rounded-sm shrink-0"
-											/>
-											<span className="truncate text-sm font-medium">
-												{event.category.name}
-											</span>
-										</Link>
-									)}
-									{event.title && (
-										<div className="text-sm leading-snug">
-											{event.title.name}
-										</div>
-									)}
-								</div>
-							</li>
-						);
-					})}
-				</ol>
-			)}
+									<div className="flex min-w-0 flex-1 flex-col gap-2">
+										{event.category && (
+											<CategoryEvent category={event.category} />
+										)}
+										{event.title && <TitleEvent title={event.title} />}
+									</div>
+								</TimelineRow>
+							))}
+						</ol>
+					</Card>
+				)}
+			</div>
 		</DialogContent>
 	);
 }

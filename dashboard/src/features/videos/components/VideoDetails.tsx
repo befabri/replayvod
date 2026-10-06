@@ -1,22 +1,16 @@
-import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
-import type {
-	VideoCategory,
-	VideoResponse,
-	VideoTitle,
-} from "@/features/videos";
+import type { VideoResponse } from "@/features/videos";
 import {
 	formatAverageBitrate,
 	formatBytes,
 	formatDuration,
-	formatPlaybackTime,
 } from "@/features/videos/format";
 import { videoQualityLabel } from "@/features/videos/labels";
 import { useVideoCategories, useVideoTitles } from "@/features/videos/queries";
 import { dedupConsecutive } from "@/features/videos/timeline";
 import { cn } from "@/lib/utils";
+import { CategoryEvent, TimelineRow, TitleEvent } from "./TimelineRow";
 
 export function VideoMetaGrid({ video }: { video: VideoResponse }) {
 	const { t } = useTranslation();
@@ -131,11 +125,11 @@ export function TitleTimelineCard({
 					{events.map((title) => (
 						<TimelineRow
 							key={`${title.id}-${title.started_at}`}
+							align="baseline"
 							offsetSec={offsetSeconds(
 								title.started_at,
 								video.start_download_at,
 							)}
-							align="start"
 						>
 							<TitleEvent title={title} />
 						</TimelineRow>
@@ -163,55 +157,6 @@ function TimelineCardHeader({
 				{t("watch.events_count", { count })}
 			</span>
 		</CardHeader>
-	);
-}
-
-function TimelineRow({
-	offsetSec,
-	align = "center",
-	children,
-}: {
-	offsetSec: number;
-	align?: "center" | "start";
-	children: React.ReactNode;
-}) {
-	return (
-		<li
-			className={cn(
-				"flex gap-3 px-5 py-3",
-				align === "center" ? "items-center" : "items-start",
-			)}
-		>
-			<span className="min-w-17 shrink-0 rounded-md bg-secondary px-2 py-1 text-center text-xs tabular-nums text-foreground/75">
-				{formatPlaybackTime(offsetSec)}
-			</span>
-			{children}
-		</li>
-	);
-}
-
-function CategoryEvent({ category }: { category: VideoCategory }) {
-	return (
-		<Link
-			to="/dashboard/categories/$categoryId"
-			params={{ categoryId: category.id }}
-			className="flex min-w-0 flex-1 items-center gap-3 rounded-md -mx-1 px-1 py-0.5 transition-colors hover:bg-accent/50"
-		>
-			<CategoryBoxArt
-				url={category.box_art_url}
-				name={category.name}
-				width={40}
-				height={54}
-				className="w-10 rounded-md shrink-0"
-			/>
-			<span className="truncate text-sm font-medium">{category.name}</span>
-		</Link>
-	);
-}
-
-function TitleEvent({ title }: { title: VideoTitle }) {
-	return (
-		<div className="min-w-0 flex-1 text-sm leading-snug">{title.name}</div>
 	);
 }
 
