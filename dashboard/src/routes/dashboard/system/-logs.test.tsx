@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -24,6 +25,19 @@ import { Route } from "./logs";
 
 afterEach(cleanup);
 
+const firstPage: FetchLogsResponse = {
+	total: 51,
+	data: [
+		{
+			id: 1,
+			fetch_type: "get_streams",
+			status: 200,
+			duration_ms: 25,
+			fetched_at: "2026-10-01T12:00:00Z",
+		},
+	],
+};
+
 function renderLogsPage(fetchLogs: () => Promise<FetchLogsResponse>) {
 	const LogsPage = Route.options.component;
 	if (!LogsPage) throw new Error("the logs route has no component");
@@ -44,6 +58,7 @@ function renderLogsPage(fetchLogs: () => Promise<FetchLogsResponse>) {
 			</TRPCProvider>
 		</QueryClientProvider>,
 	);
+	return queryClient;
 }
 
 function showApiLogs() {
@@ -54,6 +69,62 @@ function showApiLogs() {
 }
 
 describe("API logs", () => {
+	it("keeps the loaded table and pager available after a refetch fails", async () => {
+		const fetchLogs = vi
+			.fn<() => Promise<FetchLogsResponse>>()
+			.mockResolvedValueOnce(firstPage)
+			.mockRejectedValueOnce(new Error("refetch failed"))
+			.mockResolvedValue({ total: 51, data: [] });
+		const queryClient = renderLogsPage(fetchLogs);
+		showApiLogs();
+		await screen.findByText(/common\.page/);
+
+		await act(async () => {
+			await queryClient.invalidateQueries();
+		});
+		expect(await screen.findByText(/refetch failed/)).toBeTruthy();
+		expect(screen.getByRole("table")).toBeTruthy();
+		expect(screen.getByText("get_streams")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "common.next" }));
+		await waitFor(() => expect(fetchLogs).toHaveBeenCalledTimes(3));
+		await waitFor(() =>
+			expect(screen.queryByText(/refetch failed/)).toBeNull(),
+		);
+	});
+
+	it("can go back to loaded data when the next page fails", async () => {
+		const fetchLogs = vi
+			.fn<() => Promise<FetchLogsResponse>>()
+			.mockResolvedValueOnce(firstPage)
+			.mockRejectedValueOnce(new Error("next page failed"))
+			.mockResolvedValue(firstPage);
+		renderLogsPage(fetchLogs);
+		showApiLogs();
+		await screen.findByText("get_streams");
+		fireEvent.click(screen.getByRole("button", { name: "common.next" }));
+		await screen.findByText(/next page failed/);
+
+		// Placeholder rows belong to the previous page and must not be passed
+		// off as results from the failed page. Keep a way back to that page.
+		expect(screen.queryByRole("table")).toBeNull();
+		expect(
+			screen
+				.getByRole("button", { name: "common.next" })
+				.hasAttribute("disabled"),
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "common.previous" }));
+		expect(await screen.findByText("get_streams")).toBeTruthy();
+		expect(screen.queryByText(/next page failed/)).toBeNull();
+	});
+
+	it("shows the initial error without an empty table or pager", async () => {
+		renderLogsPage(() => Promise.reject(new Error("first page failed")));
+		showApiLogs();
+		expect(await screen.findByText(/first page failed/)).toBeTruthy();
+		expect(screen.queryByRole("table")).toBeNull();
+		expect(screen.queryByRole("button", { name: "common.next" })).toBeNull();
+	});
+
 	it("holds the pager back until the first page arrives", async () => {
 		let deliver: (page: FetchLogsResponse) => void = () => {};
 		const fetchLogs = vi.fn(

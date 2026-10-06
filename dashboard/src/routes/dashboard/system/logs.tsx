@@ -138,25 +138,25 @@ function EventsView({
 					{t("events.failed_to_load")}: {error.message}
 				</Alert>
 			)}
-			{(isLoading || data) && (
-				<PageFlip busy={isPlaceholderData}>
+			<PageFlip busy={isPlaceholderData}>
+				{(isLoading || data) && (
 					<DataTable
 						columns={columns}
 						data={data?.data ?? []}
 						loading={isLoading}
 						emptyMessage={t("events.empty")}
 					/>
-					{data && (
-						<Pager
-							page={page}
-							total={data.total}
-							hasNext={(page + 1) * PAGE_SIZE < data.total}
-							onPrev={() => setPage((p) => Math.max(0, p - 1))}
-							onNext={() => setPage((p) => p + 1)}
-						/>
-					)}
-				</PageFlip>
-			)}
+				)}
+				{(data || page > 0) && (
+					<Pager
+						page={page}
+						total={data?.total}
+						hasNext={!!data && (page + 1) * PAGE_SIZE < data.total}
+						onPrev={() => setPage((p) => Math.max(0, p - 1))}
+						onNext={() => setPage((p) => p + 1)}
+					/>
+				)}
+			</PageFlip>
 		</>
 	);
 }
@@ -177,25 +177,25 @@ function ApiLogsView() {
 					{t("logs.api_failed")}: {error.message}
 				</Alert>
 			)}
-			{!error && (
-				<PageFlip busy={isPlaceholderData}>
+			<PageFlip busy={isPlaceholderData}>
+				{(isLoading || data) && (
 					<DataTable
 						columns={columns}
 						data={data?.data ?? []}
 						loading={isLoading}
 						emptyMessage={t("logs.api_empty")}
 					/>
-					{data && (
-						<Pager
-							page={page}
-							total={data.total}
-							hasNext={(page + 1) * PAGE_SIZE < data.total}
-							onPrev={() => setPage((p) => Math.max(0, p - 1))}
-							onNext={() => setPage((p) => p + 1)}
-						/>
-					)}
-				</PageFlip>
-			)}
+				)}
+				{(data || page > 0) && (
+					<Pager
+						page={page}
+						total={data?.total}
+						hasNext={!!data && (page + 1) * PAGE_SIZE < data.total}
+						onPrev={() => setPage((p) => Math.max(0, p - 1))}
+						onNext={() => setPage((p) => p + 1)}
+					/>
+				)}
+			</PageFlip>
 		</>
 	);
 }
