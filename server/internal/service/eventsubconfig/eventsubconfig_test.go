@@ -298,6 +298,28 @@ func TestUpdate_DirectWithoutPublicBaseRejected(t *testing.T) {
 	}
 }
 
+func TestUpdate_RejectsRelayCallbackQueryOrFragment(t *testing.T) {
+	for _, suffix := range []string{"?query=1", "?", "#fragment"} {
+		t.Run(suffix, func(t *testing.T) {
+			ctx := context.Background()
+			svc, repo, _ := newTestService(t, config.ServerModeConfig{
+				Source: config.ServerModeConfigSourceUnset,
+			})
+			_, err := svc.Update(ctx, UpdateInput{
+				Mode:                  config.ServerModeRelay,
+				RelayIngestURL:        "https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA",
+				RelayLocalCallbackURL: "http://127.0.0.1:8080/api/v1/webhook/callback" + suffix,
+			})
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Update error = %v, want ErrInvalid", err)
+			}
+			if _, err := repo.GetServerSettings(ctx); !errors.Is(err, repository.ErrNotFound) {
+				t.Fatalf("GetServerSettings after rejected callback = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
+
 func TestUpdate_RejectsWebhookModeWithoutHMACSecret(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, cfg := newTestService(t, config.ServerModeConfig{

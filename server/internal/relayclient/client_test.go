@@ -32,6 +32,8 @@ func TestNewRejectsUnsafeCallbackURL(t *testing.T) {
 		"http://example.com/api/v1/webhook/callback",
 		"http://127.0.0.1:8080/internal",
 		"http://127.0.0.1:8080/api/v1/webhook/callback?next=/internal",
+		"http://127.0.0.1:8080/api/v1/webhook/callback?",
+		"http://127.0.0.1:8080/api/v1/webhook/callback#fragment",
 	}
 	for _, callbackURL := range tests {
 		t.Run(callbackURL, func(t *testing.T) {

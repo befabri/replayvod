@@ -320,7 +320,10 @@ func validateRelayMode(cfg ServerModeConfig) error {
 	if err := ValidateRelayURLs(cfg.RelayIngestURL, cfg.RelaySubscribeURL); err != nil {
 		return err
 	}
-	return validateRelayLocalCallbackURL(cfg.RelayLocalCallbackURL)
+	if cfg.RelayLocalCallbackURL != "" {
+		return ValidateRelayLocalCallbackURL(cfg.RelayLocalCallbackURL)
+	}
+	return nil
 }
 
 func ValidateServerModeHMACSecret(cfg ServerModeConfig, hmacSecret string) error {
@@ -399,10 +402,10 @@ func validateRelayURLPair(ingest, subscribe *url.URL) error {
 	return nil
 }
 
-func validateRelayLocalCallbackURL(raw string) error {
-	if raw == "" {
-		return nil
-	}
+// ValidateRelayLocalCallbackURL is shared by config validation and the relay
+// client so a callback accepted by the dashboard can also be used at startup.
+// Callers must resolve an omitted callback to the default before using it.
+func ValidateRelayLocalCallbackURL(raw string) error {
 	u, err := parseLocalCallbackURL(raw)
 	if err != nil {
 		return err
@@ -413,8 +416,11 @@ func validateRelayLocalCallbackURL(raw string) error {
 	if !isLoopbackHostname(u.Hostname()) {
 		return fmt.Errorf("local callback URL must use a loopback host")
 	}
-	if u.Path != "/api/v1/webhook/callback" {
+	if u.Path != webhookCallbackPath {
 		return fmt.Errorf("local callback URL must use /api/v1/webhook/callback")
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return fmt.Errorf("local callback URL must not contain a query or fragment")
 	}
 	return nil
 }

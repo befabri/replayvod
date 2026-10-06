@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -27,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/coder/websocket"
 )
 
@@ -105,12 +105,8 @@ func New(cfg Config) (*Client, error) {
 	if cfg.CallbackURL == "" {
 		return nil, errors.New("relayclient: CallbackURL required")
 	}
-	cb, err := url.Parse(cfg.CallbackURL)
-	if err != nil || (cb.Scheme != "http" && cb.Scheme != "https") || cb.Host == "" {
-		return nil, fmt.Errorf("relayclient: CallbackURL must be http:// or https://: %q", cfg.CallbackURL)
-	}
-	if !isSafeLocalCallbackURL(cb) {
-		return nil, fmt.Errorf("relayclient: CallbackURL must be a loopback /api/v1/webhook/callback URL: %q", cfg.CallbackURL)
+	if err := config.ValidateRelayLocalCallbackURL(cfg.CallbackURL); err != nil {
+		return nil, fmt.Errorf("relayclient: CallbackURL: %w", err)
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
@@ -518,16 +514,4 @@ func isSkippedHeader(name string) bool {
 		return true
 	}
 	return false
-}
-
-func isSafeLocalCallbackURL(u *url.URL) bool {
-	if u.Path != "/api/v1/webhook/callback" || u.RawQuery != "" || u.Fragment != "" {
-		return false
-	}
-	host := u.Hostname()
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

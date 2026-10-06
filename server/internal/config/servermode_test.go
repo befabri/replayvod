@@ -332,17 +332,20 @@ func TestServerModeCapabilityPredicatesPerMode(t *testing.T) {
 
 // TestValidateRelayLocalCallbackURL covers the loopback-only SSRF guard for the
 // relay agent's replay target: every rejection path plus the loopback happy
-// path. Only reached indirectly via relay-mode validation otherwise.
+// path. The same validator is used before saving config and by the relay client.
 func TestValidateRelayLocalCallbackURL(t *testing.T) {
 	cases := []struct {
 		name    string
 		raw     string
 		wantErr bool
 	}{
-		{name: "empty is allowed (uses default)", raw: ""},
+		{name: "empty must be resolved to default first", raw: "", wantErr: true},
 		{name: "loopback ip", raw: "http://127.0.0.1:8080/api/v1/webhook/callback"},
 		{name: "localhost", raw: "https://localhost/api/v1/webhook/callback"},
 		{name: "ipv6 loopback", raw: "http://[::1]:8080/api/v1/webhook/callback"},
+		{name: "query", raw: "http://127.0.0.1:8080/api/v1/webhook/callback?next=/internal", wantErr: true},
+		{name: "empty query", raw: "http://127.0.0.1:8080/api/v1/webhook/callback?", wantErr: true},
+		{name: "fragment", raw: "http://127.0.0.1:8080/api/v1/webhook/callback#fragment", wantErr: true},
 		{name: "non-loopback host", raw: "http://example.com/api/v1/webhook/callback", wantErr: true},
 		{name: "private but non-loopback ip", raw: "https://10.0.0.5/api/v1/webhook/callback", wantErr: true},
 		{name: "wrong path", raw: "http://127.0.0.1:8080/wrong", wantErr: true},
@@ -351,9 +354,9 @@ func TestValidateRelayLocalCallbackURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateRelayLocalCallbackURL(tc.raw)
+			err := ValidateRelayLocalCallbackURL(tc.raw)
 			if tc.wantErr != (err != nil) {
-				t.Fatalf("validateRelayLocalCallbackURL(%q) err = %v, wantErr %v", tc.raw, err, tc.wantErr)
+				t.Fatalf("ValidateRelayLocalCallbackURL(%q) err = %v, wantErr %v", tc.raw, err, tc.wantErr)
 			}
 		})
 	}
