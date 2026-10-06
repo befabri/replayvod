@@ -8,10 +8,10 @@ import { useChannel } from "@/features/channels";
 import { useLastLive, useLiveSet } from "@/features/streams-live";
 import type { VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { recordingQualityLabel } from "@/features/videos/labels";
 import {
 	isMultipartVideo,
 	recordingDurationSeconds,
-	recordingQualitySummary,
 	recordingSizeBytes,
 	videoPartCount,
 } from "@/features/videos/metadata";
@@ -48,10 +48,7 @@ export function VideoInfo({
 	const showParts = isMultipartVideo(video);
 	const durationSeconds = recordingDurationSeconds(video);
 	const sizeBytes = recordingSizeBytes(video);
-	const qualityLabel = recordingQualitySummary(
-		video,
-		t("videos.mixed_quality"),
-	);
+	const qualityLabel = recordingQualityLabel(t, video);
 
 	const lastLiveAt = lastLive?.ended_at || lastLive?.started_at;
 	const lastLiveLabel = useRelativeTime(lastLiveAt);

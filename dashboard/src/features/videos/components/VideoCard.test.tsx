@@ -291,17 +291,29 @@ describe("VideoCard stored preview thumbnail", () => {
 });
 
 describe("VideoCard status and playability", () => {
-	it("marks a running recording as downloading, hides the play overlay, and leads to the queue", () => {
+	it("marks a running recording as recording, hides the play overlay, and leads to the queue", () => {
 		render(
 			<VideoCard video={video({ status: "RUNNING" })} canManage={false} />,
 		);
 
 		expect(screen.getByTestId("video-card-status").textContent).toBe(
-			"videos.status.RUNNING",
+			"videos.card_status.recording",
 		);
 		expect(screen.queryByTestId("video-card-play")).toBeNull();
 		expect(screen.getByLabelText("videos.open_downloads")).toBeTruthy();
 		expect(screen.queryByLabelText("videos.watch_recording")).toBeNull();
+	});
+
+	it("marks a pending recording as queued and leads to the queue", () => {
+		render(
+			<VideoCard video={video({ status: "PENDING" })} canManage={false} />,
+		);
+
+		expect(screen.getByTestId("video-card-status").textContent).toBe(
+			"videos.card_status.queued",
+		);
+		expect(screen.queryByTestId("video-card-play")).toBeNull();
+		expect(screen.getByLabelText("videos.open_downloads")).toBeTruthy();
 	});
 
 	it("marks a failed recording and leads to its history entry", () => {
@@ -319,10 +331,15 @@ describe("VideoCard status and playability", () => {
 		expect(screen.getByLabelText("videos.open_history")).toBeTruthy();
 	});
 
-	it("labels a cancelled recording as cancelled rather than failed", () => {
+	it("shows one cancellation badge even when the cancelled recording was truncated", () => {
 		render(
 			<VideoCard
-				video={video({ status: "FAILED", completion_kind: "cancelled" })}
+				video={video({
+					status: "FAILED",
+					completion_kind: "cancelled",
+					truncated: true,
+					quality: "1080p60",
+				})}
 				canManage={false}
 			/>,
 		);
@@ -330,6 +347,10 @@ describe("VideoCard status and playability", () => {
 		expect(screen.getByTestId("video-card-status").textContent).toBe(
 			"videos.status.CANCELLED",
 		);
+		expect(screen.getByTestId("video-card-badges").textContent).toBe(
+			"1080p60videos.status.CANCELLED",
+		);
+		expect(screen.getByTestId("video-card-badges").children).toHaveLength(2);
 		expect(
 			JSON.parse(
 				screen
@@ -339,7 +360,7 @@ describe("VideoCard status and playability", () => {
 		).toEqual({ outcome: "cancelled", media: "any" });
 	});
 
-	it("marks an archive and shows the date its stream aired", () => {
+	it("shows Archive below the channel without its download date and keeps the aired date on its thumbnail", () => {
 		render(
 			<VideoCard
 				video={video({
@@ -352,17 +373,15 @@ describe("VideoCard status and playability", () => {
 				canManage={false}
 			/>,
 		);
-		expect(screen.getByTestId("video-card-archive").textContent).toBe(
-			"videos.archive_badge",
-		);
+		const archive = screen.getByTestId("video-card-archive");
+		expect(archive.textContent).toBe("videos.archive_badge");
+		expect(archive.closest(".aspect-video")).toBeNull();
+		expect(screen.queryByTestId("video-card-archived-on")).toBeNull();
 		const date = screen.getByTestId("video-card-date");
 		expect(date.textContent).toBe(
 			new Date("2025-12-24T20:00:00Z").toLocaleDateString(),
 		);
 		expect(date.getAttribute("title")).toBe("videos.streamed_on");
-		expect(screen.getByTestId("video-card-archived-on").textContent).toBe(
-			"videos.archived_on",
-		);
 	});
 
 	it("shows the recording date and no archive marker on a live recording", () => {
@@ -380,6 +399,86 @@ describe("VideoCard status and playability", () => {
 		expect(screen.getByTestId("video-card-play")).toBeTruthy();
 		expect(screen.queryByTestId("video-card-status")).toBeNull();
 		expect(screen.getByLabelText("videos.watch_recording")).toBeTruthy();
+	});
+});
+
+describe("VideoCard recording badges", () => {
+	it.each([
+		["partial", false, "videos.card_status.partial_tooltip"],
+		["complete", true, "videos.card_status.truncated_tooltip"],
+		["partial", true, "videos.card_status.partial_truncated_tooltip"],
+	] as const)("explains a finished recording with completion %s and truncated %s", (completionKind, truncated, tooltip) => {
+		render(
+			<VideoCard
+				video={video({
+					status: "DONE",
+					completion_kind: completionKind,
+					truncated,
+					quality: "1080p60",
+				})}
+				canManage={false}
+			/>,
+		);
+
+		const status = screen.getByTestId("video-card-status");
+		expect(status.textContent).toBe("videos.card_status.incomplete");
+		expect(status.getAttribute("title")).toBe(tooltip);
+		expect(screen.getByTestId("video-card-badges").children).toHaveLength(2);
+		expect(screen.getByTestId("video-card-play")).toBeTruthy();
+		expect(screen.getByLabelText("videos.watch_recording")).toBeTruthy();
+	});
+
+	it.each([
+		["FAILED", "videos.status.FAILED"],
+		["RUNNING", "videos.card_status.recording"],
+		["PENDING", "videos.card_status.queued"],
+	] as const)("prioritizes %s over incomplete metadata", (status, expectedLabel) => {
+		render(
+			<VideoCard
+				video={video({
+					status,
+					completion_kind: "partial",
+					truncated: true,
+					quality: "1080p60",
+				})}
+				canManage={false}
+			/>,
+		);
+
+		expect(screen.getByTestId("video-card-status").textContent).toBe(
+			expectedLabel,
+		);
+		expect(screen.getByTestId("video-card-badges").textContent).toBe(
+			`1080p60${expectedLabel}`,
+		);
+		expect(screen.getByTestId("video-card-badges").children).toHaveLength(2);
+	});
+
+	it.each([
+		{ status: "DONE" as const, quality: "audio_only" },
+		{ status: "PENDING" as const, quality: "HIGH" },
+		{ status: "FAILED" as const, quality: "BEST" },
+	])("labels an audio recording while $status with quality $quality", ({
+		status,
+		quality,
+	}) => {
+		render(
+			<VideoCard
+				video={video({
+					status,
+					quality,
+					is_audio_only: true,
+				})}
+				canManage={false}
+			/>,
+		);
+
+		expect(screen.getByTestId("video-card-quality").textContent).toBe(
+			"videos.mode_audio",
+		);
+		expect(screen.getByTestId("video-card-badges").children).toHaveLength(
+			status === "DONE" ? 1 : 2,
+		);
 	});
 });
 

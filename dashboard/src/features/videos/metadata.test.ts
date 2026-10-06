@@ -4,7 +4,7 @@ import { makeVideo, makeVideoPart } from "@/test/fixtures";
 import {
 	isMultipartVideo,
 	recordingDurationSeconds,
-	recordingQualitySummary,
+	recordingPartQualities,
 	recordingSizeBytes,
 	videoPartCount,
 } from "./metadata";
@@ -39,16 +39,17 @@ describe("recording metadata helpers", () => {
 		expect(recordingSizeBytes(v)).toBe(999);
 	});
 
-	it("summarizes mixed part quality", () => {
+	it("lists distinct part qualities in part order", () => {
 		const v = video({
 			parts: [
-				makeVideoPart({ part_index: 1, quality: "1080p60" }),
-				makeVideoPart({ part_index: 2, quality: "720p60" }),
 				makeVideoPart({ part_index: 3, quality: "1080p60" }),
+				makeVideoPart({ part_index: 2, quality: "720p60" }),
+				makeVideoPart({ part_index: 1, quality: "1080p60" }),
+				makeVideoPart({ part_index: 4, quality: " " }),
 			],
 		});
 
-		expect(recordingQualitySummary(v, "Mixed")).toBe("Mixed (1080p60, 720p60)");
+		expect(recordingPartQualities(v)).toEqual(["1080p60", "720p60"]);
 	});
 });
 

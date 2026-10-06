@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { videoQualityLabel } from "@/features/videos/labels";
 import { isPlayableVideo } from "@/features/videos/playback";
 import { localThumbnailURL } from "@/features/videos/thumbnail";
 import { cn } from "@/lib/utils";
@@ -86,6 +87,7 @@ export function videoListColumns(
 			accessorKey: "quality",
 			header: "Quality",
 			enableSorting: true,
+			cell: ({ row }) => videoQualityLabel(t, row.original),
 		},
 		{
 			accessorKey: "duration_seconds",

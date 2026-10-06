@@ -13,6 +13,7 @@ import {
 	SelectTrigger,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { qualityLabel } from "@/features/videos/labels";
 import {
 	ANY_FILTER,
 	isOneOf,
@@ -192,7 +193,10 @@ export function VideoListFilterChips({
 			withSelectedOption(
 				[
 					{ value: ANY_FILTER, label: t("videos.filter_any") },
-					...VIDEO_QUALITY_LADDER.map((q) => ({ value: q, label: q })),
+					...VIDEO_QUALITY_LADDER.map((q) => ({
+						value: q,
+						label: qualityLabel(t, q),
+					})),
 				],
 				quality,
 			),

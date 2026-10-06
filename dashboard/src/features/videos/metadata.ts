@@ -41,16 +41,10 @@ export function recordingSizeBytes(
 	return total > 0 ? total : undefined;
 }
 
-export function recordingQualitySummary(
-	video: Pick<VideoResponse, "quality" | "parts">,
-	mixedLabel: string,
-): string {
-	const qualities = uniqueNonEmpty(
-		orderedVideoParts(video).map((part) => part.quality),
-	);
-	if (qualities.length === 0) return video.quality;
-	if (qualities.length === 1) return qualities[0];
-	return `${mixedLabel} (${qualities.join(", ")})`;
+export function recordingPartQualities(
+	video: Pick<VideoResponse, "parts">,
+): string[] {
+	return uniqueNonEmpty(orderedVideoParts(video).map((part) => part.quality));
 }
 
 function uniqueNonEmpty(values: string[]): string[] {

@@ -13,6 +13,7 @@ import {
 	formatDuration,
 	formatPlaybackTime,
 } from "@/features/videos/format";
+import { videoQualityLabel } from "@/features/videos/labels";
 import { useVideoCategories, useVideoTitles } from "@/features/videos/queries";
 import { dedupConsecutive } from "@/features/videos/timeline";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,7 @@ export function VideoMetaGrid({ video }: { video: VideoResponse }) {
 		value: formatDuration(video.duration_seconds),
 	});
 	rows.push({ label: t("videos.size"), value: formatBytes(video.size_bytes) });
-	rows.push({ label: t("videos.quality"), value: video.quality });
+	rows.push({ label: t("videos.quality"), value: videoQualityLabel(t, video) });
 	if (video.size_bytes && video.duration_seconds)
 		rows.push({
 			label: t("videos.bitrate_avg"),

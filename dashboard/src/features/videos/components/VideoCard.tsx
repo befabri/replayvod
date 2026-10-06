@@ -1,7 +1,7 @@
 import { PlayIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
-import { useEffect, useRef, useState } from "react";
+import { type ComponentProps, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +12,15 @@ import {
 	type VideoResponse,
 } from "@/features/videos";
 import {
+	type VideoCardBadgeTone,
+	videoCardStatusBadge,
+} from "@/features/videos/card-badges";
+import {
 	formatBytes,
 	formatDuration,
 	formatPlaybackTime,
 } from "@/features/videos/format";
-import { videoStatusLabel } from "@/features/videos/labels";
+import { videoQualityLabel } from "@/features/videos/labels";
 import { resumeOffsetSeconds } from "@/features/videos/resume-policy";
 import {
 	firstSnapshotPath,
@@ -36,6 +40,13 @@ const MAX_CARD_TAGS = 3;
 const STORED_PREVIEW_RETRY_DELAY_MS = 5000;
 const STORED_PREVIEW_MAX_RETRIES = 3;
 const STORED_PREVIEW_VISIBILITY_ROOT_MARGIN = "300px 0px";
+
+const OVERLAY_BADGE_TONES: Record<VideoCardBadgeTone, string> = {
+	neutral: "bg-black/60 text-white/80",
+	blue: "bg-badge-blue-bg/70 text-badge-blue-fg",
+	red: "bg-badge-red-bg/70 text-badge-red-fg",
+	yellow: "bg-badge-yellow-bg/70 text-badge-yellow-fg",
+};
 
 function cacheBustedURL(url: string, cacheBust: number): string {
 	return cacheBust > 0 ? `${url}?rv=${cacheBust}` : url;
@@ -77,77 +88,39 @@ function useHoverSnapshots(
 }
 
 function StatusOverlayBadge({
-	status,
-	completionKind,
+	video,
 	t,
 }: {
-	status: VideoResponse["status"];
-	completionKind: string;
+	video: VideoResponse;
 	t: TFunction;
 }) {
-	if (status === "DONE") return null;
-	const cancelled = status === "FAILED" && completionKind === "cancelled";
-	const tone =
-		status === "FAILED"
-			? cancelled
-				? "bg-background/78 text-muted-foreground"
-				: "bg-badge-red-bg/85 text-badge-red-fg"
-			: "bg-badge-blue-bg/85 text-badge-blue-fg";
+	const badge = videoCardStatusBadge(video);
+	if (!badge) return null;
+	return (
+		<ThumbnailOverlay
+			tone={badge.tone}
+			title={badge.tooltipKey ? t(badge.tooltipKey) : undefined}
+			data-testid="video-card-status"
+		>
+			{t(badge.labelKey)}
+		</ThumbnailOverlay>
+	);
+}
+
+function ThumbnailOverlay({
+	className,
+	tone = "neutral",
+	...props
+}: ComponentProps<"span"> & { tone?: VideoCardBadgeTone }) {
 	return (
 		<span
 			className={cn(
-				"rounded-md px-2 py-0.5 text-xs font-medium backdrop-blur-sm",
-				tone,
-				status === "RUNNING" && "animate-pulse",
+				"rounded px-1.5 py-0.5 text-[11px] font-medium leading-4 backdrop-blur-md",
+				OVERLAY_BADGE_TONES[tone],
+				className,
 			)}
-			data-testid="video-card-status"
-		>
-			{videoStatusLabel(t, cancelled ? "CANCELLED" : status)}
-		</span>
-	);
-}
-
-function IncompleteOverlayBadge({
-	completionKind,
-	truncated,
-	t,
-}: {
-	completionKind: string;
-	truncated: boolean;
-	t: TFunction;
-}) {
-	const variant =
-		completionKind === "partial"
-			? "partial"
-			: completionKind === "cancelled"
-				? "cancelled"
-				: truncated
-					? "truncated"
-					: null;
-	if (!variant) return null;
-	return (
-		<span
-			className="rounded-md bg-badge-yellow-bg/85 px-2 py-0.5 text-xs font-medium text-badge-yellow-fg backdrop-blur-sm"
-			title={t(`videos.completion.${variant}_tooltip` as const)}
-		>
-			{t(`videos.completion.${variant}` as const)}
-		</span>
-	);
-}
-
-function ThumbnailOverlay({ children }: { children: React.ReactNode }) {
-	return (
-		<span className="rounded-md border border-border/60 bg-background/78 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
-			{children}
-		</span>
-	);
-}
-
-function QualityOverlay({ children }: { children: React.ReactNode }) {
-	return (
-		<span className="rounded-md border border-border/60 bg-background/78 px-2 py-0.5 text-xs font-medium text-primary backdrop-blur-sm">
-			{children}
-		</span>
+			{...props}
+		/>
 	);
 }
 
@@ -310,25 +283,14 @@ export function VideoCard({
 						/>
 					</>
 				)}
-				<div className="absolute top-2 left-2 flex items-center gap-1.5">
-					<QualityOverlay>{video.quality}</QualityOverlay>
-					{isArchive ? (
-						<ThumbnailOverlay>
-							<span data-testid="video-card-archive">
-								{t("videos.archive_badge")}
-							</span>
-						</ThumbnailOverlay>
-					) : null}
-					<StatusOverlayBadge
-						status={video.status}
-						completionKind={video.completion_kind}
-						t={t}
-					/>
-					<IncompleteOverlayBadge
-						completionKind={video.completion_kind}
-						truncated={video.truncated}
-						t={t}
-					/>
+				<div
+					className="absolute top-2 left-2 flex items-center gap-1"
+					data-testid="video-card-badges"
+				>
+					<ThumbnailOverlay data-testid="video-card-quality">
+						{videoQualityLabel(t, video)}
+					</ThumbnailOverlay>
+					<StatusOverlayBadge video={video} t={t} />
 				</div>
 				{video.duration_seconds ? (
 					<span className="absolute bottom-2 left-2">
@@ -485,8 +447,8 @@ export function VideoCard({
 							{isArchive ? (
 								<>
 									<span className="opacity-40">·</span>
-									<span data-testid="video-card-archived-on">
-										{t("videos.archived_on", { date: dateLabel })}
+									<span data-testid="video-card-archive">
+										{t("videos.archive_badge")}
 									</span>
 								</>
 							) : null}

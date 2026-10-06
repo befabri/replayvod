@@ -320,6 +320,14 @@
 			"FAILED": "Failed",
 			"CANCELLED": "Cancelled"
 		},
+		"card_status": {
+			"queued": "Queued",
+			"recording": "Recording",
+			"incomplete": "Incomplete",
+			"partial_tooltip": "Some sections of this recording are missing because the download was interrupted or only some parts were saved.",
+			"truncated_tooltip": "The recording ended early, or its end could not be confirmed. The end of the broadcast may be missing.",
+			"partial_truncated_tooltip": "Some sections of this recording are missing, and it may not include the end of the broadcast."
+		},
 		"recorded": "Recorded",
 		"triggered": "Download started",
 		"trigger_download": "Download",

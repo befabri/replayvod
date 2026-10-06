@@ -77,37 +77,110 @@ export const InWatchLater = meta.story({
 
 export const Recording = meta.story({
 	args: { video: makeVideo(3, VIDEO_STATES.recording) },
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.card_status.recording"),
+		);
+	},
 });
 
 export const Queued = meta.story({
 	args: { video: makeVideo(4, VIDEO_STATES.queued) },
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.card_status.queued"),
+		);
+	},
 });
 
 export const Failed = meta.story({
 	args: { video: makeVideo(5, VIDEO_STATES.failed) },
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.status.FAILED"),
+		);
+		await expect(canvas.getByTestId("video-card-badges").children).toHaveLength(
+			2,
+		);
+	},
 });
 
 export const Cancelled = meta.story({
-	args: { video: makeVideo(6, VIDEO_STATES.cancelled) },
+	args: {
+		video: makeVideo(6, { ...VIDEO_STATES.cancelled, truncated: true }),
+	},
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.status.CANCELLED"),
+		);
+		await expect(canvas.getByTestId("video-card-badges").children).toHaveLength(
+			2,
+		);
+	},
 });
 
 export const Partial = meta.story({
 	args: { video: makeVideo(7, VIDEO_STATES.partial) },
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.card_status.incomplete"),
+		);
+		await expect(canvas.getByTestId("video-card-status")).toHaveAttribute(
+			"title",
+			i18n.t("videos.card_status.partial_tooltip"),
+		);
+	},
 });
 
 export const Truncated = meta.story({
 	args: { video: makeVideo(8, VIDEO_STATES.truncated) },
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.card_status.incomplete"),
+		);
+		await expect(canvas.getByTestId("video-card-status")).toHaveAttribute(
+			"title",
+			i18n.t("videos.card_status.truncated_tooltip"),
+		);
+	},
+});
+
+export const PartialAndTruncated = meta.story({
+	args: {
+		video: makeVideo(12, { ...VIDEO_STATES.partial, truncated: true }),
+	},
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-status")).toHaveTextContent(
+			i18n.t("videos.card_status.incomplete"),
+		);
+		await expect(canvas.getByTestId("video-card-status")).toHaveAttribute(
+			"title",
+			i18n.t("videos.card_status.partial_truncated_tooltip"),
+		);
+		await expect(canvas.getByTestId("video-card-badges").children).toHaveLength(
+			2,
+		);
+	},
 });
 
 export const Archive = meta.story({
 	args: { video: makeVideo(9, VIDEO_STATES.archive) },
 	play: async ({ canvas }) => {
-		await expect(canvas.getByTestId("video-card-archive")).toBeVisible();
+		const archive = canvas.getByTestId("video-card-archive");
+		await expect(archive).toBeVisible();
+		await expect(archive).toHaveTextContent(i18n.t("videos.archive_badge"));
+		await expect(archive.closest(".aspect-video")).toBeNull();
+		await expect(canvas.queryByTestId("video-card-archived-on")).toBeNull();
 	},
 });
 
 export const AudioOnly = meta.story({
 	args: { video: makeVideo(11, VIDEO_STATES.audioOnly) },
+	play: async ({ canvas }) => {
+		await expect(canvas.getByTestId("video-card-quality")).toHaveTextContent(
+			i18n.t("videos.mode_audio"),
+		);
+	},
 });
 
 export const NoThumbnail = meta.story({

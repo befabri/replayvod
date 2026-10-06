@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes } from "@/features/videos/format";
+import { videoQualityLabel } from "@/features/videos/labels";
 import { isPlayableVideo } from "@/features/videos/playback";
 import { cn } from "@/lib/utils";
 import { FOCUS_RING, POSTER_SKELETON, PosterCell } from "./listColumns";
@@ -179,7 +180,7 @@ const qualityColumn = (t: TFunction): ColumnDef<VideoResponse> => ({
 	header: t("history.col_quality"),
 	cell: ({ row }) => (
 		<span className={dimmedIfRemoved(row.original)}>
-			{row.original.quality}
+			{videoQualityLabel(t, row.original)}
 		</span>
 	),
 });

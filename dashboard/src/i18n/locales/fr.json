@@ -320,6 +320,14 @@
 			"FAILED": "Échoué",
 			"CANCELLED": "Annulé"
 		},
+		"card_status": {
+			"queued": "En attente",
+			"recording": "Enregistrement",
+			"incomplete": "Incomplet",
+			"partial_tooltip": "Certaines parties de cet enregistrement sont manquantes, car le téléchargement a été interrompu ou seules certaines parties ont été sauvegardées.",
+			"truncated_tooltip": "L’enregistrement s’est arrêté avant la fin, ou sa fin n’a pas pu être confirmée. La fin de la diffusion peut être manquante.",
+			"partial_truncated_tooltip": "Certaines parties de cet enregistrement sont manquantes, et la fin de la diffusion peut également manquer."
+		},
 		"recorded": "Enregistré",
 		"triggered": "Téléchargement démarré",
 		"trigger_download": "Télécharger",
