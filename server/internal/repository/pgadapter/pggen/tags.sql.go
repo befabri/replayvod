@@ -10,9 +10,10 @@ import (
 )
 
 const listTags = `-- name: ListTags :many
-SELECT id, name, created_at FROM tags ORDER BY name
+SELECT id, name, created_at FROM tags ORDER BY name COLLATE "C"
 `
 
+// Use bytewise ordering on every host, matching SQLite's BINARY collation.
 func (q *Queries) ListTags(ctx context.Context) ([]Tag, error) {
 	rows, err := q.db.Query(ctx, listTags)
 	if err != nil {

@@ -188,6 +188,7 @@ type Repository interface {
 	PruneCategorySearchCache(ctx context.Context, maxRows int) error
 
 	UpsertTag(ctx context.Context, name string) (*Tag, error)
+	// ListTags returns tags ordered bytewise by name, independent of DB locale.
 	ListTags(ctx context.Context) ([]Tag, error)
 
 	CreateFetchLog(ctx context.Context, input *FetchLogInput) error

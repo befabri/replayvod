@@ -69,6 +69,11 @@ func SetupPG(m *testing.M) int {
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
 		postgres.BasicWaitStrategies(),
+		// Alpine's libc collates bytewise, like SQLite, which hides text
+		// ordering that differs on glibc and managed Postgres hosts.
+		testcontainers.WithEnv(map[string]string{
+			"POSTGRES_INITDB_ARGS": "--locale-provider=icu --icu-locale=en-US",
+		}),
 	)
 	if err != nil {
 		log.Printf("testdb: start postgres container: %v", err)

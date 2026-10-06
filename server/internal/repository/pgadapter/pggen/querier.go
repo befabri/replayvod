@@ -279,6 +279,7 @@ type Querier interface {
 	ListStoppedJobs(ctx context.Context, arg ListStoppedJobsParams) ([]Job, error)
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
 	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
+	// Use bytewise ordering on every host, matching SQLite's BINARY collation.
 	ListTags(ctx context.Context) ([]Tag, error)
 	// A recording carries the tags Twitch reported on its broadcast. An archive
 	// of a broadcast never seen live has no stream row, so it has no tags.

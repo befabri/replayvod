@@ -4,4 +4,5 @@ ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
 RETURNING *;
 
 -- name: ListTags :many
-SELECT * FROM tags ORDER BY name;
+-- Use bytewise ordering on every host, matching SQLite's BINARY collation.
+SELECT * FROM tags ORDER BY name COLLATE "C";

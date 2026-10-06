@@ -29,11 +29,16 @@ func testTags(t *testing.T, h Harness) {
 	if again, err := repo.UpsertTag(ctx, "beta"); err != nil || again.ID != beta.ID {
 		t.Fatalf("re-upserted tag = %+v, %v; want the existing row %d", again, err, beta.ID)
 	}
+	for _, name := range []string{"élan", "Zulu", "Élan", "Alpha"} {
+		if _, err := repo.UpsertTag(ctx, name); err != nil {
+			t.Fatal(err)
+		}
+	}
 	tags, err := repo.ListTags(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStringSlice(t, tagNames(tags), []string{"alpha", "beta"})
+	assertStringSlice(t, tagNames(tags), []string{"Alpha", "Zulu", "alpha", "beta", "Élan", "élan"})
 }
 
 func testCategoryLookupAndSearchCache(t *testing.T, h Harness) {

@@ -10,7 +10,7 @@ import (
 )
 
 const listTags = `-- name: ListTags :many
-SELECT id, name, created_at FROM tags ORDER BY name
+SELECT id, name, created_at FROM tags ORDER BY name COLLATE BINARY
 `
 
 func (q *Queries) ListTags(ctx context.Context) ([]Tag, error) {
