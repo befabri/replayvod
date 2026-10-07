@@ -36,12 +36,29 @@ func (s *LocalStorage) resolve(p string) (string, error) {
 	return filepath.Join(s.Root, cleaned), nil
 }
 
+// openPathRoot returns the storage root and path relative to it. Operations
+// through the root stay inside the storage tree even when a component is a link.
+func (s *LocalStorage) openPathRoot(path string) (*os.Root, string, error) {
+	full, err := s.resolve(path)
+	if err != nil {
+		return nil, "", err
+	}
+	rel, err := filepath.Rel(s.Root, full)
+	if err != nil {
+		return nil, "", err
+	}
+	root, err := os.OpenRoot(s.Root)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
+}
+
 // Save writes r to path atomically: copy to a private temporary file, then rename.
 // All operations use the same open root, so a mount replacement cannot redirect
 // a write or its cleanup midway. Only identity initialization may create a root.
 func (s *LocalStorage) Save(ctx context.Context, path string, r io.Reader) error {
-	full, err := s.resolve(path)
-	if err != nil {
+	if _, err := s.resolve(path); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -52,15 +69,11 @@ func (s *LocalStorage) Save(ctx context.Context, path string, r io.Reader) error
 			return fmt.Errorf("initialize storage root: %w", err)
 		}
 	}
-	root, err := os.OpenRoot(s.Root)
+	root, rel, err := s.openPathRoot(path)
 	if err != nil {
 		return fmt.Errorf("open storage root: %w", err)
 	}
 	defer root.Close()
-	rel, err := filepath.Rel(s.Root, full)
-	if err != nil {
-		return err
-	}
 	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 		return fmt.Errorf("create parent dirs: %w", err)
 	}
@@ -99,11 +112,12 @@ func (s *LocalStorage) Save(ctx context.Context, path string, r io.Reader) error
 }
 
 func (s *LocalStorage) Open(ctx context.Context, path string) (io.ReadSeekCloser, error) {
-	full, err := s.resolve(path)
+	root, rel, err := s.openPathRoot(path)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(full)
+	defer root.Close()
+	f, err := root.Open(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -111,22 +125,30 @@ func (s *LocalStorage) Open(ctx context.Context, path string) (io.ReadSeekCloser
 }
 
 func (s *LocalStorage) Delete(ctx context.Context, path string) error {
-	full, err := s.resolve(path)
+	root, rel, err := s.openPathRoot(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
-	if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+	defer root.Close()
+	if err := root.Remove(rel); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file: %w", err)
 	}
 	return nil
 }
 
 func (s *LocalStorage) Exists(ctx context.Context, path string) (bool, error) {
-	full, err := s.resolve(path)
+	root, rel, err := s.openPathRoot(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
 		return false, err
 	}
-	info, err := os.Stat(full)
+	defer root.Close()
+	info, err := root.Stat(rel)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -137,11 +159,12 @@ func (s *LocalStorage) Exists(ctx context.Context, path string) (bool, error) {
 }
 
 func (s *LocalStorage) Stat(ctx context.Context, path string) (FileInfo, error) {
-	full, err := s.resolve(path)
+	root, rel, err := s.openPathRoot(path)
 	if err != nil {
 		return FileInfo{}, err
 	}
-	info, err := os.Stat(full)
+	defer root.Close()
+	info, err := root.Stat(rel)
 	if err != nil {
 		return FileInfo{}, err
 	}
