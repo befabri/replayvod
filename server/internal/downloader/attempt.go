@@ -33,6 +33,10 @@ func (s *Service) runAttempt(ctx context.Context, d *download, p Params, filenam
 	if !a.claim(ctx) {
 		return
 	}
+	if err := validateRecordingName(filename); err != nil {
+		s.failDownload(context.WithoutCancel(ctx), d, log, err)
+		return
+	}
 	a.startArchive(ctx)
 	a.configureCapture()
 	dbCtx := context.WithoutCancel(ctx)

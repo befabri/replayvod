@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// SecureCookies follows the public callback URL, independently of the bind
+// address or the connection from a TLS-terminating reverse proxy.
+func (c *Config) SecureCookies() bool {
+	u, err := url.Parse(c.Env.CallbackURL)
+	return err == nil && u.Scheme == "https"
+}
+
 func (c *Config) GetAddress() string {
 	return net.JoinHostPort(c.Env.Host, fmt.Sprint(c.Env.Port))
 }

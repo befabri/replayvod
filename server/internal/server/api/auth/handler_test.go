@@ -42,6 +42,9 @@ func TestHandleRedirect_InviteCookieFlags(t *testing.T) {
 		t.Run(host, func(t *testing.T) {
 			cfg := testAuthConfig()
 			cfg.Env.Host = host
+			if host == "replay.example" {
+				cfg.Env.CallbackURL = "https://replay.example/api/v1/auth/twitch/callback"
+			}
 			h := NewHandler(cfg, twitch.NewClient("client-id", "secret", discardLog()), nil, nil, noFollowSync(t), discardLog())
 			rr := httptest.NewRecorder()
 			h.handleRedirect(rr, httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch?invite=raw-token", nil))
@@ -61,6 +64,53 @@ func TestHandleRedirect_InviteCookieFlags(t *testing.T) {
 			}
 			if authorize.Query().Get("invite") != "" || authorize.Query().Get("state") != cookieByName(cookies, stateCookieName).Value {
 				t.Fatalf("invite leaked to provider or state not bound: %s", authorize)
+			}
+		})
+	}
+}
+
+func TestOAuthCookieExpirationFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		host     string
+		callback string
+		secure   bool
+	}{
+		{"local HTTP", "localhost", "http://localhost:8080/api/v1/auth/twitch/callback", false},
+		{"TLS behind proxy", "0.0.0.0", "https://replay.example/api/v1/auth/twitch/callback", true},
+		{"TLS with loopback bind", "127.0.0.1", "https://replay.example/api/v1/auth/twitch/callback", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testAuthConfig()
+			cfg.Env.Host = tc.host
+			cfg.Env.CallbackURL = tc.callback
+			h := NewHandler(cfg, twitch.NewClient("client-id", "secret", discardLog()), nil, nil, noFollowSync(t), discardLog())
+			assertFlags := func(c *http.Cookie) {
+				t.Helper()
+				if c == nil || c.Value != "" || c.MaxAge >= 0 || c.Path != "/" || !c.HttpOnly || c.Secure != tc.secure || c.SameSite != http.SameSiteLaxMode {
+					t.Fatalf("expired OAuth cookie flags: %+v", c)
+				}
+			}
+			rr := httptest.NewRecorder()
+			h.handleRedirect(rr, httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch", nil))
+			assertFlags(cookieByName(rr.Result().Cookies(), inviteCookieName))
+			for _, name := range []string{stateCookieName, verifierCookieName} {
+				c := cookieByName(rr.Result().Cookies(), name)
+				if c == nil || !c.HttpOnly || c.Secure != tc.secure {
+					t.Fatalf("new OAuth cookie flags: %+v", c)
+				}
+			}
+
+			rr = httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch/callback?state=state&error=access_denied", nil)
+			req.AddCookie(&http.Cookie{Name: stateCookieName, Value: "state"})
+			req.AddCookie(&http.Cookie{Name: verifierCookieName, Value: "verifier"})
+			h.handleCallback(rr, req)
+			if rr.Code != http.StatusTemporaryRedirect {
+				t.Fatalf("provider denial status = %d", rr.Code)
+			}
+			for _, name := range []string{stateCookieName, verifierCookieName, inviteCookieName} {
+				assertFlags(cookieByName(rr.Result().Cookies(), name))
 			}
 		})
 	}

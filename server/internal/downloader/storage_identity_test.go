@@ -65,7 +65,7 @@ func TestUploadVerifiesIdentityBeyondCachedReadiness(t *testing.T) {
 			if err := mon.Ready(); err != nil {
 				t.Fatalf("fixture must retain stale cached success: %v", err)
 			}
-			scratch := filepath.Join(s.cfg.Env.ScratchDir, "recording.mp4")
+			scratch := attemptScratchPath(t, s, d, "recording.mp4")
 			const body = "complete recording from scratch"
 			if err := os.WriteFile(scratch, []byte(body), 0o600); err != nil {
 				t.Fatal(err)

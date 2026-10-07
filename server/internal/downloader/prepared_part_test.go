@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -47,11 +46,11 @@ func TestStopDuringPreparedUpload(t *testing.T) {
 			}
 			blocked := interruptedPublication{Storage: raw, entered: make(chan struct{})}
 			s.storage = mediatest.NewAt(t, s.repo, blocked, nil, nil, s.cfg.Env.ScratchDir)
-			output := filepath.Join(t.TempDir(), "prepared.mp4")
+			output := attemptScratchPath(t, s, d, "prepared.mp4")
 			if err := os.WriteFile(output, []byte("prepared bytes"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			digest, err := preparedDigest(ctx, output)
+			digest, err := s.preparedDigest(ctx, d, output)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,7 +110,7 @@ func TestStopPreparedPublicationSettlesCancellation(t *testing.T) {
 			if err := s.Cancel(d.jobID); err != nil {
 				t.Fatal(err)
 			}
-			output := filepath.Join(t.TempDir(), "prepared.mp4")
+			output := attemptScratchPath(t, s, d, "prepared.mp4")
 			if err := os.WriteFile(output, []byte("prepared output"), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -164,11 +163,11 @@ func TestPreparedPartRecoveryReusesExactOutputAfterLostFinalizationCommit(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := filepath.Join(t.TempDir(), "captured.mp4")
+	output := attemptScratchPath(t, svc, d, "captured.mp4")
 	if err := os.WriteFile(output, []byte("exact remuxed output"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	digest, err := preparedDigest(ctx, output)
+	digest, err := svc.preparedDigest(ctx, d, output)
 	if err != nil {
 		t.Fatal(err)
 	}

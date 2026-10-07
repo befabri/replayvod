@@ -180,7 +180,7 @@ func main() {
 		}
 	}))
 
-	secureCookie := cfg.Env.Host != "localhost" && cfg.Env.Host != "0.0.0.0"
+	secureCookie := cfg.SecureCookies()
 	sessionMgr, err := session.NewManager(repo, cfg.Env.SessionSecret, secureCookie, log)
 	if err != nil {
 		log.Error("Failed to create session manager", "error", err)

@@ -38,8 +38,8 @@ func (r checkedReader) Read(p []byte) (int, error) {
 	}
 	return r.reader.Read(p)
 }
-func preparedDigest(ctx context.Context, path string) (string, error) {
-	f, err := os.Open(path)
+func (s *Service) preparedDigest(ctx context.Context, d *download, path string) (string, error) {
+	f, err := s.openScratch(d, path)
 	if err != nil {
 		return "", err
 	}
@@ -51,6 +51,10 @@ func preparedDigest(ctx context.Context, path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 func (s *Service) publishPreparedPart(ctx context.Context, d *download, p *PreparedPart, log *slog.Logger) (*partResult, error) {
+	if err := validateRecordingName(p.Filename); err != nil {
+		d.persistenceErr = err
+		return nil, err
+	}
 	if p.Digest == "" {
 		d.persistenceErr = mediastore.ErrContentChanged
 		return nil, d.persistenceErr
@@ -60,7 +64,7 @@ func (s *Service) publishPreparedPart(ctx context.Context, d *download, p *Prepa
 		if err == nil {
 			break
 		}
-		if ctx.Err() != nil || errors.Is(err, repository.ErrStaleExecution) || errors.Is(err, repository.ErrStopRequested) || errors.Is(err, mediastore.ErrContentChanged) || errors.Is(err, os.ErrNotExist) {
+		if ctx.Err() != nil || errors.Is(err, errInvalidRecordingPath) || errors.Is(err, repository.ErrStaleExecution) || errors.Is(err, repository.ErrStopRequested) || errors.Is(err, mediastore.ErrContentChanged) || errors.Is(err, os.ErrNotExist) {
 			d.persistenceErr = err
 			return nil, err
 		}

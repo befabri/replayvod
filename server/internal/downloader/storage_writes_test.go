@@ -74,7 +74,7 @@ func TestUploadRepeatsAfterStorageChangesDuringSave(t *testing.T) {
 		}
 		return nil
 	}), nil)
-	scratch := filepath.Join(t.TempDir(), "media.mp4")
+	scratch := attemptScratchPath(t, s, d, "media.mp4")
 	const body = "complete recording bytes"
 	if err := os.WriteFile(scratch, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

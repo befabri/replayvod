@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "dev": "astro dev",
@@ -18,11 +18,11 @@
     "format:check": "prettier --check \"src/**/*.{astro,ts,css}\""
   },
   "dependencies": {
-    "@astrojs/mdx": "^5.0.6",
+    "@astrojs/mdx": "^8.0.3",
     "@astrojs/sitemap": "^3.7.3",
-    "@astrojs/starlight": "^0.39.3",
+    "@astrojs/starlight": "^0.42.5",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.4.4",
+    "astro": "^7.3.6",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
@@ -35,12 +35,17 @@
     "prettier": "^3.8.3",
     "prettier-plugin-astro": "^0.14.1",
     "typescript": "^6.0.3",
-    "wrangler": "^4.98.0"
+    "wrangler": "^4.148.0"
   },
   "overrides": {
     "yaml-language-server": {
       "yaml": "2.8.3"
     },
-    "vite": "^7"
+    "miniflare": {
+      "sharp": "^0.35.5"
+    },
+    "postcss-nested": {
+      "postcss-selector-parser": "^7.1.6"
+    }
   }
 }

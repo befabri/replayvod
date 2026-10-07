@@ -24,6 +24,8 @@ process.env.PUBLIC_GIT_DATE ||= safeExec('git log -1 --format=%cs');
 // https://astro.build/config
 export default defineConfig({
   site: 'https://replayvod.com',
+  // Preserve spaces between existing inline elements after the Astro 7 upgrade.
+  compressHTML: true,
   prefetch: {
     prefetchAll: true,
     defaultStrategy: 'viewport',

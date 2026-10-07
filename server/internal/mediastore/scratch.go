@@ -354,7 +354,7 @@ func (w *Workspace) WriteFile(ctx context.Context, file *os.File, p []byte) (int
 			s.mu.Unlock()
 			return 0, err
 		}
-		path, err := w.pathLocked(file.Name())
+		path, err := w.filePathLocked(file)
 		if err != nil {
 			s.mu.Unlock()
 			return 0, err

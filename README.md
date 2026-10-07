@@ -174,7 +174,7 @@ Override individual paths with `VIDEO_DIR`, `THUMBNAIL_DIR`, `SQLITE_PATH` in
 
 ## Development
 
-Requires Go 1.26+, Node 22+, [Task](https://taskfile.dev/installation/),
+Requires Go 1.26.8+, Node 22.19+, [Task](https://taskfile.dev/installation/),
 and ffmpeg on `$PATH`.
 
 ```bash

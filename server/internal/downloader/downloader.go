@@ -496,6 +496,10 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 
 	jobID := uuid.NewString()
 	filename := buildFilename(p.BroadcasterLogin, jobID)
+	if err := validateRecordingName(filename); err != nil {
+		s.mu.Unlock()
+		return "", err
+	}
 
 	d := &download{
 		jobID:         jobID,
@@ -1409,6 +1413,9 @@ func hasPartContent(hlsResult *hls.JobResult, resume *ResumeState) bool {
 func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	filename string, segmentsDir string, hlsResult *hls.JobResult,
 	emitter *progressEmitter, log *slog.Logger) (*partResult, error) {
+	if err := validateRecordingName(filename); err != nil {
+		return nil, err
+	}
 	if prepared := d.resume.PreparedPart; prepared != nil {
 		return s.publishPreparedPart(ctx, d, prepared, log)
 	}
@@ -1566,7 +1573,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		Thumbnail: thumbRel, ThumbnailPath: filepath.Join(jobDir, partFilename+".jpg"),
 		Strip: stripRel, StripPath: filepath.Join(jobDir, partFilename+"-strip.jpg"),
 	}
-	digest, err := preparedDigest(ctx, remuxedPath)
+	digest, err := s.preparedDigest(ctx, d, remuxedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -2056,7 +2063,7 @@ func (s *Service) uploadFromScratch(ctx context.Context, d *download, scratchPat
 
 func (s *Service) uploadScratch(ctx context.Context, d *download, scratchPath, storagePath, digest string) error {
 	return s.writeToStorage(ctx, func() error {
-		f, err := os.Open(scratchPath)
+		f, err := s.openScratch(d, scratchPath)
 		if err != nil {
 			return fmt.Errorf("open scratch: %w", err)
 		}
