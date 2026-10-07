@@ -4,7 +4,7 @@
 # are gitignored (regeneratable from the Go tRPC procedures), so the build must
 # produce them rather than rely on a checked-in copy. Architecture-independent,
 # so it runs once on the native build platform.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gen
+FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine3.23@sha256:a8fa79c5bd40d880b52bd3b6d7669ecdcfd00e85facdd427d279efb5ddd79cb1 AS gen
 
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
@@ -40,7 +40,7 @@ RUN npm run build
 # Build the Go binary on the native build platform and cross-compile to the
 # target arch. CGO is disabled (pure-Go deps), so this is just a GOARCH switch
 # and stays fast even when targeting arm64 from an amd64 host.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine3.23@sha256:a8fa79c5bd40d880b52bd3b6d7669ecdcfd00e85facdd427d279efb5ddd79cb1 AS go-builder
 
 WORKDIR /src
 COPY server/go.mod server/go.sum ./

@@ -236,7 +236,7 @@ setups.
 
 ## Development
 
-Requires Go 1.26+, [Task](https://taskfile.dev/), and ffmpeg on `$PATH`.
+Requires Go 1.26.8+, [Task](https://taskfile.dev/), and ffmpeg on `$PATH`.
 
 ```bash
 cp .env.example .env        # fill in Twitch credentials and SESSION_SECRET

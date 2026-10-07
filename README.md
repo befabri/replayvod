@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg"></a>
-  <a href="https://go.dev/"><img alt="Go 1.26+" src="https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white"></a>
+  <a href="https://go.dev/"><img alt="Go 1.26.8+" src="https://img.shields.io/badge/go-1.26.8%2B-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://reactjs.org/"><img alt="React 19" src="https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white"></a>
 </p>
 
@@ -174,7 +174,7 @@ Override individual paths with `VIDEO_DIR`, `THUMBNAIL_DIR`, `SQLITE_PATH` in
 
 ## Development
 
-Requires Go 1.26+, Node 22+, [Task](https://taskfile.dev/installation/),
+Requires Go 1.26.8+, Node 22+, [Task](https://taskfile.dev/installation/),
 and ffmpeg on `$PATH`.
 
 ```bash
