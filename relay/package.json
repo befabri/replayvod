@@ -10,12 +10,17 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {
-    "hono": "^4.12.23"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
-    "tsx": "^4.22.4",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "wrangler": "^4.98.0"
+    "wrangler": "^4.148.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "sharp": "^0.35.5"
+    }
   }
 }
