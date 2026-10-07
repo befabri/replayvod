@@ -6,12 +6,9 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const HOSTS_OF_INTEREST = [
-	"gql.twitch.tv",
-	"usher.ttvnw.net",
-	"video-edge", 
-	"video-weaver",
-];
+const EXACT_HOSTS = ["gql.twitch.tv", "usher.ttvnw.net"];
+const EDGE_HOST_PREFIXES = ["video-edge", "video-weaver"];
+const HOSTS_OF_INTEREST = [...EXACT_HOSTS, ...EDGE_HOST_PREFIXES];
 
 const CHANNEL = process.env.PROBE_CHANNEL ?? "tumblurr";
 const OUT_FILE = path.join(__dirname, `capture.${CHANNEL}.json`);
@@ -67,8 +64,17 @@ type CapturedEvent = {
 	note?: string;
 };
 
-function hostMatches(url: string) {
-	return HOSTS_OF_INTEREST.some((h) => url.includes(h));
+function hostMatches(rawURL: string) {
+	const { hostname } = new URL(rawURL);
+	return (
+		EXACT_HOSTS.includes(hostname) ||
+		(hostname.endsWith(".ttvnw.net") && EDGE_HOST_PREFIXES.some((prefix) => hostname.startsWith(prefix)))
+	);
+}
+
+function endpointMatches(rawURL: string, hostname: string, pathname?: string) {
+	const url = new URL(rawURL);
+	return url.hostname === hostname && (pathname === undefined || url.pathname === pathname);
 }
 
 const DROP_HEADER_PREFIXES = ["cf-", "x-served-by", "x-cache", "via", "age", "strict-transport", "alt-svc", "report-to", "nel", "server-timing"];
@@ -201,14 +207,14 @@ test(`probe GQL flow on twitch.tv/${CHANNEL}`, async ({ browser }) => {
 	}
 
 	const pats = events.filter((e) => {
-		if (!e.url.includes("gql.twitch.tv/gql")) return false;
+		if (!endpointMatches(e.url, "gql.twitch.tv", "/gql")) return false;
 		const b = e.body as { operationName?: string } | Array<{ operationName?: string }> | undefined;
 		if (!b) return false;
 		if (Array.isArray(b)) return b.some((op) => op.operationName === "PlaybackAccessToken");
 		return b.operationName === "PlaybackAccessToken";
 	});
-	const integrity = events.filter((e) => e.url.includes("gql.twitch.tv/integrity"));
-	const usher = events.filter((e) => e.url.includes("usher.ttvnw.net"));
+	const integrity = events.filter((e) => endpointMatches(e.url, "gql.twitch.tv", "/integrity"));
+	const usher = events.filter((e) => endpointMatches(e.url, "usher.ttvnw.net"));
 
 	console.log("\n=== PlaybackAccessToken ===");
 	console.log(JSON.stringify(pats, null, 2));
