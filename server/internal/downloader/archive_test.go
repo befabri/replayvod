@@ -265,7 +265,10 @@ func TestEnqueueVOD_QueueRespectsCapAndOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enqueue third: %v", err)
 	}
-	waitUntil(t, "first job active", func() bool { return f.activeJobs() == 1 })
+	// A job becomes active before its claim commits RUNNING.
+	waitUntil(t, "first job claimed", func() bool {
+		return f.activeJobs() == 1 && f.status(t, first) == repository.VideoStatusRunning
+	})
 	if f.status(t, first) != repository.VideoStatusRunning || f.status(t, second) != repository.VideoStatusPending || f.status(t, third) != repository.VideoStatusPending {
 		t.Fatalf("statuses = %s/%s/%s, want RUNNING/PENDING/PENDING", f.status(t, first), f.status(t, second), f.status(t, third))
 	}
@@ -473,7 +476,9 @@ func TestShutdown_LeavesQueuedArchivesPending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enqueue second: %v", err)
 	}
-	waitUntil(t, "first active", func() bool { return f.activeJobs() == 1 })
+	waitUntil(t, "first claimed", func() bool {
+		return f.activeJobs() == 1 && f.status(t, first) == repository.VideoStatusRunning
+	})
 
 	f.svc.Shutdown()
 	waitUntil(t, "no active jobs", func() bool { return f.activeJobs() == 0 })
