@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -299,8 +300,19 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 }
 
 func dashboardBuildExists(dashboardDir string) bool {
-	info, err := os.Stat(filepath.Join(dashboardDir, "index.html"))
-	return err == nil && !info.IsDir()
+	info, err := fs.Stat(dashboardFS(dashboardDir), "index.html")
+	return err == nil && info.Mode().IsRegular()
+}
+
+// dashboardFS serves the build directory without following links out of it.
+type dashboardFS string
+
+func (dir dashboardFS) Open(name string) (fs.File, error) {
+	localName, err := filepath.Localize(name)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	return os.OpenInRoot(string(dir), localName)
 }
 
 func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
@@ -309,14 +321,14 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 		return
 	}
 
-	indexPath := filepath.Join(dashboardDir, "index.html")
-	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
-		log.Warn("Dashboard index.html not found, skipping dashboard routes", "path", indexPath)
+	dashboard := dashboardFS(dashboardDir)
+	if info, err := fs.Stat(dashboard, "index.html"); err != nil || !info.Mode().IsRegular() {
+		log.Warn("Dashboard index.html unavailable, skipping dashboard routes", "path", filepath.Join(dashboardDir, "index.html"), "error", err)
 		return
 	}
 
 	log.Info("Serving dashboard", "dir", dashboardDir)
-	fileServer := http.FileServer(http.Dir(dashboardDir))
+	fileServer := http.FileServerFS(dashboard)
 
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -326,8 +338,11 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 			return
 		}
 
-		filePath := filepath.Join(dashboardDir, path)
-		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+		name := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/")
+		if name == "" {
+			name = "."
+		}
+		if info, err := fs.Stat(dashboard, name); err == nil && info.Mode().IsRegular() {
 			if isStaticAsset(path) {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
@@ -335,7 +350,7 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 			return
 		}
 
-		http.ServeFile(w, r, indexPath)
+		http.ServeFileFS(w, r, dashboard, "index.html")
 	})
 }
 
