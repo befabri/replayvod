@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// SecureCookies reports whether the public callback URL uses HTTPS. The bind
+// address cannot tell, since a TLS-terminating proxy usually fronts the server.
+func (c *Config) SecureCookies() bool {
+	u, err := url.Parse(c.Env.CallbackURL)
+	return err == nil && u.Scheme == "https"
+}
+
 func (c *Config) GetAddress() string {
 	return net.JoinHostPort(c.Env.Host, fmt.Sprint(c.Env.Port))
 }

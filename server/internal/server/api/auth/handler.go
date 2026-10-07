@@ -69,7 +69,7 @@ func (h *Handler) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secure := h.cfg.Env.Host != "localhost" && h.cfg.Env.Host != "0.0.0.0"
+	secure := h.cfg.SecureCookies()
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
 		Value:    state,
@@ -102,7 +102,7 @@ func (h *Handler) handleRedirect(w http.ResponseWriter, r *http.Request) {
 			SameSite: http.SameSiteLaxMode,
 		})
 	} else {
-		http.SetCookie(w, &http.Cookie{Name: inviteCookieName, Value: "", Path: "/", MaxAge: -1})
+		h.clearOAuthCookie(w, inviteCookieName)
 	}
 
 	authURL := h.twitch.AuthorizeURL(h.cfg.Env.CallbackURL, state, challenge, twitch.DefaultScopes)
@@ -139,9 +139,9 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Clear single-use cookies before exchange so failures cannot leave
 	// reusable credentials.
-	http.SetCookie(w, &http.Cookie{Name: stateCookieName, Value: "", Path: "/", MaxAge: -1})
-	http.SetCookie(w, &http.Cookie{Name: verifierCookieName, Value: "", Path: "/", MaxAge: -1})
-	http.SetCookie(w, &http.Cookie{Name: inviteCookieName, Value: "", Path: "/", MaxAge: -1})
+	h.clearOAuthCookie(w, stateCookieName)
+	h.clearOAuthCookie(w, verifierCookieName)
+	h.clearOAuthCookie(w, inviteCookieName)
 
 	if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 		h.log.Warn("twitch oauth error", "error", errMsg, "description", r.URL.Query().Get("error_description"))
@@ -178,4 +178,16 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, h.cfg.Env.FrontendURL+"/dashboard", http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) clearOAuthCookie(w http.ResponseWriter, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.cfg.SecureCookies(),
+		SameSite: http.SameSiteLaxMode,
+	})
 }
