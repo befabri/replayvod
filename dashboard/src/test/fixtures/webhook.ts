@@ -10,7 +10,7 @@ export function makeRecordingWebhookConfig(
 	return {
 		enabled: true,
 		url: "https://hooks.example.com/replayvod",
-		secret: "whsec_4f9a2c7e1b8d3f6a0c5e9b2d7f1a4c8e",
+		secret: "recording-webhook-fixture-secret",
 		events: [],
 		...overrides,
 	};
