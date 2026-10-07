@@ -37,8 +37,11 @@ type scratchUsage struct {
 // Callers must use its file mutation methods and stop writers and Monitor before Close.
 // External writers must stop before their files are renamed, removed, or truncated.
 type Workspace struct {
-	owner    *Scratch
-	Dir      string
+	owner *Scratch
+	Dir   string
+	// File operations go through root so links cannot lead out of Dir.
+	// It is nil for cleanup-only workspaces.
+	root     *os.Root
 	reserved int64
 	cancel   context.CancelCauseFunc
 }
@@ -108,20 +111,51 @@ func (s *Scratch) open(dir string, estimate int64, cleanup bool) (*Workspace, er
 			return nil, ErrWorkspaceBusy
 		}
 	}
+	w := &Workspace{owner: s, Dir: abs, reserved: max(estimate, 0)}
 	if !cleanup {
 		if err := os.MkdirAll(abs, 0755); err != nil {
 			return nil, err
 		}
+		if w.root, err = openWorkspaceRoot(root, rel); err != nil {
+			return nil, err
+		}
 	}
-	w := &Workspace{owner: s, Dir: abs, reserved: max(estimate, 0)}
 	s.work[w] = scratchUsage{}
 	if !cleanup {
 		if err := s.checkLocked(); err != nil {
 			delete(s.work, w)
+			w.root.Close()
 			return nil, err
 		}
 	}
 	return w, nil
+}
+
+// openWorkspaceRoot refuses a workspace reached through a symlink, which could
+// lead to another recording's directory without leaving scratch.
+func openWorkspaceRoot(scratchRoot, rel string) (*os.Root, error) {
+	parent, err := os.OpenRoot(scratchRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	info, err := parent.Lstat(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("scratch workspace must be a directory")
+	}
+	root, err := parent.OpenRoot(rel)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, opened) {
+		root.Close()
+		return nil, errors.Join(errors.New("scratch workspace changed while opening"), err)
+	}
+	return root, nil
 }
 
 var errScratchScanChanged = errors.New("scratch changed during accounting scan")
@@ -273,6 +307,9 @@ func (w *Workspace) Close(remove bool) error {
 			return err
 		}
 	}
+	if w.root != nil {
+		_ = w.root.Close()
+	}
 	delete(s.work, w)
 	return nil
 }
@@ -354,7 +391,7 @@ func (w *Workspace) WriteFile(ctx context.Context, file *os.File, p []byte) (int
 			s.mu.Unlock()
 			return 0, err
 		}
-		path, err := w.pathLocked(file.Name())
+		path, rel, err := w.pathLocked(file.Name())
 		if err != nil {
 			s.mu.Unlock()
 			return 0, err
@@ -374,7 +411,7 @@ func (w *Workspace) WriteFile(ctx context.Context, file *os.File, p []byte) (int
 			continue
 		}
 		n, err := file.Write(p)
-		err = errors.Join(err, w.refreshFileUsageLocked(path))
+		err = errors.Join(err, w.refreshFileUsageLocked(path, rel))
 		if err != nil && w.cancel != nil {
 			w.cancel(err)
 		}

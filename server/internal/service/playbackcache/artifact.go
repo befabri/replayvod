@@ -63,7 +63,7 @@ func (s *Service) buildArtifact(ctx context.Context, parts []repository.VideoPar
 }
 
 func (s *Service) publishArtifact(ctx context.Context, owned *mediastore.Recording, filename string, artifact *preparedArtifact) error {
-	f, err := os.Open(artifact.path)
+	f, err := artifact.workspace.Open(artifact.path)
 	if err != nil {
 		return fmt.Errorf("open playback artifact: %w", err)
 	}

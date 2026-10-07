@@ -220,6 +220,11 @@ func (r *manualSession) advanceRestartWindow(ctx context.Context, intent *reposi
 		if errors.Is(err, errBroadcastEnded) || errors.Is(err, repository.ErrDuplicate) || errors.Is(err, repository.ErrStaleExecution) {
 			return manualReload, nil
 		}
+		if errors.Is(err, errInvalidRecordingName) {
+			err := r.closeIntent(ctx, "close unrecordable manual intent", "stopped")
+			r.drain = err == nil
+			return manualComplete, err
+		}
 		if err != nil {
 			// Keep the original observation through provider/database outages.
 			m.observeOnline(observed)

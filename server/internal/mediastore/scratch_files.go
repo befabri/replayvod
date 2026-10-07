@@ -8,21 +8,46 @@ import (
 	"strings"
 )
 
-var errWorkspaceClosed = errors.New("scratch workspace closed")
+var (
+	errWorkspaceClosed  = errors.New("scratch workspace closed")
+	errCleanupWorkspace = errors.New("scratch workspace opened only for cleanup")
+)
 
-func (w *Workspace) pathLocked(path string) (string, error) {
+// ErrOutsideWorkspace is returned for a path that does not name a file inside
+// the workspace.
+var ErrOutsideWorkspace = errors.New("file must be inside its scratch workspace")
+
+// pathLocked returns the absolute path that keys accounting and the path
+// relative to the workspace root.
+func (w *Workspace) pathLocked(path string) (string, string, error) {
 	if _, owned := w.owner.work[w]; !owned {
-		return "", errWorkspaceClosed
+		return "", "", errWorkspaceClosed
+	}
+	if w.root == nil {
+		return "", "", errCleanupWorkspace
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	rel, err := filepath.Rel(w.Dir, abs)
 	if err != nil || rel == "." || !filepath.IsLocal(rel) {
-		return "", fmt.Errorf("file must be inside its scratch workspace")
+		return "", "", ErrOutsideWorkspace
 	}
-	return abs, nil
+	return abs, rel, nil
+}
+
+// Open opens a workspace file for reading. It refuses paths and links that lead
+// outside the workspace.
+func (w *Workspace) Open(path string) (*os.File, error) {
+	s := w.owner
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, rel, err := w.pathLocked(path)
+	if err != nil {
+		return nil, err
+	}
+	return w.root.Open(rel)
 }
 
 func (w *Workspace) checkGrowthLocked(bytes int64) error {
@@ -35,26 +60,26 @@ func (w *Workspace) Rename(oldPath, newPath string) error {
 	s := w.owner
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	oldPath, err := w.pathLocked(oldPath)
+	oldPath, oldRel, err := w.pathLocked(oldPath)
 	if err != nil {
 		return err
 	}
-	newPath, err = w.pathLocked(newPath)
+	newPath, newRel, err := w.pathLocked(newPath)
 	if err != nil {
 		return err
 	}
-	source, err := os.Lstat(oldPath)
+	source, err := w.root.Lstat(oldRel)
 	if err != nil {
 		return err
 	}
 	if source.IsDir() {
 		return fmt.Errorf("scratch rename requires a file")
 	}
-	target, err := os.Lstat(newPath)
+	target, err := w.root.Lstat(newRel)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := os.Rename(oldPath, newPath); err != nil {
+	if err := w.root.Rename(oldRel, newRel); err != nil {
 		return err
 	}
 	if target != nil && os.SameFile(source, target) {
@@ -72,18 +97,18 @@ func (w *Workspace) Remove(path string) error {
 	s := w.owner
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path, err := w.pathLocked(path)
+	path, rel, err := w.pathLocked(path)
 	if err != nil {
 		return err
 	}
-	info, err := os.Lstat(path)
+	info, err := w.root.Lstat(rel)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			w.setFileUsageLocked(path, 0)
 		}
 		return err
 	}
-	if err := os.Remove(path); err != nil {
+	if err := w.root.Remove(rel); err != nil {
 		return err
 	}
 	w.setFileUsageLocked(path, 0)
@@ -104,13 +129,14 @@ func (w *Workspace) Truncate(file *os.File, size int64) error {
 	s := w.owner
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := w.pathLocked(file.Name()); err != nil {
+	path, rel, err := w.pathLocked(file.Name())
+	if err != nil {
 		return err
 	}
-	return w.truncateLocked(file, size)
+	return w.truncateLocked(file, path, rel, size)
 }
 
-func (w *Workspace) truncateLocked(file *os.File, size int64) error {
+func (w *Workspace) truncateLocked(file *os.File, path, rel string, size int64) error {
 	before, err := file.Stat()
 	if err != nil {
 		return err
@@ -126,11 +152,7 @@ func (w *Workspace) truncateLocked(file *os.File, size int64) error {
 	if err := file.Truncate(size); err != nil {
 		return err
 	}
-	path, err := filepath.Abs(file.Name())
-	if err != nil {
-		return err
-	}
-	return w.refreshFileUsageLocked(path)
+	return w.refreshFileUsageLocked(path, rel)
 }
 
 func regularFileSize(info os.FileInfo) int64 {
@@ -140,8 +162,8 @@ func regularFileSize(info os.FileInfo) int64 {
 	return 0
 }
 
-func (w *Workspace) refreshFileUsageLocked(path string) error {
-	info, err := os.Lstat(path)
+func (w *Workspace) refreshFileUsageLocked(path, rel string) error {
+	info, err := w.root.Lstat(rel)
 	if err != nil {
 		w.setFileUsageLocked(path, 0)
 		if errors.Is(err, os.ErrNotExist) {
@@ -172,15 +194,15 @@ func (w *Workspace) create(path string) (*os.File, error) {
 	s := w.owner
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path, err := w.pathLocked(path)
+	path, rel, err := w.pathLocked(path)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0666)
+	file, err := w.root.OpenFile(rel, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return nil, err
 	}
-	if err := w.truncateLocked(file, 0); err != nil {
+	if err := w.truncateLocked(file, path, rel, 0); err != nil {
 		_ = file.Close()
 		return nil, err
 	}

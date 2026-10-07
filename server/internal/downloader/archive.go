@@ -137,7 +137,10 @@ func (s *Service) EnqueueVOD(ctx context.Context, p Params) (string, error) {
 		return "", ErrShuttingDown
 	}
 	jobID := uuid.NewString()
-	filename := buildFilename(p.BroadcasterLogin, jobID)
+	filename, err := buildFilename(p.BroadcasterLogin, jobID)
+	if err != nil {
+		return "", err
+	}
 	vodID := p.VODID
 	state := NewResumeState()
 	state.PosterURL = p.PosterURL

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -495,7 +496,11 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	}
 
 	jobID := uuid.NewString()
-	filename := buildFilename(p.BroadcasterLogin, jobID)
+	filename, err := buildFilename(p.BroadcasterLogin, jobID)
+	if err != nil {
+		s.mu.Unlock()
+		return "", err
+	}
 
 	d := &download{
 		jobID:         jobID,
@@ -862,6 +867,7 @@ func (s *Service) resumeRunning(ctx context.Context) error {
 const recoveryPageSize = 100
 
 var errInvalidResume = errors.New("invalid recording checkpoint")
+var errInvalidRecordingName = errors.New("invalid recording name")
 var errObsoleteJob = errors.New("job no longer owns an active recording")
 
 func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
@@ -1566,7 +1572,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		Thumbnail: thumbRel, ThumbnailPath: filepath.Join(jobDir, partFilename+".jpg"),
 		Strip: stripRel, StripPath: filepath.Join(jobDir, partFilename+"-strip.jpg"),
 	}
-	digest, err := preparedDigest(ctx, remuxedPath)
+	digest, err := preparedDigest(ctx, d, remuxedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -2056,7 +2062,7 @@ func (s *Service) uploadFromScratch(ctx context.Context, d *download, scratchPat
 
 func (s *Service) uploadScratch(ctx context.Context, d *download, scratchPath, storagePath, digest string) error {
 	return s.writeToStorage(ctx, func() error {
-		f, err := os.Open(scratchPath)
+		f, err := d.openScratch(scratchPath)
 		if err != nil {
 			return fmt.Errorf("open scratch: %w", err)
 		}
@@ -2278,11 +2284,24 @@ func (w *storageSnapshotWriter) WriteSnapshot(ctx context.Context, index int, bo
 }
 
 // buildFilename includes a job suffix so recordings of the same broadcaster do not collide.
-func buildFilename(login, jobID string) string {
+// recordingLogin admits the characters a broadcaster login can add to a
+// recording filename without forming a path separator or a parent directory.
+var recordingLogin = regexp.MustCompile(`^[A-Za-z0-9_-]*$`)
+
+func buildFilename(login, jobID string) (string, error) {
+	if !recordingLogin.MatchString(login) {
+		return "", fmt.Errorf("%w: broadcaster login %q", errInvalidRecordingName, login)
+	}
 	ts := time.Now().UTC().Format("20060102-150405")
 	short := strings.ReplaceAll(jobID, "-", "")
 	if len(short) > 8 {
 		short = short[:8]
 	}
-	return fmt.Sprintf("%s-%s-%s", ts, login, short)
+	return fmt.Sprintf("%s-%s-%s", ts, login, short), nil
+}
+
+// validRecordingName reports whether a persisted name is a single file name,
+// so joining it to a recording directory cannot reach outside that directory.
+func validRecordingName(name string) bool {
+	return name != "." && filepath.IsLocal(name) && !strings.ContainsAny(name, `/\`)
 }

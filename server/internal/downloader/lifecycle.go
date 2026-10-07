@@ -197,6 +197,9 @@ func (s *Service) reconstructAttempt(ctx context.Context, job *repository.Job) (
 	if v.JobID != job.ID || v.DeletedAt != nil {
 		return nil, Params{}, "", errObsoleteJob
 	}
+	if !validRecordingName(v.Filename) {
+		return nil, Params{}, "", fmt.Errorf("%w: recording name %q", errInvalidResume, v.Filename)
+	}
 	state, err := UnmarshalResumeState(job.ResumeState)
 	if err != nil {
 		return nil, Params{}, "", fmt.Errorf("%w: %v", errInvalidResume, err)

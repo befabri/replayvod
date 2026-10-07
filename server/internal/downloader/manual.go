@@ -188,7 +188,10 @@ func (s *Service) admitSuccessor(ctx context.Context, m *manualRun, intent *repo
 	p.CategoryID = stream.GameID
 	p.CategoryName = stream.GameName
 	jobID := uuid.NewString()
-	name := buildFilename(p.BroadcasterLogin, jobID)
+	name, err := buildFilename(p.BroadcasterLogin, jobID)
+	if err != nil {
+		return nil, p, "", err
+	}
 	state := NewResumeState()
 	state.MaxHeight = p.MaxHeight
 	checkpoint, err := state.MarshalJSON()

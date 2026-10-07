@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/mediastore"
@@ -38,8 +41,18 @@ func (r checkedReader) Read(p []byte) (int, error) {
 	}
 	return r.reader.Read(p)
 }
-func preparedDigest(ctx context.Context, path string) (string, error) {
-	f, err := os.Open(path)
+
+// openScratch opens a file through the attempt's workspace, so paths and links
+// cannot lead outside the recording's scratch directory.
+func (d *download) openScratch(path string) (*os.File, error) {
+	if d.workspace == nil {
+		return nil, fmt.Errorf("open %s: recording has no scratch workspace", path)
+	}
+	return d.workspace.Open(path)
+}
+
+func preparedDigest(ctx context.Context, d *download, path string) (string, error) {
+	f, err := d.openScratch(path)
 	if err != nil {
 		return "", err
 	}
@@ -51,6 +64,13 @@ func preparedDigest(ctx context.Context, path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 func (s *Service) publishPreparedPart(ctx context.Context, d *download, p *PreparedPart, log *slog.Logger) (*partResult, error) {
+	// Checkpoints come back from the database, so their storage keys must be the
+	// ones derived from this part's name.
+	base := strings.TrimSuffix(p.Filename, filepath.Ext(p.Filename))
+	if !validRecordingName(p.Filename) || p.Thumbnail != "" && p.Thumbnail != storagekeys.Thumbnail(base) || p.Strip != "" && p.Strip != storagekeys.Strip(base) {
+		d.persistenceErr = fmt.Errorf("%w: prepared part %q", errInvalidResume, p.Filename)
+		return nil, d.persistenceErr
+	}
 	if p.Digest == "" {
 		d.persistenceErr = mediastore.ErrContentChanged
 		return nil, d.persistenceErr
@@ -60,7 +80,7 @@ func (s *Service) publishPreparedPart(ctx context.Context, d *download, p *Prepa
 		if err == nil {
 			break
 		}
-		if ctx.Err() != nil || errors.Is(err, repository.ErrStaleExecution) || errors.Is(err, repository.ErrStopRequested) || errors.Is(err, mediastore.ErrContentChanged) || errors.Is(err, os.ErrNotExist) {
+		if ctx.Err() != nil || errors.Is(err, mediastore.ErrOutsideWorkspace) || errors.Is(err, repository.ErrStaleExecution) || errors.Is(err, repository.ErrStopRequested) || errors.Is(err, mediastore.ErrContentChanged) || errors.Is(err, os.ErrNotExist) {
 			d.persistenceErr = err
 			return nil, err
 		}
