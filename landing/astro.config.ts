@@ -24,6 +24,7 @@ process.env.PUBLIC_GIT_DATE ||= safeExec('git log -1 --format=%cs');
 // https://astro.build/config
 export default defineConfig({
   site: 'https://replayvod.com',
+  compressHTML: true,
   prefetch: {
     prefetchAll: true,
     defaultStrategy: 'viewport',

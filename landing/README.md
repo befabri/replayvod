@@ -36,13 +36,17 @@ interact with billing and tokens — the recorder itself never sees those.
 
 ## Stack
 
-- **Astro 6** with the Starlight integration for the docs section
+- **Astro 7** with the Starlight integration for the docs section
 - **Tailwind CSS v4** via `@tailwindcss/vite`
-- **TypeScript 5** in strict mode
+- **TypeScript** in strict mode
 - **Prettier** for formatting
-- Node ≥ 22.12
+- Node ≥ 22.19
 
 Static-only — no SSR, no adapter.
+
+Security overrides in `package.json` keep Miniflare's pinned Sharp dependency
+and Expressive Code's nested selector parser on patched releases. Remove these
+overrides when the upstream packages accept the patched versions themselves.
 
 ## Project layout
 
